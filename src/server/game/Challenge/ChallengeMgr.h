@@ -100,9 +100,10 @@ public:
     void GenerateOploteLoot(bool manual = false);
     static bool GetStartPosition(uint32 mapID, float& x, float& y, float& z, float& o, ObjectGuid OwnerGuid);
 
-    void GenerateCurrentWeekAffixes();
+    void GenerateCurrentWeekAffixes(time_t weekTime = 0);
 	void GenerateManualAffixes();
-    uint8 GetActiveAffixe();
+    uint8 GetActiveAffixe(time_t at = 0);
+    static bool HasManualAffixes();
 
     static uint32 GetLootTreeMod(int32& levelBonus, uint32& challengeLevel, Challenge* challenge = nullptr);
     static uint32 GetKeyLevelForItemLevel(uint32 baseItemLevel, uint32 itemLevel);

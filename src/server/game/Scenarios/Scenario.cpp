@@ -157,8 +157,14 @@ void Scenario::CreateChallenge(Player* player)
 
     // TC_LOG_DEBUG("challenge", "CreateChallenge _challenge %u _canRun %u", bool(_challenge), bool(_challenge->_canRun));
 
-    if (!_challenge || !_challenge->_canRun)
+    // a start that failed (no key, not a challenge map) must not stay: the creature scaling, the loot and the group
+    // code would all read it as a key being run
+    if (!_challenge->_canRun)
+    {
+        delete _challenge;
+        _challenge = nullptr;
         return;
+    }
 
     if (InstanceScript* script = instanceMap->GetInstanceScript())
     {

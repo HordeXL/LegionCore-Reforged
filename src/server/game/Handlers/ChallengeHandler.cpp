@@ -283,6 +283,11 @@ void WorldSession::HandleStartChallengeMode(WorldPackets::ChallengeMode::StartCh
 
 void WorldSession::HandleResetChallengeMode(WorldPackets::ChallengeMode::ResetChallengeMode& /*packet*/)
 {
+    // any member could send the whole group to the graveyard and respawn the dungeon in the middle of a key
+    if (Group* group = _player->GetGroup())
+        if (!group->IsLeader(_player->GetGUID()))
+            return;
+
     if (auto const& instanceScript = _player->GetInstanceScript())
         if (instanceScript->instance->isChallenge())
             instanceScript->ResetChallengeMode();

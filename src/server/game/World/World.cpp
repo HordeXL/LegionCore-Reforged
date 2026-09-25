@@ -3895,7 +3895,9 @@ void World::InstanceWeeklyResetTime()
 
 void World::ChallengeKeyResetTime()
 {
-    sChallengeMgr->GenerateCurrentWeekAffixes();
+    // the middle of the week this reset opens, from its scheduled time (a reset caught up after a long downtime
+    // would otherwise land in the next week): the rotation events switch on Wednesday, after the reset
+    sChallengeMgr->GenerateCurrentWeekAffixes(m_NextChallengeKeyReset + 3 * DAY + 12 * HOUR);
     sChallengeMgr->GenerateOploteLoot();
 
     // Keys are destroyed; the level of the next one is kept (weekly chest, or decay)

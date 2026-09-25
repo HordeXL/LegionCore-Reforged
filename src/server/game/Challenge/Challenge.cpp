@@ -28,15 +28,9 @@
 
 Challenge::Challenge(InstanceMap* map, Player* player, uint32 instanceID, Scenario* scenario) : InstanceScript(map), _instanceScript(nullptr), _challengeEntry(nullptr), _isKeyDepleted(false), _scenario(scenario)
 {
-    if (!player)
-    {
-        _canRun = false;
-        return;
-    }
-
+    // set before any early return: a start that fails is still read by the scaling and the group code
     _checkStart = true;
-    _canRun = true;
-    _creator = player->GetGUID();
+    _canRun = false;
     _instanceID = instanceID;
     _challengeTimer = 0;
     _affixQuakingTimer = 0;
@@ -44,6 +38,13 @@ Challenge::Challenge(InstanceMap* map, Player* player, uint32 instanceID, Scenar
     _complete = false;
     _run = false;
     _item = nullptr;
+    _challengeLevel = 0;
+
+    if (!player)
+        return;
+
+    _canRun = true;
+    _creator = player->GetGUID();
 
     ASSERT(map);
     _map = map;
@@ -682,6 +683,7 @@ void Challenge::SendChallengeModeMapStatsUpdate(Player* player)
     update.Stats.BestCompletionMilliseconds = best->RecordTime;
     update.Stats.LastCompletionMilliseconds = _challengeTimer;
     update.Stats.ChallengeID = _challengeEntry->ID;
+    update.Stats.CompletedChallengeLevel = best->ChallengeLevel;
     update.Stats.BestMedalDate = best->Date;
     update.Stats.Affixes = best->Affixes;
 

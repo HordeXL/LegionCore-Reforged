@@ -21,6 +21,7 @@
 #include "DatabaseEnv.h"
 #include "GameEventMgr.h"
 #include "GameTables.h"
+#include "GameTime.h"
 
 // CUSTOM CONTENT: on retail, Mythic+ loot stops scaling well before +25. Keys +16 to +25 and
 // their item level steps are specific to this core; they do not exist in the original game.
@@ -87,12 +88,24 @@ ChallengeMgr* ChallengeMgr::instance()
     return &instance;
 }
 
+// A higher key beats a faster lower one; the time only breaks ties within a key level
+static bool IsBetterRun(ChallengeData const* run, ChallengeData const* best)
+{
+    if (!best)
+        return true;
+
+    if (run->ChallengeLevel != best->ChallengeLevel)
+        return run->ChallengeLevel > best->ChallengeLevel;
+
+    return run->RecordTime < best->RecordTime;
+}
+
 void ChallengeMgr::CheckBestMapId(ChallengeData* challengeData)
 {
     if (!challengeData)
         return;
 
-    if (!_bestForMap[challengeData->ChallengeID] || _bestForMap[challengeData->ChallengeID]->RecordTime > challengeData->RecordTime)
+    if (IsBetterRun(challengeData, _bestForMap[challengeData->ChallengeID]))
         _bestForMap[challengeData->ChallengeID] = challengeData;
 }
 
@@ -101,14 +114,14 @@ void ChallengeMgr::CheckBestGuildMapId(ChallengeData* challengeData)
     if (!challengeData || !challengeData->GuildID)
         return;
 
-    if (!m_GuildBest[challengeData->GuildID][challengeData->ChallengeID] || m_GuildBest[challengeData->GuildID][challengeData->ChallengeID]->RecordTime > challengeData->RecordTime)
+    if (IsBetterRun(challengeData, m_GuildBest[challengeData->GuildID][challengeData->ChallengeID]))
         m_GuildBest[challengeData->GuildID][challengeData->ChallengeID] = challengeData;
 }
 
 bool ChallengeMgr::CheckBestMemberMapId(ObjectGuid const& guid, ChallengeData* challengeData)
 {
     bool isBest = false;
-    if (!_challengesOfMember[guid][challengeData->ChallengeID] || _challengesOfMember[guid][challengeData->ChallengeID]->RecordTime > challengeData->RecordTime)
+    if (IsBetterRun(challengeData, _challengesOfMember[guid][challengeData->ChallengeID]))
     {
         _challengesOfMember[guid][challengeData->ChallengeID] = challengeData;
         isBest = true;
@@ -140,6 +153,7 @@ void ChallengeMgr::SaveChallengeToDB(ChallengeData const* challengeData)
             affixesListIDs << affixe << ' ';
     stmt->setString(7, affixesListIDs.str());
     stmt->setUInt32(8, challengeData->ChestID);
+    stmt->setUInt16(9, challengeData->ChallengeID);
     trans->Append(stmt);
 
     for (auto const& v : challengeData->member)
@@ -306,8 +320,15 @@ ChallengeData* ChallengeMgr::BestForMemberMap(ObjectGuid const& guid, uint32 Cha
     return nullptr;
 }
 
-void ChallengeMgr::GenerateCurrentWeekAffixes()
+void ChallengeMgr::GenerateCurrentWeekAffixes(time_t weekTime)
 {
+    // affixes set by hand in worldserver.conf hold for every week, not only until the first reset
+    if (HasManualAffixes())
+    {
+        GenerateManualAffixes();
+        return;
+    }
+
     uint32 affixes[12][3] =
     {
         { Raging, Volcanic, Tyrannical},
@@ -318,13 +339,13 @@ void ChallengeMgr::GenerateCurrentWeekAffixes()
         { Teeming, Quaking, Fortified},
         { Raging, Necrotic, Tyrannical},
         { Bolstering, Skittish, Fortified},
-        { Teeming, Volcanic, Tyrannical},
+        { Teeming, Necrotic, Tyrannical},
         { Sanguine, Grievous, Fortified},
         { Bolstering, FelExplosives, Tyrannical},
         { Bursting, Quaking, Fortified},
     };
 
-    auto weekContainer = affixes[GetActiveAffixe()];
+    auto weekContainer = affixes[GetActiveAffixe(weekTime)];
 
     sWorld->setWorldState(WS_CHALLENGE_AFFIXE1_RESET_TIME, weekContainer[0]);
     sWorld->setWorldState(WS_CHALLENGE_AFFIXE2_RESET_TIME, weekContainer[1]);
@@ -338,34 +359,32 @@ void ChallengeMgr::GenerateManualAffixes()
 	sWorld->setWorldState(WS_CHALLENGE_AFFIXE3_RESET_TIME, sWorld->getIntConfig(CONFIG_CHALLENGE_MANUAL_AFFIX3));
 }
 
-uint8 ChallengeMgr::GetActiveAffixe()
+// The rotation week at a given time, from game events 126 to 137 (one per week, 12 weeks). Now when no time is given.
+uint8 ChallengeMgr::GetActiveAffixe(time_t at)
 {
-    if (sGameEventMgr->IsActiveEvent(126))
-        return 0;
-    if (sGameEventMgr->IsActiveEvent(127))
-        return 1;
-    if (sGameEventMgr->IsActiveEvent(128))
-        return 2;
-    if (sGameEventMgr->IsActiveEvent(129))
-        return 3;
-    if (sGameEventMgr->IsActiveEvent(130))
-        return 4;
-    if (sGameEventMgr->IsActiveEvent(131))
-        return 5;
-    if (sGameEventMgr->IsActiveEvent(132))
-        return 6;
-    if (sGameEventMgr->IsActiveEvent(133))
-        return 7;
-    if (sGameEventMgr->IsActiveEvent(134))
-        return 8;
-    if (sGameEventMgr->IsActiveEvent(135))
-        return 9;
-    if (sGameEventMgr->IsActiveEvent(136))
-        return 10;
-    if (sGameEventMgr->IsActiveEvent(137))
-        return 11;
+    if (!at)
+        at = GameTime::GetGameTime();
+
+    GameEventMgr::GameEventDataMap const& events = sGameEventMgr->GetEventMap();
+    for (uint8 week = 0; week < 12; ++week)
+    {
+        uint16 const eventId = 126 + week;
+        if (eventId >= events.size())
+            break;
+
+        GameEventData const& event = events[eventId];
+        if (event.occurence && event.start < at && at < event.end && (at - event.start) % (event.occurence * MINUTE) < event.length * MINUTE)
+            return week;
+    }
 
     return 0;
+}
+
+bool ChallengeMgr::HasManualAffixes()
+{
+    return sWorld->getIntConfig(CONFIG_CHALLENGE_MANUAL_AFFIX1) > 0 && sWorld->getIntConfig(CONFIG_CHALLENGE_MANUAL_AFFIX1) < 15
+        && sWorld->getIntConfig(CONFIG_CHALLENGE_MANUAL_AFFIX2) > 0 && sWorld->getIntConfig(CONFIG_CHALLENGE_MANUAL_AFFIX2) < 15
+        && sWorld->getIntConfig(CONFIG_CHALLENGE_MANUAL_AFFIX3) > 0 && sWorld->getIntConfig(CONFIG_CHALLENGE_MANUAL_AFFIX3) < 15;
 }
 
 bool ChallengeMgr::HasOploteLoot(ObjectGuid const& guid)
