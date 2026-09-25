@@ -97,7 +97,6 @@ class TC_COMMON_API Log
         void outDiff(char const* str, ...) ATTR_PRINTF(2, 3);
 
         void outWarden(const char * str, ...) {}              ATTR_PRINTF(2, 3);
-        void outCommand(uint32 account, const char * str, ...) {} ATTR_PRINTF(3, 4);
         void outMapInfo(const char * str, ...) {}               ATTR_PRINTF(2, 3);
 
         // Anticheat detections, on the "anticheat" filter at INFO. Silent unless a

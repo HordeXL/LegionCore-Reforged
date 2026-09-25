@@ -1023,6 +1023,16 @@ Server.LoginInfo = 0
 Command.LookupMaxResults = 1000
 
 #
+#    PlayerCommand.AuraScan
+#        Player command `_scan`: shows every aura of the selected unit, hidden ones included,
+#        with their amounts and durations. Reveals the hidden mechanics of bosses and players.
+#            0 - disabled
+#            1 - enabled
+#        Default: 0
+
+PlayerCommand.AuraScan = 0
+
+#
 #    AllowTickets
 #        Allows/disallows sending new support tickets.
 #        Default: 1 - (Allowed)

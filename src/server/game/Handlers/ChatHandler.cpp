@@ -97,6 +97,10 @@ void WorldSession::HandleChatMessageAFK(WorldPackets::Chat::ChatMessageAFK& chat
     if (!processChatmessageFurtherAfterSecurityChecks(chatMessageAFK.Text, LANG_COMMON))
         return;
 
+    // muted: the away text is sent to everyone who whispers, so only the default one
+    if (!sender->CanSpeak() && !chatMessageAFK.Text.empty())
+        chatMessageAFK.Text = GetTrinityString(LANG_PLAYER_AFK_DEFAULT);
+
     if (sender->HasAura(1852))
     {
         SendNotification(GetTrinityString(LANG_GM_SILENCE), sender->GetName());
@@ -136,6 +140,9 @@ void WorldSession::HandleChatMessageDND(WorldPackets::Chat::ChatMessageDND& chat
 
     if (!processChatmessageFurtherAfterSecurityChecks(chatMessageDND.Text, LANG_COMMON))
         return;
+
+    if (!sender->CanSpeak() && !chatMessageDND.Text.empty())
+        chatMessageDND.Text = GetTrinityString(LANG_PLAYER_DND_DEFAULT);
 
     if (sender->HasAura(1852))
     {
@@ -674,6 +681,10 @@ void WorldSession::HandleChatAddonMessage(ChatMsg type, std::string const& prefi
         HandleRafAddonMessage(message);
         return;
     }
+
+    // a muted player's addons are muted too
+    if (!sender->CanSpeak() || sender->HasAura(1852))
+        return;
 
     // Logging enabled?
     if (sWorld->getBoolConfig(CONFIG_CHATLOG_ADDON))

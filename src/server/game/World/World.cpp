@@ -750,7 +750,7 @@ void World::LoadConfigSettings(bool reload)
     m_int_configs[CONFIG_WORLD_SESSION_EXPIRE_TIME] = sConfigMgr->GetIntDefault("WorldSessionExpireTime", 60000);
 
     m_int_configs[CONFIG_WORLD_PLAYER_COMMAND_TIMER] = sConfigMgr->GetIntDefault("PlayerCommand.Timer", 5000);
-    m_bool_configs[CONFIG_PLAYER_AURA_SCAN_COMMAND] = sConfigMgr->GetBoolDefault("PlayerCommand.AuraScan", true);
+    m_bool_configs[CONFIG_PLAYER_AURA_SCAN_COMMAND] = sConfigMgr->GetBoolDefault("PlayerCommand.AuraScan", false);
     m_int_configs[CONFIG_PLAYER_INVISIBLE_STATUS_COMMAND] = sConfigMgr->GetIntDefault("PlayerCommand.InvisibleStatus", 1800);
 
     m_int_configs[CONFIG_ARENA_1V1_COUNTDOWN] = sConfigMgr->GetIntDefault("Countdown.Arena1v1", 0);

@@ -281,9 +281,15 @@ bool ChatHandler::ExecuteCommandInTable(std::vector<ChatCommand> const& table, c
                     Player* p = m_session->GetPlayer();
                     ObjectGuid sel_guid = p->GetSelection();
 
-                    /*sLog->outCommand(m_session->GetAccountId(), "Command: %s [Player: %s (Account: %u) X: %f Y: %f Z: %f Map: %u Selected: %s (GUID: %u)]",
-                        fullcmd.c_str(), p->GetName(), m_session->GetAccountId(), p->GetPositionX(), p->GetPositionY(), p->GetPositionZ(), p->GetMapId(),
-                        sel_guid.GetTypeName(), (p->GetSelectedUnit()) ? p->GetSelectedUnit()->GetName() : "", sel_guid.GetCounter());*/
+                    // passwords stay out of the log
+                    std::string logged = fullcmd;
+                    if (fullcmd.find("password") != std::string::npos || fullcmd.find("account create") != std::string::npos)
+                        logged = fullcmd.substr(0, fullcmd.find(' ', fullcmd.find(' ') + 1)) + " ***";
+
+                    Unit* selected = p->GetSelectedUnit();
+                    sLog->outCommand(m_session->GetAccountId(), "Command: %s [Player: %s (Account: %u) X: %f Y: %f Z: %f Map: %u Selected: %s %s]",
+                        logged.c_str(), p->GetName(), m_session->GetAccountId(), p->GetPositionX(), p->GetPositionY(), p->GetPositionZ(), p->GetMapId(),
+                        selected ? selected->GetName() : "", sel_guid.ToString().c_str());
                 }
             }
         }
