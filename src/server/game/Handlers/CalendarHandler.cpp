@@ -132,6 +132,29 @@ void WorldSession::HandleCalendarGuildFilter(WorldPackets::Calendar::CalendarGui
         guild->MassInviteToEvent(this, packet.MinLevel, packet.MaxLevel, packet.MaxRankOrder);
 }
 
+namespace
+{
+    // Blizzard's caps: 30 upcoming events of one's own, 100 upcoming guild events per guild. Past events are left
+    // out of the count, since nothing removes them.
+    bool IsOverEventCap(Player const* player, bool guildEvent)
+    {
+        ObjectGuid::LowType const guildId = player->GetGuildId();
+        uint32 ownEvents = 0;
+        uint32 guildEvents = 0;
+        for (CalendarEvent const* event : sCalendarMgr->GetEvents())
+        {
+            if (event->GetDate() < GameTime::GetGameTime())
+                continue;
+            if (event->GetOwnerGUID() == player->GetGUID())
+                ++ownEvents;
+            if (guildId && event->GetGuildId() == guildId && (event->IsGuildEvent() || event->IsGuildAnnouncement()))
+                ++guildEvents;
+        }
+
+        return guildEvent ? guildEvents >= CALENDAR_MAX_GUILD_EVENTS : ownEvents >= CALENDAR_MAX_EVENTS;
+    }
+}
+
 void WorldSession::HandleCalendarAddEvent(WorldPackets::Calendar::CalendarAddEvent& packet)
 {
     ObjectGuid guid = _player->GetGUID();
@@ -153,6 +176,13 @@ void WorldSession::HandleCalendarAddEvent(WorldPackets::Calendar::CalendarAddEve
         }
     }
 
+    bool const guildEvent = (packet.EventInfo.Flags & (CALENDAR_FLAG_GUILD_EVENT | CALENDAR_FLAG_WITHOUT_INVITES)) != 0;
+    if (IsOverEventCap(_player, guildEvent))
+    {
+        sCalendarMgr->SendCalendarCommandResult(guid, guildEvent ? CALENDAR_ERROR_GUILD_EVENTS_EXCEEDED : CALENDAR_ERROR_EVENTS_EXCEEDED);
+        return;
+    }
+
     CalendarEvent* calendarEvent = new CalendarEvent(sCalendarMgr->GetFreeEventId(), guid, UI64LIT(0), CalendarEventType(packet.EventInfo.EventType), packet.EventInfo.TextureID,
         packet.EventInfo.Time, packet.EventInfo.Flags, packet.EventInfo.Title, packet.EventInfo.Description, time_t(0));
 
@@ -171,8 +201,13 @@ void WorldSession::HandleCalendarAddEvent(WorldPackets::Calendar::CalendarAddEve
         if (packet.EventInfo.Invites.size() > 1)
             trans = CharacterDatabase.BeginTransaction();
 
+        std::set<ObjectGuid> invited;
         for (auto i = 0; i < packet.EventInfo.Invites.size(); ++i)
         {
+            // a forged list could name the same player many times: one invite, one alert each
+            if (!invited.insert(packet.EventInfo.Invites[i].Guid).second)
+                continue;
+
             CalendarInvite* invite = new CalendarInvite(sCalendarMgr->GetFreeInviteId(), calendarEvent->GetEventId(), packet.EventInfo.Invites[i].Guid,
                 guid, CALENDAR_DEFAULT_RESPONSE_TIME, CalendarInviteStatus(packet.EventInfo.Invites[i].Status),
                 CalendarModerationRank(packet.EventInfo.Invites[i].Moderator), "");
@@ -255,6 +290,13 @@ void WorldSession::HandleCalendarCopyEvent(WorldPackets::Calendar::CalendarCopyE
         if (!sCalendarMgr->CanModify(oldEvent, guid))
         {
             sCalendarMgr->SendCalendarCommandResult(guid, CALENDAR_ERROR_PERMISSIONS);
+            return;
+        }
+
+        bool const guildEvent = oldEvent->IsGuildEvent() || oldEvent->IsGuildAnnouncement();
+        if (IsOverEventCap(_player, guildEvent))
+        {
+            sCalendarMgr->SendCalendarCommandResult(guid, guildEvent ? CALENDAR_ERROR_GUILD_EVENTS_EXCEEDED : CALENDAR_ERROR_EVENTS_EXCEEDED);
             return;
         }
 
@@ -351,6 +393,12 @@ void WorldSession::HandleCalendarEventInvite(WorldPackets::Calendar::CalendarEve
             if (IsInvitedTo(calendarEvent->GetEventId(), inviteeGuid))
             {
                 sCalendarMgr->SendCalendarCommandResult(playerGuid, CALENDAR_ERROR_ALREADY_INVITED_TO_EVENT_S, packet.Name.c_str());
+                return;
+            }
+
+            if (sCalendarMgr->GetEventInvites(calendarEvent->GetEventId()).size() >= CALENDAR_MAX_INVITES)
+            {
+                sCalendarMgr->SendCalendarCommandResult(playerGuid, CALENDAR_ERROR_INVITES_EXCEEDED);
                 return;
             }
 

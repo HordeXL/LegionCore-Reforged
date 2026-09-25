@@ -308,9 +308,13 @@ void CalendarMgr::UpdateInvite(CalendarInvite* invite, CharacterDatabaseTransact
 
 void CalendarMgr::RemoveAllPlayerEventsAndInvites(ObjectGuid guid)
 {
-    for (auto itr : _events)
-        if (itr->GetOwnerGUID() == guid)
-            RemoveEvent(itr->GetEventId(), ObjectGuid::Empty);
+    // RemoveEvent erases from _events: step past the event before removing it
+    for (auto itr = _events.begin(); itr != _events.end();)
+    {
+        CalendarEvent* calendarEvent = *itr++;
+        if (calendarEvent->GetOwnerGUID() == guid)
+            RemoveEvent(calendarEvent->GetEventId(), ObjectGuid::Empty);
+    }
 
     CalendarInviteStore playerInvites = GetPlayerInvites(guid);
     for (CalendarInviteStore::const_iterator itr = playerInvites.begin(); itr != playerInvites.end(); ++itr)
@@ -319,9 +323,12 @@ void CalendarMgr::RemoveAllPlayerEventsAndInvites(ObjectGuid guid)
 
 void CalendarMgr::RemovePlayerGuildEventsAndSignups(ObjectGuid guid, ObjectGuid::LowType guildId)
 {
-    for (auto itr : _events)
-        if (itr->GetOwnerGUID() == guid && (itr->IsGuildEvent() || itr->IsGuildAnnouncement()))
-            RemoveEvent(itr->GetEventId(), guid);
+    for (auto itr = _events.begin(); itr != _events.end();)
+    {
+        CalendarEvent* calendarEvent = *itr++;
+        if (calendarEvent->GetOwnerGUID() == guid && (calendarEvent->IsGuildEvent() || calendarEvent->IsGuildAnnouncement()))
+            RemoveEvent(calendarEvent->GetEventId(), guid);
+    }
 
     CalendarInviteStore playerInvites = GetPlayerInvites(guid);
     for (CalendarInviteStore::const_iterator itr = playerInvites.begin(); itr != playerInvites.end(); ++itr)

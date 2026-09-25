@@ -6553,6 +6553,9 @@ void Player::DeleteFromDB(ObjectGuid playerguid, uint32 accountId, bool updateRe
         // Completely remove from the database
         case CHAR_DELETE_REMOVE:
         {
+            // the events and invites of a character deleted for good, without mail to anyone
+            sCalendarMgr->RemoveAllPlayerEventsAndInvites(playerguid);
+
             CharacterDatabaseTransaction trans = CharacterDatabase.BeginTransaction();
 
             stmt = CharacterDatabase.GetPreparedStatement(CHAR_SEL_CHAR_COD_ITEM_MAIL);
