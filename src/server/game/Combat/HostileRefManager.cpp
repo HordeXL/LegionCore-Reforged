@@ -28,7 +28,7 @@ HostileRefManager::~HostileRefManager()
 
 void HostileRefManager::threatAssist(Unit* victim, float baseThreat, SpellInfo const* threatSpell)
 {
-    if (getSize() == 0 || baseThreat == 0.0f)
+    if (getSize() == 0)
         return;
 
     SpellSchoolMask schoolMask = threatSpell ? threatSpell->GetSchoolMask() : SPELL_SCHOOL_MASK_NORMAL;
