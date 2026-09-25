@@ -44,6 +44,12 @@ public:
                     brawlerGuild->AddPlayer(player);
                 player->CLOSE_GOSSIP_MENU();
             }
+            else if (action == GOSSIP_ACTION_INFO_DEF + 2)
+            {
+                if (BrawlersGuild* brawlerGuild = player->GetBrawlerGuild())
+                    brawlerGuild->RemovePlayer(player);
+                player->CLOSE_GOSSIP_MENU();
+            }
         }
 
         return true;

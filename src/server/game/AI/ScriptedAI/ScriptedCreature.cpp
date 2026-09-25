@@ -1083,9 +1083,10 @@ void BrawlersBossAI::_WinRound()
         Player* player = me->GetAnyOwner()->ToPlayer();
         player->AddDelayedEvent(700, [player]() -> void
         {
-            if (player && player->IsAlive())
+            // a player who died with the boss loses the round, but the round must end or the arena stays blocked
+            if (player)
                 if (BrawlersGuild* brawlerGuild = player->GetBrawlerGuild())
-                    brawlerGuild->BossReport(player->GetGUID(), true);
+                    brawlerGuild->BossReport(player->GetGUID(), player->IsAlive());
         });
     }
 }

@@ -23,6 +23,9 @@
 #include "BrawlersGuild.h"
 #include "Chat.h"
 #include "SpellAuraEffects.h"
+#include "DatabaseEnv.h"
+#include "Item.h"
+#include "Mail.h"
 
 uint32 BrawlersBoss[MAX_BRAWLERS_RANK][BOSS_PER_RANK] =
 {
@@ -295,7 +298,18 @@ void BrawlersGuild::EndCombat(bool win, bool time)
         if (win)
         {
             player->SendPlaySound(BrawlersSound[_ID][VICTORY], true);
-            player->AddItem(92718, 1);
+            if (!player->AddItem(92718, 1))
+            {
+                // full bags: the purse comes by mail instead of being lost
+                if (Item* purse = Item::CreateItem(92718, 1, player))
+                {
+                    CharacterDatabaseTransaction trans = CharacterDatabase.BeginTransaction();
+                    purse->SaveToDB(trans);
+                    MailDraft(purse->GetTemplate()->GetName()->Str[player->GetSession()->GetSessionDbLocaleIndex()], "").AddItem(purse)
+                        .SendMailTo(trans, MailReceiver(player), MailSender(MAIL_NORMAL, UI64LIT(0), MAIL_STATIONERY_DEFAULT));
+                    CharacterDatabase.CommitTransaction(trans);
+                }
+            }
 
             auto rep = player->GetReputation(BrawlersFaction[player->GetTeamId()]) + REPUTATION_PER_RANK;
             if (rep > MAX_BRAWLERS_REPUTATION)
