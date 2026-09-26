@@ -1095,6 +1095,8 @@ uint32 GameEventMgr::StartSystem()                           // return the next 
 void GameEventMgr::StartArenaSeason()
 {
     uint8 season = sWorldStateMgr.GetWorldStateValue(WS_ARENA_SEASON_ID);
+    if (!season)
+        return;
     QueryResult result = WorldDatabase.PQuery("SELECT eventEntry FROM game_event_arena_seasons WHERE season = '%i'", season);
 
     if (!result)

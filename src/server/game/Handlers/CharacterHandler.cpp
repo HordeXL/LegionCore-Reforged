@@ -889,7 +889,8 @@ void WorldSession::HandlePlayerLogin(LoginQueryHolder const& holder)
         SendStablePet(ObjectGuid::Empty);
 
     WorldPackets::Battleground::PVPSeason season;
-    season.PreviousSeason = sWorld->getIntConfig(CONFIG_ARENA_SEASON_ID) - 1;
+    if (uint32 current = sWorld->getIntConfig(CONFIG_ARENA_SEASON_ID))
+        season.PreviousSeason = current - 1;
     if (sWorld->getBoolConfig(CONFIG_ARENA_SEASON_IN_PROGRESS))
         season.CurrentSeason = sWorld->getIntConfig(CONFIG_ARENA_SEASON_ID);
     SendPacket(season.Write());

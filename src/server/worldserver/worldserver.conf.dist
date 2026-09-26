@@ -1925,13 +1925,6 @@ Arena.RatedUpdateTimer = 5000
 Arena.QueueAnnouncer.Enable = 0
 
 #
-#    Arena.ArenaSeason.ID
-#        ID of the current arena season shown in the client.
-#        Default: 14
-
-Arena.ArenaSeason.ID = 14
-
-#
 #    Arena.ArenaSeason.InProgress
 #        State of the current arena season.
 #        Default: 1 - (In progress)
@@ -1948,8 +1941,9 @@ Arena.ArenaSeason.InProgress = 1
 #            2  Legion Season 2 (7.1)          6  Legion Season 6 (7.3.2)
 #            3  Legion Season 3 (7.2)          7  Legion Season 7 (7.3.5)
 #            4  Legion Season 4 (7.2.5)
-#        The number the client shows is separate: Arena.ArenaSeason.ID (19 to 25 for Legion
-#        Seasons 1 to 7). A value outside 0 to 7 falls back to 0. Takes effect on restart.
+#        The client gets Blizzard's season number, 18 + N (19 to 25 for Seasons 1 to 7): it
+#        replaces the former Arena.ArenaSeason.ID setting. A value outside 0 to 7 falls back to 0.
+#        Takes effect on restart.
 #        Default: 0 - no season
 
 PvP.ActiveSeason = 0
