@@ -35466,7 +35466,7 @@ Bracket* Player::getBracket(uint8 slot) const
 // Combantant - 810
 // Gladiator - 840
 // Elite Gladiator - 870
-static uint32 epicPvpLeveling[8][7]
+static uint32 epicPvpLeveling[][7]
 {
     // Season 0
     // 0 1  2  3  4  5  6
@@ -35493,8 +35493,9 @@ static uint32 epicPvpLeveling[8][7]
     // 0  1    2    3    4    5    6
     { 90, 100, 110, 115, 120, 125, 135 }
 };
+static_assert(std::extent<decltype(epicPvpLeveling)>::value == MAX_PVP_SEASON, "one row per PvP season");
 
-static uint32 elitPvpLeveling[8][3]
+static uint32 elitPvpLeveling[][3]
 {
     // Season 0
     // 0  1  2
@@ -35521,6 +35522,7 @@ static uint32 elitPvpLeveling[8][3]
     // 0  1   2
     { 90, 95, 105 }
 };
+static_assert(std::extent<decltype(elitPvpLeveling)>::value == MAX_PVP_SEASON, "one row per PvP season");
 
 std::tuple<uint32, uint32> Player::GetItemDataForRatedQuest(uint32 bracketType)
 {

@@ -330,7 +330,11 @@ struct WMOAreaTableTripple
     int32 adtId;
 };
 
-static uint32 legionPvpItem[8][2]
+// season 0 means none, Legion had seasons 1 to 7. A new season takes one more row here and in the
+// item level tables of Player.cpp
+constexpr uint8 MAX_PVP_SEASON = 8;
+
+static uint32 legionPvpItem[][2]
 {
     // Season 0
     { 0, 0 },
@@ -349,6 +353,7 @@ static uint32 legionPvpItem[8][2]
     // Season 7 not need
     { 13312, 13314 },
 };
+static_assert(std::extent<decltype(legionPvpItem)>::value == MAX_PVP_SEASON, "one row per PvP season");
 
 template<typename T>
 class DB2HotfixGenerator;
