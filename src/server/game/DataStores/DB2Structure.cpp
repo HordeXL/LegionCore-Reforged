@@ -982,7 +982,7 @@ bool MapEntry::IsWorldMap() const
 
 bool MapEntry::Is5pplDungeonOrRaid() const
 {
-    return InstanceType == MAP_INSTANCE || MAP_RAID;
+    return InstanceType == MAP_INSTANCE || InstanceType == MAP_RAID;
 }
 
 bool MapEntry::GetEntrancePos(int32& mapid, float& x, float& y) const
