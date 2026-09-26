@@ -1945,6 +1945,12 @@ Arena.ArenaSeason.InProgress = 1
 #        replaces the former Arena.ArenaSeason.ID setting. A value above 7 falls back to 0.
 #        Seasons of each tier, as on retail: 7.0 -> 1, 7.1 -> 1 then 2, 7.1.5 -> 2, 7.2 -> 3
 #        then 4, 7.3 -> 5, 6 then 7.
+#        When the season changes, the ratings of the old one are saved (table
+#        character_brackets_info_season); the new one starts from zero, or gets its save back if it
+#        was already played - going back from a season picked by mistake loses nothing.
+#        GM commands, applied at the next start: .pvpseason info, reset (save then reset the
+#        current season), restore (back to its save), cancel. A second reset in the same season
+#        replaces the previous save.
 #        Takes effect on restart; a config reload does not change the season.
 #        Default: 0 - no season
 

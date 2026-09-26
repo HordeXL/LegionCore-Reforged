@@ -24,6 +24,9 @@ EndScriptData */
 
 #include "ScriptMgr.h"
 #include "Chat.h"
+#include "DatabaseEnv.h"
+#include "Util.h"
+#include "World.h"
 
 class honor_commandscript : public CommandScript
 {
@@ -44,9 +47,18 @@ public:
             { "update",         SEC_GAMEMASTER,     false, &HandleHonorUpdateCommand,          ""}
         };
 
+        static std::vector<ChatCommand> pvpSeasonCommandTable =
+        {
+            { "info",           SEC_ADMINISTRATOR,  true,  &HandlePvPSeasonInfoCommand,        ""},
+            { "reset",          SEC_ADMINISTRATOR,  true,  &HandlePvPSeasonResetCommand,       ""},
+            { "restore",        SEC_ADMINISTRATOR,  true,  &HandlePvPSeasonRestoreCommand,     ""},
+            { "cancel",         SEC_ADMINISTRATOR,  true,  &HandlePvPSeasonCancelCommand,      ""}
+        };
+
         static std::vector<ChatCommand> commandTable =
         {
-            { "honor",          SEC_GAMEMASTER,     false, NULL,                  "", honorCommandTable }
+            { "honor",          SEC_GAMEMASTER,     false, NULL,                  "", honorCommandTable },
+            { "pvpseason",      SEC_ADMINISTRATOR,  true,  NULL,                  "", pvpSeasonCommandTable }
         };
         return commandTable;
     }
@@ -106,6 +118,64 @@ public:
             return false;
 
         target->UpdateHonorFields();
+        return true;
+    }
+
+    static bool HandlePvPSeasonInfoCommand(ChatHandler* handler, char const* /*args*/)
+    {
+        handler->PSendSysMessage("PvP season %u, top rating steps %s.", sWorld->getIntConfig(CONFIG_PVP_ACTIVE_SEASON),
+            sWorld->getIntConfig(CONFIG_PVP_ACTIVE_STEP) ? "open" : "closed");
+
+        if (QueryResult saves = CharacterDatabase.Query("SELECT season, COUNT(*), MAX(archived) FROM character_brackets_info_season GROUP BY season ORDER BY season"))
+        {
+            do
+            {
+                Field* fields = saves->Fetch();
+                handler->PSendSysMessage("Saved season %u: %u ratings, %s.", fields[0].GetUInt8(), uint32(fields[1].GetUInt64()),
+                    TimeToTimestampStr(time_t(fields[2].GetUInt32())).c_str());
+            }
+            while (saves->NextRow());
+        }
+        else
+            handler->SendSysMessage("No season saved.");
+
+        switch (sWorld->getWorldState(WS_PVP_SEASON_PENDING))
+        {
+            case PVP_SEASON_PENDING_RESET: handler->SendSysMessage("At the next start: save, then reset."); break;
+            case PVP_SEASON_PENDING_RESTORE: handler->SendSysMessage("At the next start: back to the save."); break;
+            default: break;
+        }
+        return true;
+    }
+
+    static bool HandlePvPSeasonResetCommand(ChatHandler* handler, char const* /*args*/)
+    {
+        sWorld->setWorldState(WS_PVP_SEASON_PENDING, PVP_SEASON_PENDING_RESET);
+        handler->PSendSysMessage("At the next start, the ratings of season %u will be saved, then reset. .pvpseason cancel to undo.",
+            sWorld->getIntConfig(CONFIG_PVP_ACTIVE_SEASON));
+        return true;
+    }
+
+    static bool HandlePvPSeasonRestoreCommand(ChatHandler* handler, char const* /*args*/)
+    {
+        uint32 const season = sWorld->getIntConfig(CONFIG_PVP_ACTIVE_SEASON);
+        if (!CharacterDatabase.PQuery("SELECT 1 FROM character_brackets_info_season WHERE season = %u LIMIT 1", season))
+        {
+            handler->PSendSysMessage("Season %u has no save.", season);
+            handler->SetSentErrorMessage(true);
+            return false;
+        }
+
+        sWorld->setWorldState(WS_PVP_SEASON_PENDING, PVP_SEASON_PENDING_RESTORE);
+        handler->PSendSysMessage("At the next start, the ratings of season %u will go back to their save; what was played since is lost. .pvpseason cancel to undo.",
+            season);
+        return true;
+    }
+
+    static bool HandlePvPSeasonCancelCommand(ChatHandler* handler, char const* /*args*/)
+    {
+        sWorld->setWorldState(WS_PVP_SEASON_PENDING, PVP_SEASON_PENDING_NONE);
+        handler->SendSysMessage("Nothing will be done at the next start.");
         return true;
     }
 };

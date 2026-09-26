@@ -46,7 +46,7 @@ void CharacterDatabaseCleaner::ResetCharacterDB()
         "character_archaeology", "character_archaeology_finds", "character_army_training_info",
         "character_aura", "character_aura_effect", "character_banned",
         "character_battleground_data", "character_battleground_random",
-        "character_brackets_info", "character_cuf_profiles", "character_currency",
+        "character_brackets_info", "character_brackets_info_season", "character_cuf_profiles", "character_currency",
         "character_custom_event_reapeter", "character_declinedname",
         "character_demon_invasion_progress", "character_equipmentsets",
         "character_garrison", "character_garrison_blueprints", "character_garrison_buildings",

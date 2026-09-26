@@ -2218,6 +2218,9 @@ void World::SetInitialWorldSettings()
 
     sGuildFinderMgr->LoadFromDB();
 
+    TC_LOG_INFO("server.loading", "Applying the PvP season to the ratings...");     // before the ratings and world states load
+    ApplyPvPSeason();
+
     sBracketMgr->LoadCharacterBrackets();
 
     TC_LOG_INFO("server.loading", "Loading Groups...");
@@ -4268,6 +4271,96 @@ uint32 World::getWorldState(uint32 index) const
 {
     WorldStatesMap::const_iterator it = m_worldstates.find(index);
     return it != m_worldstates.end() ? it->second : 0;
+}
+
+void World::ApplyPvPSeason()
+{
+    // runs before the world states and the ratings are loaded: it reads and writes both in the database
+    uint32 const season = getIntConfig(CONFIG_PVP_ACTIVE_SEASON);
+    uint32 previous = season;       // a server that never ran this keeps its ratings, taken as the current season's
+    uint32 pending = PVP_SEASON_PENDING_NONE;
+    if (QueryResult states = CharacterDatabase.PQuery("SELECT entry, value FROM worldstates WHERE entry IN (%u, %u)", uint32(WS_PVP_SEASON_APPLIED), uint32(WS_PVP_SEASON_PENDING)))
+    {
+        do
+        {
+            Field* fields = states->Fetch();
+            (fields[0].GetUInt32() == WS_PVP_SEASON_APPLIED ? previous : pending) = fields[1].GetUInt32();
+        }
+        while (states->NextRow());
+    }
+
+    auto countRows = [](char const* where) -> uint64
+    {
+        QueryResult result = CharacterDatabase.PQuery("SELECT COUNT(*) FROM %s", where);
+        return result ? result->Fetch()[0].GetUInt64() : 0;
+    };
+
+    CharacterDatabaseTransaction trans = CharacterDatabase.BeginTransaction();
+    auto save = [&trans](uint32 slot)
+    {
+        trans->PAppend("DELETE FROM character_brackets_info_season WHERE season = %u", slot);
+        trans->PAppend("INSERT INTO character_brackets_info_season (season, %s, archived) SELECT %u, %s, UNIX_TIMESTAMP() FROM character_brackets_info", "guid, bracket, rating, best, bestWeek, mmr, games, wins, weekGames, weekWins, bestWeekLast", slot, "guid, bracket, rating, best, bestWeek, mmr, games, wins, weekGames, weekWins, bestWeekLast");
+    };
+    auto restore = [&trans](uint32 slot)
+    {
+        trans->Append("DELETE FROM character_brackets_info");
+        trans->PAppend("INSERT INTO character_brackets_info (%s) SELECT %s FROM character_brackets_info_season WHERE season = %u", "guid, bracket, rating, best, bestWeek, mmr, games, wins, weekGames, weekWins, bestWeekLast", "guid, bracket, rating, best, bestWeek, mmr, games, wins, weekGames, weekWins, bestWeekLast", slot);
+    };
+    // last week's best rating stays: the weekly chest earned before the reset is still due
+    auto reset = [&trans, this]()
+    {
+        trans->PAppend("UPDATE character_brackets_info SET rating = 0, best = 0, bestWeek = 0, mmr = %u, games = 0, wins = 0, weekGames = 0, weekWins = 0",
+            getIntConfig(CONFIG_ARENA_START_MATCHMAKER_RATING));
+    };
+
+    std::string const seasonSave = Trinity::StringFormat("character_brackets_info_season WHERE season = %u", season);
+    uint64 const live = countRows("character_brackets_info");
+    int32 savedSlot = -1;           // slot whose save must hold every live rating once committed
+
+    if (previous != season)
+    {
+        bool const known = countRows(seasonSave.c_str()) != 0;
+        save(previous);
+        savedSlot = int32(previous);
+        if (known)
+            restore(season);
+        else
+            reset();
+        TC_LOG_INFO("server.loading", ">> PvP season %u -> %u: ratings of season %u saved, %s", previous, season, previous,
+            known ? "those of the new season restored" : "the new season starts from zero");
+        if (pending != PVP_SEASON_PENDING_NONE)
+            TC_LOG_INFO("server.loading", ">> PvP season: the %s asked by a GM is dropped, the season change already saved the ratings",
+                pending == PVP_SEASON_PENDING_RESET ? "reset" : "restore");
+    }
+    else if (pending == PVP_SEASON_PENDING_RESET)
+    {
+        save(season);
+        savedSlot = int32(season);
+        reset();
+        TC_LOG_INFO("server.loading", ">> PvP season %u: ratings saved, then reset as asked", season);
+    }
+    else if (pending == PVP_SEASON_PENDING_RESTORE)
+    {
+        if (countRows(seasonSave.c_str()))
+        {
+            restore(season);
+            TC_LOG_INFO("server.loading", ">> PvP season %u: ratings restored from their save as asked", season);
+        }
+        else
+            TC_LOG_ERROR("server.loading", ">> PvP season %u: nothing saved to restore", season);
+    }
+
+    CharacterDatabase.DirectCommitTransaction(trans);
+
+    // a failed transaction is rolled back quietly: the season is then not recorded, and the next start tries again
+    if (savedSlot >= 0 && countRows(Trinity::StringFormat("character_brackets_info_season WHERE season = %u", uint32(savedSlot)).c_str()) != live)
+    {
+        TC_LOG_ERROR("server.loading", ">> PvP season: the ratings could not be saved, nothing changed; the next start tries again");
+        return;
+    }
+
+    CharacterDatabase.DirectPExecute("REPLACE INTO worldstates (entry, value) VALUES (%u, %u), (%u, %u)",
+        uint32(WS_PVP_SEASON_APPLIED), season, uint32(WS_PVP_SEASON_PENDING), uint32(PVP_SEASON_PENDING_NONE));
 }
 
 void World::ProcessQueryCallbacks()

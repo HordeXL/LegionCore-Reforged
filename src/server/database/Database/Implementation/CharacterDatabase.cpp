@@ -422,6 +422,7 @@ void CharacterDatabaseConnection::DoPrepareStatements()
     PrepareStatement(CHAR_REP_CHARACTER_BRACKETS_STATS, "REPLACE INTO `character_brackets_info` (`guid`, `bracket`, `rating`, `best`, `bestWeek`, `mmr`, `games`, `wins`, `weekGames`, `weekWins`) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", CONNECTION_ASYNC);
     PrepareStatement(CHAR_UPD_CHARACTER_BRACKETS_STATS, "UPDATE `character_brackets_info` SET `rating` = ?, `best` = ?, `bestWeek` = ?, `mmr` = ?, `games` = ?, `wins` = ?, `weekGames` = ?, `weekWins` = ? WHERE `guid` = ? AND `bracket` = ?", CONNECTION_ASYNC);
     PrepareStatement(CHAR_DEL_PLAYER_BRACKETS_INFO, "DELETE FROM character_brackets_info WHERE guid = ?", CONNECTION_ASYNC);
+    PrepareStatement(CHAR_DEL_PLAYER_BRACKETS_SEASON, "DELETE FROM character_brackets_info_season WHERE guid = ?", CONNECTION_ASYNC);
 
     // Character battleground data
     PrepareStatement(CHAR_INS_PLAYER_BGDATA, "INSERT INTO character_battleground_data (guid, instanceId, team, joinX, joinY, joinZ, joinO, joinMapId, taxiStart, taxiEnd, mountSpell, lastActiveSpec) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", CONNECTION_ASYNC);

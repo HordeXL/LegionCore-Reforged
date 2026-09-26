@@ -100,6 +100,20 @@ enum WorldTimers
 // Paliers de contenu Legion (config Game.Patch). Chaque patch est un palier distinct :
 // il pilote le contenu ouvert (raids, quetes, monnaies), les plafonds de niveau d'objet
 // et le plafond de Connaissance des armes prodigieuses.
+// world states of the PvP season, in the characters database
+enum PvPSeasonWorldStates
+{
+    WS_PVP_SEASON_APPLIED   = 20110,    // season the ratings belong to, read by the season vendors
+    WS_PVP_SEASON_PENDING   = 20111     // asked by a GM for the next start
+};
+
+enum PvPSeasonPendingAction
+{
+    PVP_SEASON_PENDING_NONE     = 0,
+    PVP_SEASON_PENDING_RESET    = 1,    // save the current season, then reset it
+    PVP_SEASON_PENDING_RESTORE  = 2     // back to the save of the current season
+};
+
 enum LegionContentPatch
 {
     PATCH_7_0   = 1,    // Cauchemar d'Emeraude
@@ -854,6 +868,9 @@ class TC_GAME_API World
         void setWorldState(uint32 index, uint32 value);
         uint32 getWorldState(uint32 index) const;
         void LoadWorldStates();
+
+        // at startup: saves the ratings of the season left, restores or resets those of the new one
+        void ApplyPvPSeason();
 
         /// Are we on a "Player versus Player" server?
         bool IsPvPRealm() const;
