@@ -539,7 +539,7 @@ bool Condition::Meets(ConditionSourceInfo& sourceInfo)
                 {
                     if (Item* artifact = player->GetItemByEntry(ConditionValue1))
                     {
-                        uint32 count = 0;
+                        uint64 count = 0;
                         if (artifact->IsEquipped())
                             count = artifact->GetUInt64Value(ITEM_FIELD_ARTIFACT_XP);
 
@@ -550,7 +550,7 @@ bool Condition::Meets(ConditionSourceInfo& sourceInfo)
                 {
                     if (Item* artifact = player->GetArtifactWeapon())
                     {
-                        uint32 count = artifact->GetUInt64Value(ITEM_FIELD_ARTIFACT_XP);
+                        uint64 count = artifact->GetUInt64Value(ITEM_FIELD_ARTIFACT_XP);
                         condMeets = count >= ConditionValue2 && (!ConditionValue3 || count < ConditionValue3);
                     }
                 }
@@ -1504,7 +1504,6 @@ bool ConditionMgr::addToLootTemplate(Condition* cond, LootTemplate* loot)
         return true;
 
     TC_LOG_ERROR("sql.sql", "ConditionMgr: Item %u not found in LootTemplate %u", cond->SourceEntry, cond->SourceGroup);
-    WorldDatabase.PExecute("DELETE FROM `conditions` WHERE SourceEntry = %u AND SourceGroup = %u", cond->SourceEntry, cond->SourceGroup);
     return false;
 }
 
@@ -1647,7 +1646,6 @@ bool ConditionMgr::isSourceTypeValid(Condition* cond)
             if (!LootTemplates_Creature.HaveLootFor(cond->SourceGroup))
             {
                 TC_LOG_ERROR("sql.sql", "SourceGroup %u in `condition` table, does not exist in `creature_loot_template`, ignoring.", cond->SourceGroup);
-                WorldDatabase.PExecute("DELETE FROM `conditions` WHERE SourceGroup = %u AND SourceTypeOrReferenceId = %u", cond->SourceGroup, cond->SourceType);
                 return false;
             }
 
@@ -1699,7 +1697,6 @@ bool ConditionMgr::isSourceTypeValid(Condition* cond)
             if (!LootTemplates_Gameobject.HaveLootFor(cond->SourceGroup))
             {
                 TC_LOG_ERROR("sql.sql", "SourceGroup %u in `condition` table, does not exist in `gameobject_loot_template`, ignoring.", cond->SourceGroup);
-                WorldDatabase.PExecute("DELETE FROM `conditions` WHERE SourceGroup = %u AND SourceTypeOrReferenceId = %u", cond->SourceGroup, cond->SourceType);
                 return false;
             }
 
@@ -1871,7 +1868,6 @@ bool ConditionMgr::isSourceTypeValid(Condition* cond)
             if (!spellInfo)
             {
                 TC_LOG_ERROR("sql.sql", "SourceEntry %u in `condition` table, does not exist in `spell.dbc`, ignoring.", cond->SourceEntry);
-                WorldDatabase.PExecute("DELETE FROM `conditions` WHERE SourceEntry = %u", cond->SourceEntry);
                 return false;
             }
 
@@ -1937,7 +1933,6 @@ bool ConditionMgr::isSourceTypeValid(Condition* cond)
             if (!spellProto)
             {
                 TC_LOG_ERROR("sql.sql", "SourceEntry %u in `condition` table, does not exist in `spell.dbc`, ignoring.", cond->SourceEntry);
-                WorldDatabase.PExecute("DELETE FROM `conditions` WHERE SourceEntry = %u", cond->SourceEntry);
                 return false;
             }
             break;
@@ -1966,7 +1961,6 @@ bool ConditionMgr::isSourceTypeValid(Condition* cond)
             if (!sSpellMgr->GetSpellInfo(cond->SourceEntry))
             {
                 TC_LOG_ERROR("sql.sql", "SourceEntry %u in `condition` table, does not exist in `spell.dbc`, ignoring.", cond->SourceEntry);
-                WorldDatabase.PExecute("DELETE FROM `conditions` WHERE SourceEntry = %u", cond->SourceEntry);
                 return false;
             }
             break;
@@ -1980,7 +1974,6 @@ bool ConditionMgr::isSourceTypeValid(Condition* cond)
             if (!sSpellMgr->GetSpellInfo(cond->SourceEntry))
             {
                 TC_LOG_ERROR("sql.sql", "SourceEntry %u in `condition` table, does not exist in `spell.dbc`, ignoring.", cond->SourceEntry);
-                WorldDatabase.PExecute("DELETE FROM `conditions` WHERE SourceEntry = %u", cond->SourceEntry);
                 return false;
             }
             break;
