@@ -213,7 +213,8 @@ LFGDungeonData const* LFGMgr::GetLFGDungeon(uint32 id, uint32 team)
 
 LFGDungeonData const* LFGMgr::GetLFGDungeon(uint32 mapId, Difficulty diff, uint32 team)
 {
-    static auto const skipDifficultyCheck = diff == DIFFICULTY_MYTHIC_DUNGEON || diff == DIFFICULTY_MYTHIC_KEYSTONE;
+    bool const skipDifficultyCheck = diff == DIFFICULTY_MYTHIC_DUNGEON || diff == DIFFICULTY_MYTHIC_KEYSTONE;
+    LFGDungeonData* firstOfMap = nullptr;
 
     for (uint32 i = 0; i < sLfgDungeonsStore.GetNumRows(); i++)
     {
@@ -224,15 +225,14 @@ LFGDungeonData const* LFGMgr::GetLFGDungeon(uint32 mapId, Difficulty diff, uint3
         LFGDungeonsEntry const* dungeonEntry = dungeon->dbc;
         if (dungeonEntry->MapID == mapId && dungeonEntry->FitsTeam(team))
         {
-            if (!skipDifficultyCheck && dungeonEntry->DifficultyID == diff)
+            if (skipDifficultyCheck || dungeonEntry->DifficultyID == diff)
                 return dungeon;
-            return dungeon;
+            if (!firstOfMap)
+                firstOfMap = dungeon;
         }
-
-        ///< WTF?
     }
 
-    return nullptr;
+    return firstOfMap;
 }
 
 void LFGMgr::LoadLFGDungeons(bool reload /* = false */)
