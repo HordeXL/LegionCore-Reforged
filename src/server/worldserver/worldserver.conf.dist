@@ -1940,6 +1940,37 @@ Arena.ArenaSeason.ID = 14
 Arena.ArenaSeason.InProgress = 1
 
 #
+#    PvP.ActiveSeason
+#        Current Legion PvP season. It sets the item level of PvP gear by rating and what
+#        obliterating it gives.
+#            0  no season
+#            1  Legion Season 1 (7.0)          5  Legion Season 5 (7.3)
+#            2  Legion Season 2 (7.1)          6  Legion Season 6 (7.3.2)
+#            3  Legion Season 3 (7.2)          7  Legion Season 7 (7.3.5)
+#            4  Legion Season 4 (7.2.5)
+#        The number the client shows is separate: Arena.ArenaSeason.ID (19 to 25 for Legion
+#        Seasons 1 to 7). A value outside 0 to 7 falls back to 0. Takes effect on restart.
+#        Default: 0 - no season
+
+PvP.ActiveSeason = 0
+
+#
+#    PvP.ActiveStep
+#        1 opens the 2200 and 2400 rating steps for epic gear; at 0, it stops at the 2000 step.
+#        Elite gear does not depend on it.
+#        Default: 0
+
+PvP.ActiveStep = 0
+
+#
+#    PvP.LevelEnable
+#        Turns on the per-season PvP item level described above. At 0, PvP.ActiveSeason and
+#        PvP.ActiveStep have no effect.
+#        Default: 1
+
+PvP.LevelEnable = 1
+
+#
 #    Arena.ArenaStartMatchmakerRating
 #        Starting matchmaker rating for new players.
 #        Default: 1500
