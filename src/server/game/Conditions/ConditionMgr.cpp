@@ -2943,7 +2943,7 @@ bool ConditionMgr::IsPlayerMeetingCondition(Unit* unit, PlayerConditionEntry con
         }
     }
 
-    if (player && condition->MinFactionID[0] && condition->MinFactionID[1] && condition->MinFactionID[2] && condition->MaxFactionID)
+    if (player && (condition->MinFactionID[0] || condition->MinFactionID[1] || condition->MinFactionID[2] || condition->MaxFactionID))
     {
         if (!condition->MinFactionID[0] && !condition->MinFactionID[1] && !condition->MinFactionID[2])
         {
@@ -2972,10 +2972,13 @@ bool ConditionMgr::IsPlayerMeetingCondition(Unit* unit, PlayerConditionEntry con
                 }
             }
 
-            if (ReputationRank const* forcedRank = player->GetReputationMgr().GetForcedRankIfAny(condition->MaxFactionID))
-                results[3] = *forcedRank <= ReputationRank(condition->MaxReputation);
-            else
-                results[3] = player->GetReputationRank(condition->MaxFactionID) <= ReputationRank(condition->MaxReputation);
+            if (condition->MaxFactionID)
+            {
+                if (ReputationRank const* forcedRank = player->GetReputationMgr().GetForcedRankIfAny(condition->MaxFactionID))
+                    results[3] = *forcedRank <= ReputationRank(condition->MaxReputation);
+                else
+                    results[3] = player->GetReputationRank(condition->MaxFactionID) <= ReputationRank(condition->MaxReputation);
+            }
 
             if (!PlayerConditionLogic(condition->ReputationLogic, results))
                 return false;
