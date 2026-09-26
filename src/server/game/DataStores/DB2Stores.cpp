@@ -642,7 +642,7 @@ DEFINE_DB2_SET_COMPARATOR(ChrClassesXPowerTypesEntry)
 struct ItemLevelSelectorQualityEntryComparator
 {
     bool operator()(ItemLevelSelectorQualityEntry const* left, ItemLevelSelectorQualityEntry const* right) const { return Compare(left, right); }
-    bool operator()(ItemLevelSelectorQualityEntry const* left, ItemQualities quality) const { return left->Quality < quality; }
+    bool operator()(ItemLevelSelectorQualityEntry const* left, ItemQualities quality) const { return left->Quality > quality; }   // sorted by descending quality
     static bool Compare(ItemLevelSelectorQualityEntry const* left, ItemLevelSelectorQualityEntry const* right);
 };
 
