@@ -327,7 +327,7 @@ void WorldPackets::LFG::LfgJoin::Read()
     _worldPacket >> Roles;
 
     auto numDungeons = _worldPacket.read<uint32>();
-    for (uint8 i = 0; i < numDungeons; i++)
+    for (uint32 i = 0; i < numDungeons; i++)
         Slot.insert(_worldPacket.read<uint32>() & 0xFFFFF);
 }
 

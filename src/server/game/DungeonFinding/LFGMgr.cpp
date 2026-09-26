@@ -200,6 +200,9 @@ LFGDungeonData const* LFGMgr::GetLFGDungeon(uint16 scenarioId, uint16 mapId)
 
 LFGDungeonData const* LFGMgr::GetLFGDungeon(uint32 id, uint32 team)
 {
+    if (id >= LfgDungeonVStore.size())
+        return nullptr;
+
     if (LFGDungeonData* dungeon = LfgDungeonVStore[id])
         if (LFGDungeonsEntry const* dungeonEntry = dungeon->dbc)
             if (dungeonEntry->FitsTeam(team))
@@ -261,7 +264,7 @@ void LFGMgr::LoadLFGDungeons(bool reload /* = false */)
     {
         Field* fields = result->Fetch();
         uint32 dungeonId = fields[0].GetUInt32();
-        LFGDungeonData* dungeon = LfgDungeonVStore[dungeonId];
+        LFGDungeonData* dungeon = dungeonId < LfgDungeonVStore.size() ? LfgDungeonVStore[dungeonId] : nullptr;
         if (!dungeon)
         {
             TC_LOG_ERROR("sql.sql", "table `lfg_entrances` contains coordinates for wrong dungeon %u", dungeonId);
@@ -373,8 +376,7 @@ void LFGMgr::Update(uint32 diff)
 
     if (lastProposalId != m_lfgProposalId)
     {
-        // FIXME lastProposalId ? lastProposalId +1 ?
-        for (LfgProposalContainer::const_iterator itProposal = ProposalsStore.find(m_lfgProposalId), next; itProposal != ProposalsStore.end(); itProposal = next)
+        for (LfgProposalContainer::const_iterator itProposal = ProposalsStore.upper_bound(lastProposalId), next; itProposal != ProposalsStore.end(); itProposal = next)
         {
             next = itProposal;
             ++next;
@@ -439,6 +441,8 @@ void LFGMgr::JoinLfg(Player* player, uint8 roles, LfgDungeonSet& dungeons)
 {
     if (!player || !player->GetSession() || dungeons.empty())
         return;
+
+    roles &= ROLE_FULL_MASK;
 
     std::lock_guard<std::recursive_mutex> _lock(m_lock);
 
@@ -738,6 +742,8 @@ void LFGMgr::JoinLfg(Player* player, uint8 roles, LfgDungeonSet& dungeons)
 
 void LFGMgr::LeaveLfg(ObjectGuid guid, uint32 queueId)
 {
+    std::lock_guard<std::recursive_mutex> _lock(m_lock);
+
     if (!queueId)
     {
         if (HasQueue(guid))
@@ -748,11 +754,14 @@ void LFGMgr::LeaveLfg(ObjectGuid guid, uint32 queueId)
         }
         return;
     }
+
+    // the queue id comes from the client: reading an unknown one would create its entry
+    if (!guid.IsParty() && !HasPlayerData(guid, queueId))
+        return;
+
     ObjectGuid gguid = GetGroup(guid, queueId);
 
     TC_LOG_DEBUG("lfg.leave", "LFGMgr::LeaveLfg: (%s) queueId %u", guid.ToString().c_str(), queueId);
-
-    std::lock_guard<std::recursive_mutex> _lock(m_lock);
 
     LfgState state = GetState(guid, queueId);
     switch (state)
@@ -834,6 +843,8 @@ void LFGMgr::UpdateRoleCheck(ObjectGuid gguid, ObjectGuid guid /* = 0 */, uint8 
 {
     if (gguid.IsEmpty())
         return;
+
+    roles &= ROLE_FULL_MASK;
 
     std::lock_guard<std::recursive_mutex> _lock(m_lock);
 
@@ -1111,7 +1122,8 @@ void LFGMgr::MakeNewGroup(LfgProposal const& proposal)
                 dpsPlayers.push_back(guid);
                 break;
             default:
-                ASSERT(false, "Invalid LFG role %u", it->second.role);
+                TC_LOG_ERROR("lfg", "LFGMgr::MakeNewGroup: invalid role %u for %s, placed as damage", it->second.role, guid.ToString().c_str());
+                dpsPlayers.push_back(guid);
                 break;
             }
         }
@@ -1227,7 +1239,7 @@ void LFGMgr::UpdateProposal(WorldPackets::LFG::ProposalResponse response, Object
     bool sendUpdate = proposal.state != LFG_PROPOSAL_SUCCESS;
     proposal.state = LFG_PROPOSAL_SUCCESS;
 
-    LFGQueue& queue = GetQueue(response.Ticket.RequesterGuid, response.Ticket.Id);
+    LFGQueue& queue = GetQueue(RequesterGuid, proposal.queueId);
     for (LfgProposalPlayerContainer::const_iterator it = proposal.players.begin(); it != proposal.players.end(); ++it)
     {
         ObjectGuid pguid = it->first;
@@ -2501,7 +2513,7 @@ void LFGMgr::SendLfgBootProposalUpdate(ObjectGuid guid, LfgPlayerBoot const& boo
         bootPlayer.Info.Target = boot.victim;
         bootPlayer.Info.TotalVotes = votesNum;
         bootPlayer.Info.BootVotes = agreeNum;
-        bootPlayer.Info.TimeLeft = (boot.cancelTime - GameTime::GetGameTime()) / 1000;
+        bootPlayer.Info.TimeLeft = std::max<time_t>(0, boot.cancelTime - GameTime::GetGameTime());
         bootPlayer.Info.VotesNeeded = boot.votesNeeded;
         bootPlayer.Info.Reason = boot.reason;
         player->AddUpdatePacket(bootPlayer.Write());
