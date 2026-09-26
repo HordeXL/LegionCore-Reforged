@@ -1934,32 +1934,36 @@ Arena.ArenaSeason.InProgress = 1
 
 #
 #    PvP.ActiveSeason
-#        Current Legion PvP season. It sets the item level of PvP gear by rating and what
-#        obliterating it gives.
+#        Current Legion PvP season. It sets the item level of all PvP loot (weekly chest, rated
+#        and unrated end-of-match rewards) and what obliterating it gives.
 #            0  no season
 #            1  Legion Season 1 (7.0)          5  Legion Season 5 (7.3)
 #            2  Legion Season 2 (7.1)          6  Legion Season 6 (7.3.2)
 #            3  Legion Season 3 (7.2)          7  Legion Season 7 (7.3.5)
 #            4  Legion Season 4 (7.2.5)
 #        The client gets Blizzard's season number, 18 + N (19 to 25 for Seasons 1 to 7): it
-#        replaces the former Arena.ArenaSeason.ID setting. A value outside 0 to 7 falls back to 0.
-#        Takes effect on restart.
+#        replaces the former Arena.ArenaSeason.ID setting. A value above 7 falls back to 0.
+#        Seasons of each tier, as on retail: 7.0 -> 1, 7.1 -> 1 then 2, 7.1.5 -> 2, 7.2 -> 3
+#        then 4, 7.3 -> 5, 6 then 7.
+#        Takes effect on restart; a config reload does not change the season.
 #        Default: 0 - no season
 
 PvP.ActiveSeason = 0
 
 #
 #    PvP.ActiveStep
-#        1 opens the 2200 and 2400 rating steps for epic gear; at 0, it stops at the 2000 step.
-#        Elite gear does not depend on it.
+#        The 2200 and 2400 rating steps: the top of the ladder gets a little more than the 2000
+#        step. On retail they opened with the raid of the season: set 1 when that raid opens.
+#            0  closed: loot stops at the 2000 step, elite gear included
+#            1  open
 #        Default: 0
 
 PvP.ActiveStep = 0
 
 #
 #    PvP.LevelEnable
-#        Turns on the per-season PvP item level described above. At 0, PvP.ActiveSeason and
-#        PvP.ActiveStep have no effect.
+#        Turns on the per-season PvP item level described above. At 0, PvP loot takes the fixed
+#        levels of the end of Legion (pvp_reward table), whatever the season.
 #        Default: 1
 
 PvP.LevelEnable = 1

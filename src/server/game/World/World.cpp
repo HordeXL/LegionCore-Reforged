@@ -1497,11 +1497,18 @@ void World::LoadConfigSettings(bool reload)
 	m_int_configs[CONFIG_CHALLENGE_MANUAL_AFFIX3] = sConfigMgr->GetIntDefault("Challenge.Manual.Affix3", 0);
 
     m_bool_configs[CONFIG_PVP_LEVEL_ENABLE]  = sConfigMgr->GetBoolDefault("PvP.LevelEnable", true);
+    uint32 const previousSeason = m_int_configs[CONFIG_PVP_ACTIVE_SEASON];
     m_int_configs[CONFIG_PVP_ACTIVE_SEASON] = sConfigMgr->GetIntDefault("PvP.ActiveSeason", 0);
     if (m_int_configs[CONFIG_PVP_ACTIVE_SEASON] >= MAX_PVP_SEASON)
     {
         TC_LOG_ERROR("server.loading", "PvP.ActiveSeason (%u) must be lower than %u, set to 0.", m_int_configs[CONFIG_PVP_ACTIVE_SEASON], uint32(MAX_PVP_SEASON));
         m_int_configs[CONFIG_PVP_ACTIVE_SEASON] = 0;
+    }
+    // the ratings, the season vendors and the obliteration follow the season at startup only
+    if (reload && m_int_configs[CONFIG_PVP_ACTIVE_SEASON] != previousSeason)
+    {
+        TC_LOG_ERROR("server.loading", "PvP.ActiveSeason can't be changed by a reload: season %u stays, restart the server to apply %u.", previousSeason, m_int_configs[CONFIG_PVP_ACTIVE_SEASON]);
+        m_int_configs[CONFIG_PVP_ACTIVE_SEASON] = previousSeason;
     }
     // the client counts every season since the first arena one: Legion Season 1 is its season 19
     m_int_configs[CONFIG_ARENA_SEASON_ID] = m_int_configs[CONFIG_PVP_ACTIVE_SEASON] ? 18 + m_int_configs[CONFIG_PVP_ACTIVE_SEASON] : 0;
