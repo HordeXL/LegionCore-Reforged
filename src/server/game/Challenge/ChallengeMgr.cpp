@@ -23,31 +23,28 @@
 #include "GameTables.h"
 #include "GameTime.h"
 
-// CUSTOM CONTENT: on retail, Mythic+ loot stops scaling well before +25. Keys +16 to +25 and
-// their item level steps are specific to this core; they do not exist in the original game.
+// CUSTOM CONTENT: retail raised the whole curve at every patch and kept loot keys around +15;
+// this core keeps one curve for every tier and opens higher loot keys instead, up to +25.
 //
 // Mythic+ item level bonus per key level. The final value is ItemLevel.MythicPlus.Base plus this
-// bonus, forced through Loot::_needLevel, so it no longer depends on the DB2 base. One curve for
-// every content tier: the key level itself carries the progression.
+// bonus, forced through Loot::_needLevel, so it no longer depends on the DB2 base.
 //
 // Key +1 is worth 840, exactly mythic 0, so that there is no step to climb when leaving the plain
-// dungeons (whose item level stays on the 7.0 values). The first keys keep the pace of the
-// original game (845 at +2/+3, 850 at +4/+5, 855 at +6/+7, 860 at +8), then each key adds 5 up to
-// +25: a linear progression, with no step speeding up at the end.
+// dungeons. The retail pace up to +10 (845 at +2/+3, 850 at +4/+5, 855 at +6/+7, 860 at +8/+9,
+// 865 at +10), then 5 per key, so that each tier's loot key lands on its heroic raid:
 //
-//   +15  895   The Nighthold        heroic (890)
-//   +20  920   Tomb of Sargeras     heroic (915)
-//   +22  930   Tomb of Sargeras     mythic
-//   +25  945   Antorus              heroic
+//   +10  865   The Emerald Nightmare   heroic
+//   +12  875   Trial of Valor          heroic
+//   +15  890   The Nighthold           heroic
+//   +20  915   Tomb of Sargeras        heroic
+//   +25  945   Antorus                 heroic (a 10 point step, to reach it)
 //
-// The mythic raid keeps a 15 point lead on the best key, and the weekly chest (+5) stays 10 below
-// it: the raid remains the only source of the best gear. The result is capped by
-// ItemLevel.MythicPlus.Cap, which follows the heroic raid of the open tier: no point letting a +25
-// give 945 on a realm whose best raid stops at 880.
+// The result is capped by ItemLevel.MythicPlus.Cap, and loot stops at Challenge.LevelMax, the key
+// reaching that cap; higher keys stay possible, harder for the same loot.
 static uint32 stepLeveling[26]
 {
     // 0  1  2  3  4  5  6  7  8  9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25
-      0,   0,   5,   5,  10,  10,  15,  15,  20,  25,  30,  35,  40,  45,  50,  55,  60,  65,  70,  75,  80,  85,  90,  95, 100, 105
+      0,   0,   5,   5,  10,  10,  15,  15,  20,  20,  25,  30,  35,  40,  45,  50,  55,  60,  65,  70,  75,  80,  85,  90,  95, 105
 };
 
 // Mythic+ weekly chest (GenerateOploteLoot keeps the best key of the week at the reset): five above
@@ -57,7 +54,7 @@ static uint32 stepLeveling[26]
 static uint32 stepOplotLeveling[26]
 {
     // 0  1  2  3  4  5  6  7  8  9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25
-      0,   0,  10,  10,  15,  15,  20,  20,  25,  30,  35,  40,  45,  50,  55,  60,  65,  70,  75,  80,  85,  90,  95, 100, 105, 110
+      0,   0,  10,  10,  15,  15,  20,  20,  25,  25,  30,  35,  40,  45,  50,  55,  60,  65,  70,  75,  80,  85,  90,  95, 100, 110
 };
 
 bool ChallengeMember::operator<(const ChallengeMember& i) const
@@ -585,15 +582,13 @@ float ChallengeMgr::GetDamageScalar(uint32 challengeLevel)
     return ComputeScalar(challengeLevel);
 }
 
-// First key whose end-of-run loot reaches itemLevel: a higher key would be harder for no better
-// loot. Rounded up to the multiple of five when it is one key away (+9 -> +10, +14 -> +15,
-// +19 -> +20): same capped loot, for a tier that reads better.
+// First key whose end-of-run loot reaches itemLevel: the loot key of a tier
 uint32 ChallengeMgr::GetKeyLevelForItemLevel(uint32 baseItemLevel, uint32 itemLevel)
 {
     uint32 maxLevel = std::size(stepLeveling) - 1;
     for (uint32 level = 2; level < maxLevel; ++level)
         if (baseItemLevel + stepLeveling[level] >= itemLevel)
-            return level % 5 == 4 ? level + 1 : level;
+            return level;
 
     return maxLevel;
 }

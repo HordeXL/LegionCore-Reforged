@@ -1487,7 +1487,6 @@ void World::LoadConfigSettings(bool reload)
 
     m_bool_configs[CONFIG_OBLITERUM_LEVEL_ENABLE]  = sConfigMgr->GetBoolDefault("Obliterum.LevelEnable", true);
 
-    m_int_configs[CONFIG_CHALLENGE_LEVEL_MAX] = sConfigMgr->GetIntDefault("Challenge.LevelMax", 25);
     m_int_configs[CONFIG_DAMAGE_VARIANCE_PCT] = sConfigMgr->GetIntDefault("Damage.Variance.Pct", 5);
     m_int_configs[CONFIG_CHALLENGE_BASE_KEY_SCALING] = sConfigMgr->GetIntDefault("Challenge.BaseKeyScaling", 8);
     m_int_configs[CONFIG_CHALLENGE_HIGH_KEY_SCALING] = sConfigMgr->GetIntDefault("Challenge.HighKeyScaling", 5);
@@ -1613,7 +1612,8 @@ void World::LoadConfigSettings(bool reload)
     // worldserver.conf:
     //   - end-of-run loot: the HEROIC raid of the open tier;
     //   - weekly chest:    five more, ten below the MYTHIC raid;
-    //   - highest key:     the one reaching the cap, a higher one would be harder for nothing.
+    //   - loot key:        the one reaching the cap; as on retail, keys can go higher with no
+    //                      practical limit (255, what a key level can hold), harder for the same loot.
     {
         uint32 mythicPlusCap = 865;   // Emerald Nightmare heroic
         switch (m_int_configs[CONFIG_LEGION_ENABLED_PATCH])
@@ -1627,8 +1627,9 @@ void World::LoadConfigSettings(bool reload)
         mythicPlusCap = sConfigMgr->GetIntDefault("ItemLevel.MythicPlus.Cap", mythicPlusCap);
         m_int_configs[CONFIG_ITEMLEVEL_MYTHICPLUS_CAP] = mythicPlusCap;
         m_int_configs[CONFIG_ITEMLEVEL_MYTHICPLUS_WEEKLY_CAP] = sConfigMgr->GetIntDefault("ItemLevel.MythicPlus.WeeklyCap", mythicPlusCap + 5);
-        m_int_configs[CONFIG_CHALLENGE_LEVEL_LIMIT] = sConfigMgr->GetIntDefault("Challenge.LevelLimit",
+        m_int_configs[CONFIG_CHALLENGE_LEVEL_MAX] = sConfigMgr->GetIntDefault("Challenge.LevelMax",
             ChallengeMgr::GetKeyLevelForItemLevel(m_int_configs[CONFIG_ITEMLEVEL_MYTHICPLUS_BASE], mythicPlusCap));
+        m_int_configs[CONFIG_CHALLENGE_LEVEL_LIMIT] = sConfigMgr->GetIntDefault("Challenge.LevelLimit", 255);
     }
 
     {

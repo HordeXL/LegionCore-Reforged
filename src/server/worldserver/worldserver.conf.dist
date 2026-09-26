@@ -131,23 +131,23 @@ Artifact.Knowledge.BookLoot.Raids = 31
 #    ItemLevel.MythicPlus.Cap
 #        Item level cap of Mythic+ end-of-run loot. Everything else follows from it:
 #          - the weekly chest is capped 5 points higher;
-#          - the highest possible key is the one reaching this cap, rounded up to the multiple
-#            of 5 when it is one key away: a higher key would be harder for no better loot.
+#          - the loot key (Challenge.LevelMax) is the one reaching this cap. As on retail, keys
+#            can go higher (Challenge.LevelLimit): harder, for no better loot.
 #
 #        Leave it commented out: the value follows Game.Patch and Mythic+ opens with the tier, as
 #        soon as the raid is out, without waiting for its difficulties. It stays capped at the
 #        heroic raid of the tier, and the mythic raid always keeps the lead.
 #
-#          Tier    Raid                    End of run   Chest   Max key
+#          Tier    Raid                    End of run   Chest   Loot key
 #          7.0     Emerald Nightmare       865          870     +10
-#          7.1     Trial of Valor          875          880     +11
+#          7.1     Trial of Valor          875          880     +12
 #          7.1.5   The Nighthold           890          895     +15
 #          7.2     Tomb of Sargeras        915          920     +20
 #          7.3     Antorus                 945          950     +25
 #
 #        Optional brake: a lower value holds Mythic+ back (chest and max key included), for
-#        instance to keep it at the previous tier during the first weeks of a raid. Max key
-#        obtained: 840 -> +2, 865 -> +10, 875 -> +11, 890 -> +15, 915 -> +20.
+#        instance to keep it at the previous tier during the first weeks of a raid. Loot key
+#        obtained: 840 -> +2, 865 -> +10, 875 -> +12, 890 -> +15, 915 -> +20.
 #
 #        Raid item levels, for reference:
 #          Raid                        Patch    LFR   Normal   Heroic   Mythic
@@ -170,12 +170,14 @@ Artifact.Knowledge.BookLoot.Raids = 31
 
 #
 #    Challenge.LevelMax
-#        Highest key level counted for loot. Default: 25.
+#        Loot key: loot no longer rises above it. Leave it unset: it follows
+#        ItemLevel.MythicPlus.Cap (the "Loot key" column above), from +10 in 7.0 to +25 in 7.3.
 #
 #    Challenge.LevelLimit
-#        Highest level a keystone can be upgraded to by a timed run; it also caps the creature
-#        scaling. Leave it unset: it follows ItemLevel.MythicPlus.Cap (the "Max key" column
-#        above), up to +25 in 7.3. Set it only to force another limit.
+#        Highest level a keystone can be upgraded to by a timed run. As on retail, keys can go
+#        above the loot key: creatures keep getting stronger, loot no longer rises, and the best
+#        groups go the furthest.
+#        Default: 255, no practical limit (the most a key level can hold)
 #
 #    Damage.Variance.Pct
 #        Random spread applied to every hit, either side of its computed value, in percent.
