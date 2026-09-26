@@ -2539,7 +2539,7 @@ bool ConditionMgr::isConditionTypeValid(Condition* cond)
             break;
         case CONDITION_WORLD_STATE:
         {
-            if (!sWorld->getWorldState(cond->ConditionValue1))
+            if (!sWorld->HasWorldState(cond->ConditionValue1))
             {
                 TC_LOG_ERROR("sql.sql", "World state condition has non existing world state in value1 (%u), skipped", cond->ConditionValue1);
                 return false;

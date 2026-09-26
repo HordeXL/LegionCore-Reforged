@@ -13,3 +13,6 @@ INSERT INTO disables (`sourceType`, `entry`, `comment`) VALUES
 -- for all creatures in the queried zone/areas the current value for the spawnMask = 1
 UPDATE creature SET spawnMask = 0 WHERE zoneId = 7543 AND areaId != 8143;
 UPDATE gameobject SET spawnMask = 0 WHERE zoneId = 7543 AND areaId != 8143;
+
+-- despawn the Gladiator Quartermasters of Dalaran (Echoes of Battle vendors, 7.2)
+UPDATE creature SET spawnMask = 0 WHERE id IN (120687, 120906);

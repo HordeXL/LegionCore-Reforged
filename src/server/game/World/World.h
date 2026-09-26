@@ -867,6 +867,7 @@ class TC_GAME_API World
 
         void setWorldState(uint32 index, uint32 value);
         uint32 getWorldState(uint32 index) const;
+        bool HasWorldState(uint32 index) const { return m_worldstates.find(index) != m_worldstates.end(); }
         void LoadWorldStates();
 
         // at startup: saves the ratings of the season left, restores or resets those of the new one

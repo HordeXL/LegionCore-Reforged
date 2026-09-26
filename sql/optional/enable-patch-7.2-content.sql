@@ -8,3 +8,6 @@ DELETE FROM disables WHERE sourceType = 1 AND entry IN (46730, 48641);
 -- for all creatures/gameobjects in the queried zone/areas the value of the spawnMask before despawning was 1
 UPDATE creature SET spawnMask = 1 WHERE zoneId = 7543 AND areaId != 8143;
 UPDATE gameobject SET spawnMask = 1 WHERE zoneId = 7543 AND areaId != 8143;
+
+-- spawn the Gladiator Quartermasters of Dalaran (Echoes of Battle vendors, 7.2)
+UPDATE creature SET spawnMask = 1 WHERE id IN (120687, 120906);

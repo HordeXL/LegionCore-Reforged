@@ -2285,7 +2285,8 @@ void DB2Manager::LoadingExtraHotfixData()
 
     for (auto const& itr : sItemSparseStore)
     {
-        if (sWorld->getBoolConfig(CONFIG_PVP_LEVEL_ENABLE) && activeSeason != 6 && activeSeason != 7)
+        // Echoes came with Season 3; the gear of Seasons 6 and 7 is obliteratable in the client data already
+        if (sWorld->getBoolConfig(CONFIG_PVP_LEVEL_ENABLE) && activeSeason >= 3 && activeSeason <= 5)
         {
             if ((legionPvpItem[activeSeason][0] && itr->ItemNameDescriptionID == legionPvpItem[activeSeason][0]) || (legionPvpItem[activeSeason][1] && itr->ItemNameDescriptionID == legionPvpItem[activeSeason][1])) // Legion Season
             {

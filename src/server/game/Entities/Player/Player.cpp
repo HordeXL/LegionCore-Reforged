@@ -28332,6 +28332,14 @@ bool Player::BuyItemFromVendorSlot(ObjectGuid vendorguid, uint32 vendorslot, uin
         return false;
     }
 
+    // the list hides what the conditions refuse; a forged slot must not buy it anyway
+    if (!isGameMaster() && (!sConditionMgr->IsObjectMeetToConditions(this, creature, sConditionMgr->GetConditionsForNpcVendorEvent(creature->GetEntry(), item))
+        || !sConditionMgr->IsObjectMeetToConditions(this, creature, sConditionMgr->GetConditionsForNotGroupedEntry(CONDITION_SOURCE_TYPE_NPC_VENDOR, item))))
+    {
+        SendBuyError(BUY_ERR_CANT_FIND_ITEM, creature, item);
+        return false;
+    }
+
     // check current item amount if it limited
     if (crItem->maxcount != 0)
     {
