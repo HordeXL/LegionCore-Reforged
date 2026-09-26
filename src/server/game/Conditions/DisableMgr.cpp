@@ -188,12 +188,8 @@ void LoadDisables()
         std::string params_0 = fields[3].GetString();
         std::string params_1 = fields[4].GetString();
 
-        DisableData& data = m_DisableMap[type][entry];
-
-        if (m_DisableList[type].size() <= entry)
-            m_DisableList[type].resize(entry + 1);
-        m_DisableList[type][entry] = &data;
-
+        // stored only once valid: a row the log reports as skipped must not act
+        DisableData data;
         data.flags = flags;
 
         switch (type)
@@ -370,6 +366,12 @@ void LoadDisables()
             default:
                 break;
         }
+
+        DisableData& stored = m_DisableMap[type][entry];
+        stored = std::move(data);
+        if (m_DisableList[type].size() <= entry)
+            m_DisableList[type].resize(entry + 1);
+        m_DisableList[type][entry] = &stored;
 
         ++total_count;
     }
