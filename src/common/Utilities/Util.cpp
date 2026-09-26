@@ -681,8 +681,8 @@ void vutf8printf(FILE* out, const char *str, va_list* ap)
     size_t wtemp_len = 32 * 1024 - 1;
     if (!Utf8toWStr(temp_buf, temp_len, wtemp_buf, wtemp_len))
     {
-        // Fallback: message non-UTF-8 (ex: erreur Windows en codepage système)
-        // Convertir via le codepage ANSI courant au lieu d'afficher le message d'erreur interne
+        // Fallback: non-UTF-8 message (e.g. a Windows error in the system codepage)
+        // Convert through the current ANSI codepage instead of printing the internal error message
         int wlen = MultiByteToWideChar(CP_ACP, 0, temp_buf, -1, wtemp_buf, 32 * 1024);
         if (wlen <= 0)
         {

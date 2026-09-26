@@ -656,7 +656,7 @@ public:
     };
     bool OnQuestAccept(Player* player, Creature* creature, Quest const* quest) override
     {
-        if (quest->GetQuestId() == QUEST_03) // La lecon du parchemin brulant
+        if (quest->GetQuestId() == QUEST_03) // The Lesson of the Burning Scroll
         {
             WorldLocation loc;
             loc.m_mapId = 1468;
@@ -746,7 +746,7 @@ public:
     
     bool OnQuestAccept(Player* player, Creature* creature, Quest const* quest) override
     {
-        if (quest->GetQuestId() == QUEST_02) // La lecon du parchemin brulant
+        if (quest->GetQuestId() == QUEST_02) // The Lesson of the Burning Scroll
         {
             player->CastSpell(player, CAST_SPELL, true);
         }

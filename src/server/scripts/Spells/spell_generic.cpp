@@ -5013,10 +5013,10 @@ class spell_gen_increase_artifact_knowledge : public SpellScriptLoader
 
             SpellCastResult CheckCast()
             {
-                // Systeme "launch" (7.0) : le rattrapage achetable en masse du patch 7.2 (fixer
-                // directement la Connaissance a un rang eleve contre 50 exemplaires de notes) est
-                // desactive. La progression passe par la recherche individuelle, les livres de
-                // connaissance en butin, et la quete de rattrapage des rerolls (plafonnee au rang 10).
+                // "Launch" system (7.0): the patch 7.2 bulk catch-up purchase (setting Artifact
+                // Knowledge straight to a high rank for 50 copies of the notes) is disabled.
+                // Progress goes through per-player research, knowledge books from loot, and the
+                // catch-up quest for alts (capped at rank 10).
                 SetCustomCastResultMessage(SPELL_CUSTOM_ERROR_LEARNED_ALL_THAT_YOU_CAN_ABOUT_YOUR_ARTIFACT);
                 return SPELL_FAILED_CUSTOM_ERROR;
             }
@@ -8379,14 +8379,14 @@ class spell_legion_hearty_feast : public AuraScript
 };
 
 // Spell 171950 "Cannon Blast" — Iron Demolisher (NPC 82273)
-// Dégâts = 0 : le sort est purement visuel (boulet de canon + explosion),
-// il ne doit pas blesser les joueurs ni le PNJ lui-même lors de la destruction.
+// Damage = 0: the spell is purely visual (cannonball + explosion),
+// it must not hurt players nor the NPC itself when it is destroyed.
 //
-// SetSpeed() dans OnCast : force HasTraj()=true sur les targets.
-// Cela amène Spell.cpp à calculer m_delayMoment = dist / speed * 1000
-// et SendSpellGo() à envoyer CAST_FLAG_ADJUST_MISSILE + TravelTime au client.
-// Le client synchronise alors l'animation du missile avec le délai serveur.
-// Speed=30.0f → ~2.5s pour 75 yards.
+// SetSpeed() in OnCast: forces HasTraj()=true on the targets.
+// This makes Spell.cpp compute m_delayMoment = dist / speed * 1000
+// and SendSpellGo() send CAST_FLAG_ADJUST_MISSILE + TravelTime to the client.
+// The client then syncs the missile animation with the server delay.
+// Speed=30.0f → ~2.5s for 75 yards.
 class spell_iron_demolisher_cannon_blast : public SpellScript
 {
     PrepareSpellScript(spell_iron_demolisher_cannon_blast);

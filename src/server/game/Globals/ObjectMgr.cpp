@@ -945,8 +945,8 @@ void ObjectMgr::LoadCreatureTemplates()
 
         for (auto& v : _creatureTemplateStoreMap)
         {
-            // Copie légère des seuls SpellID (pas des CreatureSpell complets) pour itérer
-            // en sécurité pendant que le vector vivant est modifié ci-dessous.
+            // Light copy of the SpellIDs only (not the full CreatureSpell) to iterate
+            // safely while the live vector is modified below.
             std::vector<uint32> spellIds;
             spellIds.reserve(v.second.CreatureSpells.size());
             for (CreatureSpell const& spell : v.second.CreatureSpells)

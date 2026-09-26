@@ -327,12 +327,12 @@ bool GameObject::Create(ObjectGuid::LowType guidlow, uint32 name_id, Map* map, u
     MaxVisible = m_goInfo->MaxVisible;
     m_visibilityDistanceOverride = m_goInfo->VisibilityDistance;
 
-    // Une portee de kilometres ne sert a rien tant que l'objet n'est pas dans le monde, et il n'y
-    // entre que si sa grille est chargee - donc, normalement, que si quelqu'un se tient a cote.
-    // C'est ce qui faisait apparaitre l'epee de loin seulement apres s'en etre approche une fois.
-    // Un objet actif fait charger sa grille et l'empeche d'etre dechargee : AddToMap appelle alors
-    // EnsureGridLoadedForActiveObject puis AddToActive. Une seule grille, pour un objet qu'on a
-    // decide de voir de tres loin.
+    // A range of kilometres is useless while the object is not in the world, and it only enters
+    // it once its grid is loaded - so, normally, only when someone stands next to it. That is why
+    // the sword only showed from afar after the player had walked up to it once.
+    // An active object loads its grid and keeps it from unloading: AddToMap then calls
+    // EnsureGridLoadedForActiveObject and AddToActive. A single grid, for an object meant to be
+    // seen from very far.
     if (m_visibilityDistanceOverride > 0.0f)
         setActive(true);
 

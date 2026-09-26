@@ -1584,9 +1584,9 @@ public:
 
         uint32 itemId = 0;
 
-        // Copie du lien avant decoupage : extractKeyFromLink() detruit la chaine avec strtok et
-        // ne renvoie que l'identifiant d'objet. Or le guide de l'aventurier encode la difficulte
-        // choisie dans les identifiants de bonus du lien, qu'il faut donc lire ici.
+        // Copy the link before splitting it: extractKeyFromLink() destroys the string with strtok
+        // and only returns the item id. The Adventure Guide encodes the chosen difficulty in the
+        // link's bonus ids, so they have to be read here.
         std::string const rawLink(args);
 
         if (args[0] == '[')                                        // [name] manual form

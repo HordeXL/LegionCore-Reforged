@@ -52,7 +52,7 @@ enum ConditionTypes
     CONDITION_TITLE                 = 18,                   // title id         0              0                  true if player has title
     CONDITION_SPAWNMASK             = 19,                   // spawnMask        0              0
     CONDITION_GENDER                = 20,                   // gender           0              0                  true if player's gender is equal to gender
-    CONDITION_ACCOUNT_ARTIFACT_KNOWLEDGE = 21,              // minRank          0              0                  true si un perso niveau max du compte a au moins minRank de Connaissance
+    CONDITION_ACCOUNT_ARTIFACT_KNOWLEDGE = 21,              // minRank          0              0                  true if a max-level character of the account has at least minRank Artifact Knowledge
     CONDITION_MAPID                 = 22,                   // map_id           0              0                  true if in map_id
     CONDITION_AREAID                = 23,                   // area_id          0              0                  true if in area_id
     CONDITION_UNUSED_24             = 24,                   //

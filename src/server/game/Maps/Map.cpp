@@ -929,9 +929,9 @@ bool Map::AddPlayerToMap(Player* player, bool initPlayer /*= true*/)
 
     player->UpdateObjectVisibility(false);
 
-    // Map 1265 (Dark Portal intro) : forcer la visibilité immédiate de tous les objets proches.
-    // Sans ça, le GO 237670 n'est envoyé au client qu'après dist*5ms (rate-limiting), causant
-    // une chute dans le vide de 1-2s après la fermeture de l'écran de chargement.
+    // Map 1265 (Dark Portal intro): force immediate visibility of every nearby object.
+    // Without it, GO 237670 only reaches the client after dist*5ms (rate limiting), causing
+    // a 1-2s fall into the void once the loading screen closes.
     if (GetId() == 1265)
         UpdateObjectsVisibilityFor(player, cell, cellCoord);
 

@@ -935,7 +935,7 @@ public:
                 return true;
             }
             std::string PlayerNewName;
-            ObjectMgr::GetPlayerNameByGUID(PlayerGuid, PlayerNewName); // nom actuel en cas de rename multiple !
+            ObjectMgr::GetPlayerNameByGUID(PlayerGuid, PlayerNewName); // current name in case of multiple renames!
             handler->PSendSysMessage("Le nom actuel du joueur de guid '%u' est : '%s'", PlayerGuid.GetGUIDLow(), PlayerNewName.c_str());
             return true;
         }
@@ -951,7 +951,7 @@ public:
         else
         {
             std::string PlayerNewName;
-            ObjectMgr::GetPlayerNameByGUID(ObjectGuid::Create<HighGuid::Player>(result->Fetch()->GetUInt64()), PlayerNewName); // nom actuel en cas de rename multiple !
+            ObjectMgr::GetPlayerNameByGUID(ObjectGuid::Create<HighGuid::Player>(result->Fetch()->GetUInt64()), PlayerNewName); // current name in case of multiple renames!
             handler->PSendSysMessage("Le nom actuel du joueur '%s' est : '%s' (guid : '%u')", character.c_str(), PlayerNewName.c_str(), result->Fetch()->GetUInt32());
             return true;
         }

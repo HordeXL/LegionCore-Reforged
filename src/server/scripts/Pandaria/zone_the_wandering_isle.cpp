@@ -129,7 +129,7 @@ class npc_panda_announcer : public CreatureScript
                             return;
                         text = TEXT_GENERIC_1;
                     }
-                    if (me->GetAreaId() == 5833) // Epave du Chercheciel
+                    if (me->GetAreaId() == 5833) // Wreck of the Skyseeker
                     {
                         if (who->ToPlayer()->GetQuestStatus(QUEST_NOT_IN_FACE) != QUEST_STATUS_REWARDED)
                             return;
@@ -267,7 +267,7 @@ class mob_master_shang_xi : public CreatureScript
 
         bool OnQuestAccept(Player* player, Creature* creature, Quest const* quest)
         {
-            if (quest->GetQuestId() == 29408) // La lecon du parchemin brulant
+            if (quest->GetQuestId() == 29408) // The Lesson of the Burning Scroll
             {
                 creature->AddAura(114610, creature);
                 creature->RemoveFlag(UNIT_FIELD_NPC_FLAGS, UNIT_NPC_FLAG_GOSSIP | UNIT_NPC_FLAG_QUESTGIVER);
@@ -293,7 +293,7 @@ class mob_master_shang_xi : public CreatureScript
 
             void SpellHit(Unit* caster, const SpellInfo* pSpell)
             {
-                if (pSpell->Id == 114746) // Attraper la flamme
+                if (pSpell->Id == 114746) // Snatch Master's Flame
                 {
                     if (caster->GetTypeId() == TYPEID_PLAYER)
                     {
@@ -1023,7 +1023,7 @@ public:
 
     bool OnQuestAccept(Player* player, Creature* creature, Quest const* quest)
     {
-        if (quest->GetQuestId() == QUEST_PARCHEMIN_VOLANT) // La lecon du parchemin brulant
+        if (quest->GetQuestId() == QUEST_PARCHEMIN_VOLANT) // The Lesson of the Burning Scroll
         {
             // used by spell 102445
             if (Creature* tempSummon = creature->SummonCreature(54734, creature->GetPositionX(), creature->GetPositionY(), creature->GetPositionZ(), creature->GetOrientation(), TEMPSUMMON_TIMED_DESPAWN_OUT_OF_COMBAT, 15000, player->GetGUID()))
@@ -1891,7 +1891,7 @@ class spell_grab_carriage: public SpellScriptLoader
                     if (Player* p = caster->ToPlayer())
                         p->TalkedToCreature(_credit2, ObjectGuid::Empty);
                 }
-                else if (caster->GetAreaId() == 5833) // Epave du Chercheciel
+                else if (caster->GetAreaId() == 5833) // Wreck of the Skyseeker
                 {
                     carriage = caster->SummonCreature(57208, 264.37f, 3867.60f, 73.56f, 0.9948f, TEMPSUMMON_MANUAL_DESPAWN, 0, caster->GetGUID());
                     // spell 108932
@@ -2308,7 +2308,7 @@ class mob_master_shang_xi_temple : public CreatureScript
                 break;
             case QUEST_MORNING_BREEZE_BILLAGE:
             {
-                if (quest->GetQuestId() == QUEST_MORNING_BREEZE_BILLAGE) // Brise du matin
+                if (quest->GetQuestId() == QUEST_MORNING_BREEZE_BILLAGE) // Morning Breeze
                 {
                     player->CastSpell(player, SPELL_SUMMON_WIND_TELEPORTER, true);
                 }

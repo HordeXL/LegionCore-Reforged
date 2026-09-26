@@ -890,7 +890,7 @@ bool PlayerCheatData::InterpolateMovement(MovementInfo const& mi, uint32 diffMs,
     // - Server side movement (should be easy to interpolate actually)
     if (!me->movespline->Finalized())
         return false;
-    // Dernier paquet pas a jour (connexion, TP autre map ...)
+    // Last packet out of date (login, teleport to another map...)
     if (mi.ClientMoveTime == 0)
         return false;
     x = mi.Pos.m_positionX;
@@ -1003,7 +1003,7 @@ bool PlayerCheatData::GetMaxAllowedDist(MovementInfo const& mi, uint32 diffMs, f
         return false;
     if (!me->movespline->Finalized())
         return false;
-    // Dernier paquet pas a jour (connexion, TP autre map ...)
+    // Last packet out of date (login, teleport to another map...)
     if (!mi.ClientMoveTime)
         return false;
 

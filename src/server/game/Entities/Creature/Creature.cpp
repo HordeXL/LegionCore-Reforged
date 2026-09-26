@@ -1931,10 +1931,10 @@ void Creature::SelectLevel(const CreatureTemplate* cInfo)
     if (GetMap() && GetMap()->GetDifficultyID() == DIFFICULTY_MYTHIC_KEYSTONE)
         maxDmgMod = 1.2f;
 
-    // _GetDamageMod(rank) manquait ici : les PV recoivent le bonus elite/boss
-    // (_GetHealthMod ci-dessus) mais les degats ne recevaient jamais le leur ->
-    // un boss survivait plus longtemps que prevu sans jamais taper plus fort
-    // qu'un mob normal (signale en jeu : boss "trop faciles" en solo).
+    // _GetDamageMod(rank) was missing here: health gets the elite/boss bonus
+    // (_GetHealthMod above) but damage never got its own ->
+    // a boss lived longer than intended without ever hitting harder
+    // than a normal mob (reported in game: bosses "too easy" solo).
     float basedamage = stats->GenerateBaseDamage(cInfo) * _GetDamageMod(rank) * _GetDamageModForDiff();
 
     float weaponBaseMinDamage = basedamage;
@@ -1996,7 +1996,7 @@ void Creature::GenerateScaleLevelStat(const CreatureTemplate* cInfo)
             // mana
             uint32 mana = stats->GenerateMana(cInfo);
 
-            // damage — meme correctif que SelectLevel() : rank manquant (voir plus haut)
+            // damage — same fix as SelectLevel(): missing rank (see above)
             float basedamage = stats->GenerateBaseDamage(cInfo) * _GetDamageMod(rank) * _GetDamageModForDiff();
 
             // armor

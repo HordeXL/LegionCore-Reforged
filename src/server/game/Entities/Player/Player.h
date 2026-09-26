@@ -2113,10 +2113,10 @@ class TC_GAME_API Player : public Unit, public GridObject<Player>
         size_t GetRewardedQuestCount() const { return m_RewardedQuests.size(); }
         bool IsQuestRewarded(uint32 quest_id) const;
         bool HasAccountQuest(uint32 quest_id) const;
-        // Meilleure Connaissance des armes prodigieuses d'un personnage niveau max du compte,
-        // chargee a la connexion (rattrapage des rerolls). Valeur en rangs, precision deja retiree.
+        // Best Artifact Knowledge of a max-level character of the account, loaded at login
+        // (catch-up for alts). Value in ranks, precision already removed.
         uint32 GetAccountBestArtifactKnowledge() const { return m_accountBestArtifactKnowledge; }
-        // Verrou hebdomadaire du livre de connaissance : 1 exemplaire lootable par joueur et par semaine
+        // Weekly lock of the knowledge book: 1 lootable copy per player per week
         bool HasLootedArtifactKnowledgeBookThisWeek() const { return m_akBookLootedThisWeek; }
         void SetArtifactKnowledgeBookLootedThisWeek();
         void ResetArtifactKnowledgeBookWeeklyLock() { m_akBookLootedThisWeek = false; }

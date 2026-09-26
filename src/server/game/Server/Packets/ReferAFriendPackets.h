@@ -77,8 +77,8 @@ namespace WorldPackets
             int32 Result = 0;
         };
 
-        // Le client interroge le serveur a l'ouverture du panneau social : sans reponse positive,
-        // l'interface de parrainage reste inerte.
+        // The client asks the server when the social panel opens: without a positive answer,
+        // the Recruit-a-Friend UI stays inert.
         class CheckRafEmailEnabled final : public ClientPacket
         {
         public:
@@ -97,9 +97,9 @@ namespace WorldPackets
             bool Enabled = false;
         };
 
-        // Structure etablie a partir des paquets reels envoyes par le client 7.3.5 :
-        // longueur du nom sur 7 bits, de l'adresse sur 9, de la note sur 10, puis les trois
-        // chaines bout a bout.
+        // Layout taken from real packets sent by the 7.3.5 client:
+        // name length on 7 bits, address on 9, note on 10, then the three
+        // strings back to back.
         class RecruitAFriend final : public ClientPacket
         {
         public:
@@ -107,9 +107,9 @@ namespace WorldPackets
 
             void Read() override;
 
-            std::string Name;       // personnage du parrain
-            std::string Email;      // adresse saisie
-            std::string Note;       // message libre
+            std::string Name;       // recruiter's character
+            std::string Email;      // address typed in
+            std::string Note;       // free-form message
         };
     }
 }

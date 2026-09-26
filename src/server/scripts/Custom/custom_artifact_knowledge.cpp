@@ -1,10 +1,10 @@
 /*
- * Connaissance des armes prodigieuses - contenu custom (non-retail)
+ * Artifact Knowledge - custom content (non-retail)
  *
- * Quete de rattrapage pour les rerolls : rendre la quete porte la Connaissance du personnage
- * au rang 10 d'un coup. La disponibilite de la quete est filtree cote SQL par la table
- * `conditions` (niveau max + CONDITION_ACCOUNT_ARTIFACT_KNOWLEDGE : le compte doit deja posseder
- * un personnage niveau max ayant au moins 25 rangs de Connaissance).
+ * Catch-up quest for alts: turning the quest in raises the character's Artifact Knowledge
+ * to rank 10 at once. The quest availability is filtered in SQL by the `conditions` table
+ * (max level + CONDITION_ACCOUNT_ARTIFACT_KNOWLEDGE: the account must already own a
+ * max-level character with at least 25 Artifact Knowledge ranks).
  */
 
 #include "ScriptMgr.h"

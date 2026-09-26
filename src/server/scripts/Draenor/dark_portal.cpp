@@ -17,15 +17,15 @@
  */
 
 // ================================================================
-// dark_portal.cpp — Scénario intro WoD (Map 1265, Zone 7025)
+// dark_portal.cpp — WoD intro scenario (Map 1265, Zone 7025)
 //
-// Progression des quêtes :
+// Quest chain:
 //   Q35933 → Q34392 → Q34393 → Q34420 → Q34422 → Q34423
 //   → Q34425 → Q34429 → Q34434/34740 → Q34741/34436
 //   → Q34439 → Q34437 → Q34445 → Q35747
 //
-// Gestion des phases : playerscript_wod_portal_phases
-//   (remplace les 45 entrées phase_definitions zone 7025)
+// Phase handling: playerscript_wod_portal_phases
+//   (replaces the 45 phase_definitions rows of zone 7025)
 // ================================================================
 
 #include "ScriptMgr.h"
@@ -606,9 +606,9 @@ public:
 };
 
 // ============================================================
-// Q34423 — Ça suffit, Ariok !  (NPC 78540)
-// Ariok escorte le joueur → crédit 159278 → invocation 161625.
-// Voir aussi : spell_wod_destroying (sort de destruction de porte).
+// Q34423 — Altar Altercation  (NPC 78540)
+// Ariok escorts the player → credit 159278 → summon 161625.
+// See also: spell_wod_destroying (door destruction spell).
 // ============================================================
 class mob_wod_ariok : public CreatureScript
 {
@@ -644,12 +644,12 @@ public:
 
 // ============================================================
 // Q34392 — Onslaught's End
-// GO 233056 (Mark of the Shadowmoon, Nord, guid 105850) → crédit 82606
-// GO 233057 (Mark of the Bleeding Hollow, Sud, guid 105853) → crédit 82607
-// GO 231985 (Plunger) → explosion portes chambres
-// NPC 78569 (Hansel Lourdemains) — signal de départ
+// GO 233056 (Mark of the Shadowmoon, north, guid 105850) → credit 82606
+// GO 233057 (Mark of the Bleeding Hollow, south, guid 105853) → credit 82607
+// GO 231985 (Plunger) → blows up the chamber doors
+// NPC 78569 (Hansel Heavyhands) — start signal
 // ============================================================
-// NPC 78569 (Hansel Lourdemains) — "Allez-y !" quand un joueur avec Q34392 passe à proximité
+// NPC 78569 (Hansel Heavyhands) — "Go!" when a player on Q34392 walks by
 class mob_wod_hansel : public CreatureScript
 {
 public:
@@ -683,7 +683,7 @@ public:
             if (_greeted.count(player->GetGUID()))
                 return;
             _greeted.insert(player->GetGUID());
-            // GroupID=0 : "Allez-y !"
+            // GroupID=0: "Go!"
             sCreatureTextMgr->SendChat(me, TEXT_GENERIC_0, player->GetGUID());
         }
     };
@@ -856,9 +856,9 @@ public:
 };
 
 // ============================================================
-// Q34425 — (Khadgar escorte)
-// NPC Khadgar escort → scène pont (trigger "Bridge")
-// Phases : entrée 17 (début) → 18 (après trigger Bridge) → 19 (rewarded)
+// Q34425 — (Khadgar escort)
+// NPC Khadgar escort → bridge scene ("Bridge" trigger)
+// Phases: entry 17 (start) → 18 (after the Bridge trigger) → 19 (rewarded)
 // ============================================================
 class mob_khadgar_q34425 : public CreatureScript
 {
@@ -940,13 +940,13 @@ public:
 };
 
 // ============================================================
-// Phase Management — remplace les 45 entrées phase_definitions zone 7025
-// La SQL DELETE correspondante :
+// Phase Management — replaces the 45 phase_definitions rows of zone 7025
+// Matching SQL DELETE:
 //   sql/updates/world/2026_03_07_07_phase_definitions_zone7025_remove.sql
 //
-// UpdatePhaseForPlayer évalue l'état des quêtes dans l'ordre décroissant
-// (condition la plus avancée en premier) et applique le jeu de phases exact
-// correspondant à la DB d'origine.
+// UpdatePhaseForPlayer checks the quest states in reverse order
+// (most advanced condition first) and applies the exact phase set
+// of the original DB.
 // ============================================================
 class playerscript_wod_portal_phases : public PlayerScript
 {
@@ -956,18 +956,18 @@ public:
     enum
     {
         MAP_WOD_INTRO = 1265,
-        AREA_7041     = 7041,   // zone intérieure du portail (Q34420 mid-progress)
-        // Quêtes dans l'ordre de progression
-        Q_34398 = 34398,   // Warlords of Draenor : La porte des Ténèbres
-        Q_35933 = 35933,   // Baroud d’Azeroth
+        AREA_7041     = 7041,   // inner portal area (Q34420 mid-progress)
+        // Quests in chain order
+        Q_34398 = 34398,   // Warlords of Draenor: The Dark Portal
+        Q_35933 = 35933,   // Azeroth's Last Stand
         Q_34392 = 34392,   // Onslaught's End
         Q_34393 = 34393,   // Portal Energy
         Q_34420 = 34420,   // Into the Portal
-        Q_34421 = 34421,   // sous-quête optionnelle (ajoute phases 3209/3210)
+        Q_34421 = 34421,   // optional side quest (adds phases 3209/3210)
         Q_34422 = 34422,
         Q_34423 = 34423,
         Q_34425 = 34425,
-        Q_34429 = 34429,   // Arène
+        Q_34429 = 34429,   // Arena
         Q_34436 = 34436,   // Gate — Alliance
         Q_34437 = 34437,
         Q_34439 = 34439,
@@ -975,8 +975,8 @@ public:
         Q_34445 = 34445,
         Q_34741 = 34741,   // Gate — Horde
         Q_35747 = 35747,   // Thaelin
-        Q_34446 = 34446,   // Fin — Alliance
-        Q_35884 = 35884,   // Fin — Horde
+        Q_34446 = 34446,   // End — Alliance
+        Q_35884 = 35884,   // End — Horde
     };
 
     static void UpdatePhaseForPlayer(Player* player)
@@ -990,123 +990,123 @@ public:
         // ── base ──────────────────────────
         std::set<uint32> phases = {3248,3263,3519,3712,3752,3824,3948,4200};
 
-        // ── 34398 complet ────────────────────────────────────
+        // ── 34398 complete ───────────────────────────────────
         if (player->GetQuestStatus(Q_34398) == QUEST_STATUS_COMPLETE)
             phases = {3248,3263,3519,3712,3752,3834,3948,4200};
 
-        // ── 35933 incomplet ──────────────────────────────────
+        // ── 35933 incomplete ─────────────────────────────────
         if (player->GetQuestStatus(Q_35933) == QUEST_STATUS_INCOMPLETE)
             phases = {3248,3263,3519,3712,3752,3834,3948,4200};
 
-        // ── 35933 complété ───────────────────────────────
+        // ── 35933 completed ───────────────────────────────
         if (player->GetQuestStatus(Q_35933) == QUEST_STATUS_COMPLETE)
             phases = {3248,3263,3519,3712,3752,3834,3948,4200};
 
-        // ── 34392 incomplet ──────────────────────────────────
+        // ── 34392 incomplete ─────────────────────────────────
         if (player->GetQuestStatus(Q_34392) == QUEST_STATUS_INCOMPLETE)
             phases = {3248,3263,3824,3948,4200};
 
-        // ── 34392 complet ────────────────────────────────
+        // ── 34392 complete ───────────────────────────────
         if (player->GetQuestStatus(Q_34392) == QUEST_STATUS_COMPLETE)
         phases = {3248,3263,3712,3948,4150,4151,4200};
 
-        // ── Entrée 5 : 34393 incomplet ──────────────────────────────────
+        // ── Entry 5: 34393 incomplete ───────────────────────────────────
         if (player->GetQuestStatus(Q_34393) == QUEST_STATUS_INCOMPLETE)
             phases = {3248,3263,3519,3712,3752,3824,3948,4150,4151,4200}; //3248,3263,3712,3948,4150,4151,4200
 
-        // ── Entrée 6 : 34393 complet ────────────────────────────────────
+        // ── Entry 6: 34393 complete ─────────────────────────────────────
         if (player->GetQuestStatus(Q_34393) == QUEST_STATUS_COMPLETE)
             phases = {3248,3263,3519,3712,3752,3764,3824,4150,4151};
 
-        // ── Entrée 7 : 34393 récompensé ou Q34420 incomplet (général) ───
+        // ── Entry 7: 34393 rewarded or Q34420 incomplete (general) ────
         if (player->IsQuestRewarded(Q_34393) || player->GetQuestStatus(Q_34420) == QUEST_STATUS_INCOMPLETE)
             phases = {3248,3263,3519,3712,3752,3764,3824,4150,4151};
 
-        // ── Entrée 8 : 34420 incomplet + exploration zone 7041 ──────────
+        // ── Entry 8: 34420 incomplete + area 7041 explored ───────────
         if (player->GetQuestStatus(Q_34420) == QUEST_STATUS_INCOMPLETE &&
             player->GetCurrentAreaID() == AREA_7041)
             phases = {3236,3626,3670,3693,3712,3794,3824,3833,3834,3856,3857,4150,4151,4200};
 
-        // ── Entrée 9 : 34420 incomplet + scène 621 vue (area 7041, post-scène)
-        // Note : la distinction 8 vs 9 (scène 621) est gérée par sceneTrigger_q34429.
-        // Ici on reste sur l'entry 8 pour les appels stateless.
+        // ── Entry 9: 34420 incomplete + scene 621 seen (area 7041, post-scene)
+        // Note: telling 8 from 9 (scene 621) is done by sceneTrigger_q34429.
+        // Stateless calls stay on entry 8 here.
 
-        // ── Entrée 10 : 34420 récompensé ────────────────────────────────
+        // ── Entry 10: 34420 rewarded ─────────────────────────────────
         if (player->IsQuestRewarded(Q_34420))
             phases = {3236,3394,3395,3396,3480,3626,3670,3693,3712,3794,3824,3833,3834,3856,3857,4150,4151,4200};
 
-        // ── Entrée 13 : 34421 accepté (additive : +3209, +3210) ─────────
+        // ── Entry 13: 34421 accepted (additive: +3209, +3210) ──────────
         if (player->GetQuestStatus(Q_34421) == QUEST_STATUS_INCOMPLETE)
         { phases.insert(3209); phases.insert(3210); }
 
-        // ── Entrée 15 : 34422 récompensé ────────────────────────────────
+        // ── Entry 15: 34422 rewarded ─────────────────────────────────
         if (player->IsQuestRewarded(Q_34422))
             phases = {3237,3265,3394,3395,3396,3480,3626,3655,3670,3693,3712,3794,3824,3833,3834,3856,3857,3911,4150,4151,4200};
 
-        // ── Entrée 16 : 34423 incomplet + objectif ≥ 3 ─────────────────
+        // ── Entry 16: 34423 incomplete + objective ≥ 3 ──────────────────
         if (player->GetQuestStatus(Q_34423) == QUEST_STATUS_INCOMPLETE &&
             player->GetQuestObjectiveData(Q_34423, 0) >= 3)
             phases = {3237,3266,3394,3395,3396,3414,3480,3626,3693,3712,3794,3824,3833,3834,3856,3857,4006,4150,4151,4200};
 
-        // ── Entrée 17 : 34425 incomplet ─────────────────────────────────
+        // ── Entry 17: 34425 incomplete ──────────────────────────────────
         if (player->GetQuestStatus(Q_34425) == QUEST_STATUS_INCOMPLETE)
             phases = {3266,3394,3395,3396,3480,3693,3694,3712,3794,3824,3833,3834,4006,4017,4150,4151,4200};
 
-        // ── Entrée 18 : 34425 incomplet + trigger scène "Bridge" ────────
-        // (appliqué directement depuis sceneTrigger_q34425 — pas reproduit ici)
+        // ── Entry 18: 34425 incomplete + "Bridge" scene trigger ─────────
+        // (applied directly by sceneTrigger_q34425 — not repeated here)
 
-        // ── Entrée 19 : 34425 complet ou récompensé ─────────────────────
+        // ── Entry 19: 34425 complete or rewarded ──────────────────────
         if (player->IsQuestRewarded(Q_34425) || player->GetQuestStatus(Q_34425) == QUEST_STATUS_COMPLETE)
             phases = {3266,3317,3349,3358,3359,3394,3395,3396,3416,3481,3693,3694,3712,3824,3833,3834,4006,4017,4150,4151,4200};
 
-        // ── Entrée 21 : 34429 incomplet ─────────────────────────────────
+        // ── Entry 21: 34429 incomplete ──────────────────────────────────
         if (player->GetQuestStatus(Q_34429) == QUEST_STATUS_INCOMPLETE)
             phases = {3317,3349,3350,3358,3359,3394,3395,3396,3481,3712,3824,3833,3834,4017,4150,4151,4200};
 
-        // ── Entrée 23 : 34429 complet ───────────────────────────────────
+        // ── Entry 23: 34429 complete ────────────────────────────────────
         if (player->GetQuestStatus(Q_34429) == QUEST_STATUS_COMPLETE)
             phases = {3267,3317,3330,3394,3395,3396,3481,3693,3712,3720,3752,3790,3824,3833,3834,4015,4017,4150,4151,4200};
 
-        // ── Entrée 25 : 34429 récompensé ────────────────────────────────
+        // ── Entry 25: 34429 rewarded ─────────────────────────────────
         if (player->IsQuestRewarded(Q_34429))
             phases = {3267,3317,3334,3356,3394,3395,3396,3481,3693,3712,3720,3752,3790,3824,3833,3834,3936,4015,4017,4150,4151,4200};
 
-        // ── Entrée 28 : 34741 (Horde) ou Q34436 (Alliance) incomplet ────
+        // ── Entry 28: 34741 (Horde) or Q34436 (Alliance) incomplete ─────
         if (player->GetQuestStatus(Q_34741) == QUEST_STATUS_INCOMPLETE ||
             player->GetQuestStatus(Q_34436) == QUEST_STATUS_INCOMPLETE)
             phases = {3267,3317,3334,3394,3395,3396,3481,3693,3712,3720,3752,3790,3824,3833,3834,3936,4015,4017,4150,4151,4200};
 
-        // ── Entrées 29-30 : 34741 / 34436 complet ou récompensé ────────
+        // ── Entries 29-30: 34741 / 34436 complete or rewarded ─────────
         if (player->IsQuestRewarded(Q_34741) || player->GetQuestStatus(Q_34741) == QUEST_STATUS_COMPLETE ||
             player->IsQuestRewarded(Q_34436) || player->GetQuestStatus(Q_34436) == QUEST_STATUS_COMPLETE)
             phases = {3268,3317,3334,3394,3395,3396,3481,3497,3498,3499,3594,3693,3712,3752,3824,3833,3834,3936,4019,4150,4151,4200};
 
-        // ── Entrée 32 : 34439 incomplet (début) ─────────────────────────
+        // ── Entry 32: 34439 incomplete (start) ──────────────────────────
         if (player->GetQuestStatus(Q_34439) == QUEST_STATUS_INCOMPLETE)
             phases = {3334,3394,3395,3396,3481,3498,3594,3693,3712,3752,3824,3833,3834,3936,4022,4150,4151,4200};
 
-        // ── Entrée 34 : 34439 incomplet + objectif accompli ─────────────
+        // ── Entry 34: 34439 incomplete + objective done ──────────────
         if (player->GetQuestStatus(Q_34439) == QUEST_STATUS_INCOMPLETE &&
             player->GetQuestObjectiveData(Q_34439, 0) > 0)
             phases = {3269,3334,3394,3395,3396,3423,3481,3498,3505,3594,3693,3712,3752,3833,3834,3936,4026,4150,4151,4200};
 
-        // ── Entrée 36 : 34442 incomplet ─────────────────────────────────
+        // ── Entry 36: 34442 incomplete ──────────────────────────────────
         if (player->GetQuestStatus(Q_34442) == QUEST_STATUS_INCOMPLETE)
             phases = {3269,3334,3394,3395,3396,3423,3481,3498,3505,3551,3594,3693,3712,3752,3833,3834,3936,4026,4150,4151,4200};
 
-        // ── Entrée 38 : 34437 incomplet ─────────────────────────────────
+        // ── Entry 38: 34437 incomplete ──────────────────────────────────
         if (player->GetQuestStatus(Q_34437) == QUEST_STATUS_INCOMPLETE)
             phases = {3269,3394,3395,3396,3423,3481,3498,3505,3579,3581,3594,3693,3712,3752,3833,3834,3936,4026,4150,4151,4200};
 
-        // ── Entrée 40 : 35747 objectif accompli ou récompensé ───────────
+        // ── Entry 40: 35747 objective done or rewarded ────────────
         if (player->IsQuestRewarded(Q_35747) || player->GetQuestObjectiveData(Q_35747, 0) > 0)
             phases = {3269,3394,3395,3396,3481,3498,3542,3583,3604,3693,3712,3752,3833,3834,3936,4150,4151,4200};
 
-        // ── Entrée 42 : 34445 complet ou récompensé ─────────────────────
+        // ── Entry 42: 34445 complete or rewarded ──────────────────────
         if (player->IsQuestRewarded(Q_34445) || player->GetQuestStatus(Q_34445) == QUEST_STATUS_COMPLETE)
             phases = {3394,3395,3396,3481,3498,3519,3583,3604,3693,3712,3752,3833,3834,3936,4028,4150,4151,4201};
 
-        // ── Entrées 43-44 : 34446 / 35884 complet ou récompensé ────────
+        // ── Entries 43-44: 34446 / 35884 complete or rewarded ─────────
         if (player->IsQuestRewarded(Q_34446) || player->GetQuestStatus(Q_34446) == QUEST_STATUS_COMPLETE ||
             player->IsQuestRewarded(Q_35884) || player->GetQuestStatus(Q_35884) == QUEST_STATUS_COMPLETE)
             phases = {3394,3395,3396,3481,3498,3693,3712,3752,3834,3936,4028,4072,4150,4151,4201};
@@ -1167,7 +1167,7 @@ public:
 };
 
 // ============================================================
-// Q34425 — SceneTrigger (pont, scène 621)
+// Q34425 — SceneTrigger (bridge, scene 621)
 // ============================================================
 class sceneTrigger_q34425 : public SceneTriggerScript
 {
@@ -1177,7 +1177,7 @@ public:
 
     bool OnTrigger(Player* player, SpellScene const* /*trigger*/, std::string type) override
     {
-        // Trigger "Bridge" = fin de la traversée du pont → mise à jour de phases
+        // "Bridge" trigger = end of the bridge crossing → phase update
         if (type == "Bridge")
             playerscript_wod_portal_phases::UpdatePhaseForPlayer(player);
         return true;
@@ -1185,8 +1185,8 @@ public:
 };
 
 // ============================================================
-// Q34429 — Arène  (NPC mob_arena_combatant_q34429)
-// Spell 168182 (crédit), sort invocation 167314
+// Q34429 — Arena  (NPC mob_arena_combatant_q34429)
+// Spell 168182 (credit), summon spell 167314
 // ============================================================
 class mob_arena_combatant_q34429 : public CreatureScript
 {
@@ -1452,9 +1452,9 @@ public:
     };
 };
 // ============================================================
-// Q34741 (Horde) / Q34436 (Alliance) — Porte de la Citadelle
-// GO 233197 (porte) — s'ouvre si le joueur n'a pas encore la quête
-// NPC mob_wod_q34741_34436 — combat / escorte à travers la porte
+// Q34741 (Horde) / Q34436 (Alliance) — Citadel gate
+// GO 233197 (gate) — opens if the player does not have the quest yet
+// NPC mob_wod_q34741_34436 — fight / escort through the gate
 // ============================================================
 //go - 233197 Q: 34741, 34436
 class go_wod_gate_q34741_34436 : public GameObjectScript
@@ -1619,8 +1619,8 @@ public:
 };
 
 // ============================================================
-// Q34439 — (après la porte)
-// Sorts : 167891 (Big), 167890 (Small) — effets de scène
+// Q34439 — (past the gate)
+// Spells: 167891 (Big), 167890 (Small) — scene effects
 // ============================================================
 class sceneTrigger_q34439 : public SceneTriggerScript
 {
@@ -1691,7 +1691,7 @@ public:
 
 // ============================================================
 // Q35747 — (Thaelin Darkanvil — NPC 78558)
-// Crédit 80880 via dialogue gossip.
+// Credit 80880 through the gossip dialogue.
 // Also handles Q34392 Onslaught check (isActive guard).
 // ============================================================
 class mob_wod_thaelin_darkanvil : public CreatureScript
@@ -1748,7 +1748,7 @@ public:
             if (_greeted.count(player->GetGUID()))
                 return;
             _greeted.insert(player->GetGUID());
-            // GroupID=1 : "Ne vous inquiétez pas. Nous sommes là pour vous couvrir !"
+            // GroupID=1: "Don't worry. We're here to cover you!"
             sCreatureTextMgr->SendChat(me, TEXT_GENERIC_1, player->GetGUID());
         }
     };
@@ -1848,8 +1848,8 @@ public:
 
 // ============================================================
 // Q34445 — (Khadgar's Watch cinematic)
-// GO 34445 (go_wod_q34445) → sort 176159 (scène cinématique)
-// SceneTrigger : sorts 176104 (instructions), 161527 (bloodlust), 164043 (GO)
+// GO 34445 (go_wod_q34445) → spell 176159 (cinematic scene)
+// SceneTrigger: spells 176104 (instructions), 161527 (bloodlust), 164043 (GO)
 // ============================================================
 class sceneTrigger_q34445 : public SceneTriggerScript
 {
@@ -2007,8 +2007,8 @@ public:
 };
 
 // GO 231985 — Plunger — Q: 34392 "Onslaught's End"
-// Animation uniquement : Thaelin parle → porte explose et disparaît.
-// Le crédit de quête vient des gangreflèches (déjà fonctionnel).
+// Animation only: Thaelin speaks → the door blows up and disappears.
+// The quest credit comes from the Fel Spires (already working).
 class go_wod_q34392_plunger : public GameObjectScript
 {
 public:
@@ -2034,26 +2034,26 @@ public:
             if (player->GetQuestStatus(QUEST_ONSLAUGHT) != QUEST_STATUS_INCOMPLETE)
                 return true;
 
-            // Déjà utilisé
+            // Already used
             if (go->GetGoState() == GO_STATE_ACTIVE)
                 return true;
 
             bool isEast = go->GetPositionX() > 4065.0f;
 
-            // Thaelin commente l'ignition (TEXT_GENERIC_2 = Est, TEXT_GENERIC_3 = Ouest)
+            // Thaelin comments on the ignition (TEXT_GENERIC_2 = east, TEXT_GENERIC_3 = west)
             if (Creature* thaelin = go->FindNearestCreature(NPC_THAELIN, 150.0f, true))
                 sCreatureTextMgr->SendChat(thaelin,
                     isEast ? TEXT_GENERIC_2 : TEXT_GENERIC_3,
                     player->GetGUID());
 
-            // Explosion visuelle + suppression de la porte
+            // Visual explosion + door removal
             if (GameObject* door = go->FindNearestGameObject(GO_CHAMBER_DOOR, 100.0f))
             {
                 door->CastSpell(nullptr, SPELL_EXPLOSION);
                 door->Delete();
             }
 
-            // Désactiver le plunger après usage
+            // Disable the plunger once used
             go->SetFlag(11, GO_FLAG_NOT_SELECTABLE);
             go->SetGoState(GO_STATE_ACTIVE);
 
@@ -2067,8 +2067,8 @@ public:
     }
 };
 
-// GO 233056 (Mark of the Shadowmoon, X=4167, Nord) → crédit 82606 (Q34392)
-// GO 233057 (Mark of the Bleeding Hollow, X=3964, Sud) → crédit 82607 (Q34392)
+// GO 233056 (Mark of the Shadowmoon, X=4167, north) → credit 82606 (Q34392)
+// GO 233057 (Mark of the Bleeding Hollow, X=3964, south) → credit 82607 (Q34392)
 class gob_mark_of_tanaan : public GameObjectScript
 {
 public:
@@ -2116,7 +2116,7 @@ public:
             go->SetGoState(GO_STATE_ACTIVE);
             go->SetAnimKitId(0);
             go->UpdateObjectVisibility();
-            _deleteTimer = 2000; // disparaît 2s après interaction
+            _deleteTimer = 2000; // despawns 2s after use
             return true;
         }
     };
@@ -2127,9 +2127,9 @@ public:
     }
 };
 
-// GO 229598 → crédit 78885 (Mark of the Burning Blade,  Q34393)
-// GO 229599 → crédit 78886 (Mark of the Shattered Hand, Q34393)
-// GO 229600 → crédit 78887 (Mark of the Blackrock,      Q34393)
+// GO 229598 → credit 78885 (Mark of the Burning Blade,  Q34393)
+// GO 229599 → credit 78886 (Mark of the Shattered Hand, Q34393)
+// GO 229600 → credit 78887 (Mark of the Blackrock,      Q34393)
 class gob_q34393_mark : public GameObjectScript
 {
 public:
@@ -2161,8 +2161,8 @@ public:
             player->KilledMonsterCredit(credit, ObjectGuid::Empty);
             go->SetFlag(11, GO_FLAG_NOT_SELECTABLE);
             go->SetGoState(GO_STATE_ACTIVE);
-            go->SetAnimKitId(0);           // stoppe l'animation de brillance du crystal
-            go->UpdateObjectVisibility();  // force l'envoi du changement d'état aux clients
+            go->SetAnimKitId(0);           // stops the crystal glow animation
+            go->UpdateObjectVisibility();  // forces the state change to be sent to clients
             return true;
         }
     };
@@ -2173,8 +2173,8 @@ public:
     }
 };
 
-// GO 233104 (Stasis Rune) : vérifie les 3 marks Q34393, accorde crédit 78333, joue scène Gul'dan
-// Scène : spell 163807 → MiscValue 756 → SceneScriptPackageID 925
+// GO 233104 (Stasis Rune): checks the 3 Q34393 marks, grants credit 78333, plays the Gul'dan scene
+// Scene: spell 163807 → MiscValue 756 → SceneScriptPackageID 925
 class gob_stasis_rune : public GameObjectScript
 {
 public:
@@ -2197,7 +2197,7 @@ public:
             if (player->GetQuestStatus(QUEST_PORTAL) != QUEST_STATUS_INCOMPLETE) return false;
             if (go->GetGoState() == GO_STATE_ACTIVE) return false;
 
-            // Les 3 marks doivent être complétés (objectifs idx 0, 1, 2)
+            // All 3 marks must be done (objectives idx 0, 1, 2)
             if (player->GetQuestObjectiveData(QUEST_PORTAL, 0) == 0) return false;
             if (player->GetQuestObjectiveData(QUEST_PORTAL, 1) == 0) return false;
             if (player->GetQuestObjectiveData(QUEST_PORTAL, 2) == 0) return false;
@@ -2216,12 +2216,12 @@ public:
     }
 };
 
-// Scène ambiante "Iron Grunts poussant prisonniers vers le portail" (spell 163341 = SPELL_AURA_ACTIVATE_SCENE).
-// La table spell_area retire automatiquement ce sort à la récompense de Q34393 (quest_end=34393, quest_end_status=66).
-// Ce script la prolonge jusqu'à la récompense de Q34420 (Into the Portal) :
-//   - OnMapChanged  : applique le sort dès l'arrivée sur map 1265 (si Q34420 non récompensée)
-//   - OnQuestReward : re-applique à Q34393 (contrebalance la suppression par spell_area)
-//                     retire le sort à Q34420
+// Ambient scene "Iron Grunts pushing prisoners toward the portal" (spell 163341 = SPELL_AURA_ACTIVATE_SCENE).
+// spell_area removes this spell on its own when Q34393 is rewarded (quest_end=34393, quest_end_status=66).
+// This script keeps it until Q34420 (Into the Portal) is rewarded:
+//   - OnMapChanged  : applies the spell on arrival on map 1265 (if Q34420 is not rewarded)
+//   - OnQuestReward : reapplies it on Q34393 (undoes the spell_area removal)
+//                     removes the spell on Q34420
 class playerscript_wod_portal_ambient : public PlayerScript
 {
 public:
@@ -2230,9 +2230,9 @@ public:
     enum
     {
         MAP_WOD_INTRO       = 1265,
-        SPELL_AMBIENT_SCENE = 163341,   // SPELL_AURA_ACTIVATE_SCENE — grunts/prisonniers
-        QUEST_34393         = 34393,    // Portal Energy (spell_area retire 163341 à sa récompense)
-        QUEST_STOP          = 34420,    // Into the Portal → fin de la scène
+        SPELL_AMBIENT_SCENE = 163341,   // SPELL_AURA_ACTIVATE_SCENE — grunts/prisoners
+        QUEST_34393         = 34393,    // Portal Energy (spell_area removes 163341 when it is rewarded)
+        QUEST_STOP          = 34420,    // Into the Portal → end of the scene
     };
 
     void OnMapChanged(Player* player) override
@@ -2252,7 +2252,7 @@ public:
         switch (quest->GetQuestId())
         {
             case QUEST_34393:
-                // spell_area vient de retirer 163341 ; on le remet jusqu'à Q34420.
+                // spell_area just removed 163341; put it back until Q34420.
                 if (!player->IsQuestRewarded(QUEST_STOP))
                     player->CastSpell(player, SPELL_AMBIENT_SCENE, true);
                 break;

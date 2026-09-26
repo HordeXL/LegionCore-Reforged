@@ -84,14 +84,14 @@ public:
             if (_destroyed || _pendingDestroy)
                 return;
 
-            // Descendre de monture si nécessaire
+            // Dismount if needed
             if (Player* player = clicker->ToPlayer())
                 if (player->IsMounted())
                     player->Dismount();
 
             _pendingDestroy = true;
 
-            // Rendre le joueur invulnérable aux sorts de PNJ pendant toute la durée (mèche + explosion)
+            // Make the player immune to NPC spells for the whole sequence (fuse + explosion)
             _clickerGuid = clicker->GetGUID();
             clicker->SetFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_IMMUNE_TO_NPC);
 
@@ -115,7 +115,7 @@ public:
                         _destroyed = true;
                         me->CastSpell(me->GetPositionX(), me->GetPositionY(), me->GetPositionZ() + 1.0f,
                                       SPELL_CANNON_BLAST, true);
-                        // Retirer l'invulnérabilité 1s après l'explosion (DespawnOrUnsummon laisse 2s au PNJ)
+                        // Remove the immunity 1s after the explosion (DespawnOrUnsummon gives the NPC 2s)
                         _events.ScheduleEvent(EVENT_REMOVE_IMMUNITY, 1000);
                         me->DespawnOrUnsummon(2000);
                         break;

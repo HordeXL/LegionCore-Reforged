@@ -184,15 +184,15 @@ enum eArgentValiant
 
 enum eValiantText
 {
-    NPC_FACTION_VAILIANT_TEXT_SAY_START_1     = -1850004,//    Tenez-vous pret !
-    NPC_FACTION_VAILIANT_TEXT_SAY_START_2     = -1850005,//    Que le combat commence !
-    NPC_FACTION_VAILIANT_TEXT_SAY_START_3     = -1850006,//    Preparez-vous !
-    NPC_ARGENT_VAILIANT_TEXT_SAY_START         = -1850007,//    Vous pensez avoir la vaillance en vous ? Nous verrons.
-    NPC_ARGENT_VAILIANT_TEXT_SAY_WIN         = -1850008,//    Impressionnante demonstration. Je pense que vous etes tout a fait en mesure de rejoindre les rangs des vaillants.
-    NPC_ARGENT_VAILIANT_TEXT_SAY_LOOSE         = -1850009,//    J'ai gagne. Vous aurez sans doute plus de chance la prochaine fois.
-    NPC_FACTION_VAILIANT_TEXT_SAY_WIN_1     = -1850010,//    Je suis vaincue. Joli combat !
-    NPC_FACTION_VAILIANT_TEXT_SAY_WIN_2     = -1850011,//    On dirait que j'ai sous-estime vos competences. Bien joue.
-    NPC_FACTION_VAILIANT_TEXT_SAY_LOOSE     = -1850012,//    J'ai gagne. Vous aurez sans doute plus de chance la prochaine fois.
+    NPC_FACTION_VAILIANT_TEXT_SAY_START_1     = -1850004,//    Stand ready!
+    NPC_FACTION_VAILIANT_TEXT_SAY_START_2     = -1850005,//    Let the battle begin!
+    NPC_FACTION_VAILIANT_TEXT_SAY_START_3     = -1850006,//    Prepare yourself!
+    NPC_ARGENT_VAILIANT_TEXT_SAY_START         = -1850007,//    You think you have the valor in you? We'll see.
+    NPC_ARGENT_VAILIANT_TEXT_SAY_WIN         = -1850008,//    Impressive demonstration. I think you're quite able to join the ranks of the valiant.
+    NPC_ARGENT_VAILIANT_TEXT_SAY_LOOSE         = -1850009,//    I've won. You'll probably have more luck next time.
+    NPC_FACTION_VAILIANT_TEXT_SAY_WIN_1     = -1850010,//    I am defeated. Nice battle!
+    NPC_FACTION_VAILIANT_TEXT_SAY_WIN_2     = -1850011,//    It seems I've underestimated your skills. Well done.
+    NPC_FACTION_VAILIANT_TEXT_SAY_LOOSE     = -1850012,//    I've won. You'll probably have more luck next time.
 };
 
 class npc_argent_valiant : public CreatureScript
@@ -810,7 +810,7 @@ public:
 
     bool OnGossipHello(Player* pPlayer, Creature* pCreature) override
     {
-        //Si il a la quete
+        //If the player has the quest
         if((pPlayer->GetQuestStatus(13835) == QUEST_STATUS_INCOMPLETE) || 
             (pPlayer->GetQuestStatus(13838) == QUEST_STATUS_INCOMPLETE))
         {
@@ -818,7 +818,7 @@ public:
             pPlayer->ADD_GOSSIP_ITEM(GossipOptionNpc::None, GOSSIP_HELLO_VALIS_2, GOSSIP_SENDER_MAIN, GOSSIP_ACTION_INFO_DEF+2);
         pPlayer->SEND_GOSSIP_MENU(VALIS_QUEST_TEXTID, pCreature->GetGUID());
         }
-        //Sinon Texte par defaut
+        //Otherwise the default text
         else
             pPlayer->SEND_GOSSIP_MENU(VALIS_DEFAULT_TEXTID, pCreature->GetGUID());
         return true;
@@ -829,8 +829,8 @@ public:
         switch (uiAction)
         {
             case GOSSIP_ACTION_INFO_DEF+1:
-                pPlayer->CastSpell(pPlayer,SPELL_CREDIT_VALIS,true);//Cast du sort de credit quest (valide l'objectif)
-                pPlayer->CLOSE_GOSSIP_MENU();//Ferme la fenetre du gossip cote client
+                pPlayer->CastSpell(pPlayer,SPELL_CREDIT_VALIS,true);//Cast the quest credit spell (completes the objective)
+                pPlayer->CLOSE_GOSSIP_MENU();//Close the gossip window on the client
             break;
             case GOSSIP_ACTION_INFO_DEF+2:
                 //Raconte un blabla
@@ -899,7 +899,7 @@ public:
         if (uiAction == GOSSIP_ACTION_INFO_DEF+1)
         {
         pPlayer->CLOSE_GOSSIP_MENU();
-        pCreature->SummonCreature(NPC_ARGENT_CHAMPION,8562.836914f,1099.153931f,556.787598f,5.026550f); // TODO (Recuperer les coordonnees reelles)
+        pCreature->SummonCreature(NPC_ARGENT_CHAMPION,8562.836914f,1099.153931f,556.787598f,5.026550f); // TODO (get the real coordinates)
         }
         //else
         //pPlayer->SEND_GOSSIP_MENU(???, pCreature->GetGUID()); Missing text
@@ -924,15 +924,15 @@ enum eArgentChampion
 
 enum eChampionText
 {
-    NPC_FACTION_CHAMPION_TEXT_SAY_START_1     = -1850004,//    Tenez-vous pret !
-    NPC_FACTION_CHAMPION_TEXT_SAY_START_2     = -1850005,//    Que le combat commence !
-    NPC_FACTION_CHAMPION_TEXT_SAY_START_3     = -1850006,//    Preparez-vous !
-    NPC_ARGENT_CHAMPION_TEXT_SAY_START         = -1850007,//    Vous pensez avoir la vaillance en vous ? Nous verrons.
-    NPC_ARGENT_CHAMPION_TEXT_SAY_WIN         = -1850008,//    Impressionnante demonstration. Je pense que vous etes tout a fait en mesure de rejoindre les rangs des vaillants.
-    NPC_ARGENT_CHAMPION_TEXT_SAY_LOOSE         = -1850009,//    J'ai gagne. Vous aurez sans doute plus de chance la prochaine fois.
-    NPC_FACTION_CHAMPION_TEXT_SAY_WIN_1     = -1850010,//    Je suis vaincue. Joli combat !
-    NPC_FACTION_CHAMPION_TEXT_SAY_WIN_2     = -1850011,//    On dirait que j'ai sous-estime vos competences. Bien joue.
-    NPC_FACTION_CHAMPION_TEXT_SAY_LOOSE     = -1850012,//    J'ai gagne. Vous aurez sans doute plus de chance la prochaine fois.
+    NPC_FACTION_CHAMPION_TEXT_SAY_START_1     = -1850004,//    Stand ready!
+    NPC_FACTION_CHAMPION_TEXT_SAY_START_2     = -1850005,//    Let the battle begin!
+    NPC_FACTION_CHAMPION_TEXT_SAY_START_3     = -1850006,//    Prepare yourself!
+    NPC_ARGENT_CHAMPION_TEXT_SAY_START         = -1850007,//    You think you have the valor in you? We'll see.
+    NPC_ARGENT_CHAMPION_TEXT_SAY_WIN         = -1850008,//    Impressive demonstration. I think you're quite able to join the ranks of the valiant.
+    NPC_ARGENT_CHAMPION_TEXT_SAY_LOOSE         = -1850009,//    I've won. You'll probably have more luck next time.
+    NPC_FACTION_CHAMPION_TEXT_SAY_WIN_1     = -1850010,//    I am defeated. Nice battle!
+    NPC_FACTION_CHAMPION_TEXT_SAY_WIN_2     = -1850011,//    It seems I've underestimated your skills. Well done.
+    NPC_FACTION_CHAMPION_TEXT_SAY_LOOSE     = -1850012,//    I've won. You'll probably have more luck next time.
 };
 
 class npc_argent_champion : public CreatureScript
@@ -946,7 +946,7 @@ public:
         {
         me->CastSpell(me, SPELL_DEFEND_CHAMPION, true);
         me->CastSpell(me, SPELL_DEFEND_CHAMPION, true);
-        pCreature->GetMotionMaster()->MovePoint(0,8552.469727f,1124.128784f,556.787598f); // TODO (Trouver les coordonnees exactes)
+        pCreature->GetMotionMaster()->MovePoint(0,8552.469727f,1124.128784f,556.787598f); // TODO (find the exact coordinates)
         pCreature->setFaction(35); //wrong faction in db?
         }
 

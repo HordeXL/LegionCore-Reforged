@@ -1886,8 +1886,8 @@ void Player::OnDisconnected()
         float height = GetMap()->GetHeight(GetPositionX(), GetPositionY(), GetPositionZ());
         if ((GetPositionZ() < height + 0.1f) && !IsInWater())
             SetStandState(UNIT_STAND_STATE_SIT);
-        // Apres avoir ajoute le bot on actualise la position du joueur
-        // Et on retire les flags de mouvements (ne pas le voir courir dans le vide !)
+        // Once the bot is added, refresh the player's position
+        // and clear the movement flags (so it is not seen running on the spot!)
         m_movementInfo.RemoveMovementFlag(MOVEMENTFLAG_MASK_MOVING_OR_TURN);
         SendMovementFlagUpdate();
     }
@@ -9890,8 +9890,8 @@ uint32 Player::GetTotalCurrencyCap(uint32 currencyID)
     if (!currency)
         return 0;
 
-    // Systeme "launch" (7.0) : le plafond de la Connaissance ne depend plus du world state global
-    // (qui servait au catch-up hebdomadaire), mais du cap configure selon le patch (25/40/55).
+    // "Launch" system (7.0): the Artifact Knowledge cap no longer depends on the global world state
+    // (used by the weekly catch-up), but on the cap configured for the patch (25/40/55).
     if (currencyID == CURRENCY_TYPE_ARTIFACT_KNOWLEDGE)
         return sWorld->getIntConfig(CONFIG_ARTIFACT_KNOWLEDGE_CAP);
 
@@ -22024,9 +22024,9 @@ bool Player::LoadFromDB(ObjectGuid guid, CharacterDatabaseQueryHolder const& hol
         bool MalDeRez = false;
 
         RemoveAtLoginFlag(AT_LOGIN_UNLOCK, true);
-        if (HasAura(SPELL_BG_DESERTER)) // deserteur
+        if (HasAura(SPELL_BG_DESERTER)) // deserter
             BGdesert = true;
-        if (HasAura(71041)) // deserteur de donjon
+        if (HasAura(71041)) // dungeon deserter
             DungeonDesert = true;
         if (HasAura(15007))
             MalDeRez = true;
@@ -23539,7 +23539,7 @@ Item* Player::_LoadItem(CharacterDatabaseTransaction& trans, uint32 zoneId, uint
     {
         TC_LOG_ERROR("entities.player", "Player::_LoadInventory: player (GUID: %u, name: '%s') has unknown item (entry: %u) in inventory. Deleting item.",
             GetGUIDLow(), GetName(), itemEntry);
-        /* Delete de cette foutue fonction, jamais tu ne delete des items !
+        /* Deletion disabled in this damn function, never delete items!
         Item::DeleteFromInventoryDB(trans, itemGuid);
         Item::DeleteFromDB(trans, itemGuid);
         */
@@ -23940,7 +23940,7 @@ void Player::_SaveBagSlotFlags(CharacterDatabaseTransaction& trans)
 
 void Player::_LoadAccountBestArtifactKnowledge(PreparedQueryResult result)
 {
-    // SELECT MAX(total_count) ... personnages niveau max du compte, monnaie Connaissance
+    // SELECT MAX(total_count) ... max-level characters of the account, Artifact Knowledge currency
 
     m_accountBestArtifactKnowledge = 0;
 
@@ -32290,51 +32290,51 @@ void Player::SetTitle(CharTitlesEntry const* title, bool lost)
     packet.Index = title->MaskID;
     SendDirectMessage(packet.Write());
 }
-                                   // Heurtoir,            Frappe hero,        Coup traumatisant
+                                   // Slam,                Heroic Strike,      Concussion Blow
 #define SPELL_WAR_ATTACK_LIST   47475,                  47450,              12809
 
 
-                                // inquisition,         Consecration,       Repentir
+                                // Crusader Strike,     Consecration,       Repentance
 #define SPELL_PAL_ATTACK_LIST   35395,                  48819,              20066
-                                // Eclair Lumineux,     Lumiere sacree
+                                // Flash of Light,      Holy Light
 #define SPELL_PAL_FRIEND_LIST   48785,                  48782,              48785
 
 
-                                // Tir des arcanes,     Morsure de serpent, Morsure de la mangouste
+                                // Arcane Shot,         Serpent Sting,      Mongoose Bite
 #define SPELL_HUNT_ATTACK_LIST  49045,                  49001,              53339
 
 
-                                // pied,                Hemoragie           suriner         Eventail de couteaux
+                                // Kick,                Hemorrhage          Gouge           Fan of Knives
 #define SPELL_ROG_ATTACK_LIST   1766,                   48660,              1776,           51723
 
 
-                                // Douleur,             Chatiment,          Flammes sacrees
+                                // Shadow Word: Pain,   Smite,              Holy Fire
 #define SPELL_PRI_ATTACK_LIST   48125,                  48123,              48135
-                                // Soins rapides,       Renovation,         Priere de guerison
+                                // Flash Heal,          Renew,              Prayer of Mending
 #define SPELL_PRI_FRIEND_LIST   48071,                  48068,              48113
 
 
-                                // frappe au coeur,     Toucher de glace,   Mort et decompo
+                                // Heart Strike,        Icy Touch,          Death and Decay
 #define SPELL_DK_ATTACK_LIST    55262,                  49909,              49938
 
 
-                                // Chaine d'eclairs,    Horion de flammes,  Orage
+                                // Chain Lightning,     Flame Shock,        Thunderstorm
 #define SPELL_CHA_ATTACK_LIST   49271,                  49233,              59159
-                                // Salve de guerison    Vague de soin       Bouclier de terre
+                                // Chain Heal           Healing Wave        Earth Shield
 #define SPELL_CHA_FRIEND_LIST   55459,                  49273,              49284
 
 
-                                // Boule de feu,        Nova de givre,      Eclair de givrefeu
+                                // Fireball,            Frost Nova,         Frostfire Bolt
 #define SPELL_MAG_ATTACK_LIST   42833,                  42917,              44614
 
 
-                                // Immolation,          Drain de vie,       Hurlement de terreur
+                                // Immolate,            Drain Life,         Howl of Terror
 #define SPELL_DEM_ATTACK_LIST   47811,                  47857,              17928
 
 
-                                // Colere,              Eclat Lunaire,      Lucioles
+                                // Wrath,               Moonfire,           Faerie Fire
 #define SPELL_DRU_ATTACK_LIST   48461,                  48463,              770
-                                // Recuperation,        Toucher guerriseur, Tranquillite
+                                // Rejuvenation,        Healing Touch,      Tranquility
 #define SPELL_DRU_FRIEND_LIST   48441,                  48378,              48447
                                 // Breath of fire       //Blackout kick     //Chi burst
 #define SPELL_MONK_ATTACK_LIST  123725,                 128531,             130651
@@ -32389,11 +32389,11 @@ void Player::UpdateCharmedAI()
         if (target && GetMotionMaster()->GetCurrentMovementGeneratorType() != CHASE_MOTION_TYPE)
             GetMotionMaster()->MoveChase(target);
 
-        // On laisse quelques attaques en melee deux fois sur trois
+        // Keep some melee attacks two times out of three
         if (urand(0, 2))
             return;
 
-        // On s'arrete pour cast le spell
+        // Stop to cast the spell
         GetMotionMaster()->MoveIdle();
 
         // 0 : Friendly, 1-2-3 : attack
@@ -32712,7 +32712,7 @@ void Player::StoreLootItem(uint8 lootSlot, Loot* loot)
     if (!newitem)
         return;
 
-    // Livre de connaissance : verrouille le joueur pour la semaine des qu'il en recupere un en butin
+    // Knowledge book: lock the player for the week as soon as they loot one
     if (item->item.ItemID == ITEM_ARTIFACT_RESEARCH_NOTES)
         SetArtifactKnowledgeBookLootedThisWeek();
 
@@ -36722,9 +36722,9 @@ void Player::AddNonVisibleItemToCollect()
 
 void Player::UnLockThirdSocketIfNeed(Item* item)
 {
-    // Systeme "launch" (7.0) : on ne force plus la Connaissance du joueur a s'aligner sur un world
-    // state global a chaque connexion. La progression est individuelle (recherche a l'hotel des
-    // ordres + livres de connaissance en butin).
+    // "Launch" system (7.0): the player's Artifact Knowledge is no longer forced to match a global
+    // world state at each login. Progress is per player (class hall research + knowledge books
+    // from loot).
 
     ArtifactUnlockEntry const* unlock = sDB2Manager.GetArtifactUnlock(item->GetTemplate()->GetArtifactID());
     if (!unlock)

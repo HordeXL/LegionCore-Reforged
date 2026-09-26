@@ -45,7 +45,7 @@ enum eSpells
     SPELL_CLONE                 = 119051,
     SPELL_CLONE_VISUAL          = 119053,
     SPELL_LIFE_FRAGILE_THREAD   = 116227,
-    SPELL_CROSSED_OVER          = 116161, // Todo : virer le summon
+    SPELL_CROSSED_OVER          = 116161, // Todo: remove the summon
 
     SPELL_FRAIL_SOUL            = 117723,
 };

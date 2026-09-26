@@ -1124,7 +1124,7 @@ public:
 
     bool OnQuestAccept(Player* player, Creature* creature, Quest const* quest) override
     {
-        if (quest->GetQuestId() == QUEST_03) // La lecon du parchemin brulant
+        if (quest->GetQuestId() == QUEST_03) // The Lesson of the Burning Scroll
         {
             Conversation* conversation = new Conversation;
             if (!conversation->CreateConversation(sObjectMgr->GetGenerator<HighGuid::Conversation>()->Generate(), CONVERSATION, player, NULL, *player))

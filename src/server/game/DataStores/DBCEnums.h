@@ -1136,9 +1136,9 @@ enum WorldMapTransformsFlags
 
 const float CURRENCY_PRECISION = 100.0f;
 
-// Notes de recherche prodigieuse : consommees, elles donnent +1 rang de Connaissance (sort 235765).
-// Sert a la fois de recompense de la commande de recherche de l'hotel des ordres et de "livre de
-// connaissance" lootable en raid / Mythique+ / coffre JcJ (limite a 1 par joueur et par semaine).
+// Prodigious research notes: when used, they grant +1 Artifact Knowledge rank (spell 235765).
+// Both the reward of the class hall research work order and the "knowledge book" looted in
+// raids / Mythic+ / PvP chests (limited to 1 per player per week).
 #define ITEM_ARTIFACT_RESEARCH_NOTES 146745u
 
 enum CurrencyCategory

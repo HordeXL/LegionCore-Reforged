@@ -24,7 +24,7 @@ bool normalizePlayerName(std::string& name)
     if (name.empty())
         return false;
 
-    if (name[0] == -61 && name[1] == -97) // Interdiction d'utiliser ce caractere au debut, il fait planter l'affichage cote client
+    if (name[0] == -61 && name[1] == -97) // This character is not allowed first, it breaks the client display
         return false;
 
     name = sObjectMgr->GetRealCharName(name);

@@ -368,7 +368,7 @@ public:
             switch(cinematicEventProgress)
             {
                 case 0:
-                    // On allume le brasier & la meche
+                    // Light the brazier & the fuse
                     cinematicTimer = 6000;
                     break;
                 case 1:

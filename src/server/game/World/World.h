@@ -97,9 +97,6 @@ enum WorldTimers
 };
 
 /// Configuration elements
-// Paliers de contenu Legion (config Game.Patch). Chaque patch est un palier distinct :
-// il pilote le contenu ouvert (raids, quetes, monnaies), les plafonds de niveau d'objet
-// et le plafond de Connaissance des armes prodigieuses.
 // world states of the PvP season, in the characters database
 enum PvPSeasonWorldStates
 {
@@ -114,12 +111,15 @@ enum PvPSeasonPendingAction
     PVP_SEASON_PENDING_RESTORE  = 2     // back to the save of the current season
 };
 
+// Legion content tiers (Game.Patch setting). Each patch is its own tier:
+// it drives the open content (raids, quests, currencies), the item level caps
+// and the Artifact Knowledge cap.
 enum LegionContentPatch
 {
-    PATCH_7_0   = 1,    // Cauchemar d'Emeraude
-    PATCH_7_1   = 2,    // Epreuve de Valeur
-    PATCH_7_1_5 = 3,    // Palais Sacrenuit
-    PATCH_7_2   = 4,    // Tombeau de Sargeras / Rivage Brise
+    PATCH_7_0   = 1,    // Emerald Nightmare
+    PATCH_7_1   = 2,    // Trial of Valor
+    PATCH_7_1_5 = 3,    // The Nighthold
+    PATCH_7_2   = 4,    // Tomb of Sargeras / Broken Shore
     PATCH_7_3   = 5     // Antorus / Argus
 };
 
@@ -254,8 +254,8 @@ enum WorldBoolConfigs
     CONFIG_PARAGON_ENABLE,
     CONFIG_ARTIFACT_TIER_ENABLE,
     CONFIG_ARTIFACT_KNOWLEDGE_BOOK_LOOT_ENABLE,
-    // Rattrapage de niveau d'objet : actif = valeurs 7.3.5 des DB2 (comportement d'origine du
-    // core), inactif = valeurs du palier defini par Game.Patch.
+    // Item level catch-up: on = 7.3.5 DB2 values (original core behaviour),
+    // off = values of the tier set by Game.Patch.
     CONFIG_ITEMLEVEL_CATCHUP_ENABLE,
     // Legion Assaults on the Broken Isles (7.2 content) and the pre-patch demon invasions on
     // Azeroth. Deliberately detached from Game.Patch: these are events an administrator opens
@@ -525,25 +525,25 @@ enum WorldIntConfigs
     CONFIG_WOW_TOKEN_MARKET_PRICE,
     CONFIG_WOW_TOKEN_REDEEM_BALANCE,
     CONFIG_WOW_TOKEN_ITEM_ID,
-    // Niveau d'objet du butin par difficulte, valeurs d'origine du palier actif (Game.Patch).
-    // Ignorees si CONFIG_ITEMLEVEL_CATCHUP_ENABLE est actif. 0 = laisser les DB2 decider.
+    // Loot item level per difficulty, original values of the active tier (Game.Patch).
+    // Ignored when CONFIG_ITEMLEVEL_CATCHUP_ENABLE is on. 0 = let the DB2 decide.
     CONFIG_ITEMLEVEL_DUNGEON_NORMAL,
     CONFIG_ITEMLEVEL_DUNGEON_HEROIC,
     CONFIG_ITEMLEVEL_DUNGEON_MYTHIC,
-    // Niveau d'objet du Mythique+ a la clef +1 ; les paliers superieurs ajoutent le bonus
-    // de ChallengeMgr::stepLeveling.
+    // Mythic+ item level at keystone +1; higher levels add the bonus
+    // from ChallengeMgr::stepLeveling.
     CONFIG_ITEMLEVEL_MYTHICPLUS_BASE,
-    // Plafond de niveau d'objet du Mythique+ : suit le meilleur raid ouvert au palier actif,
-    // pour qu'une clef haute ne surclasse jamais le contenu disponible.
+    // Mythic+ item level cap: follows the best raid open in the active tier,
+    // so that a high keystone never outgears the available content.
     CONFIG_ITEMLEVEL_MYTHICPLUS_CAP,
-    // Plafond du coffre hebdomadaire, distinct de celui du butin de fin de donjon : il passe
-    // au-dessus du raid heroique sans jamais atteindre le mythique.
+    // Weekly chest cap, separate from the end-of-dungeon loot cap: it goes above
+    // Heroic raid without ever reaching Mythic.
     CONFIG_ITEMLEVEL_MYTHICPLUS_WEEKLY_CAP,
     // Raids where the Knowledge book can drop, as a bitmask: 1 Emerald Nightmare,
     // 2 Trial of Valor, 4 The Nighthold, 8 Tomb of Sargeras, 16 Antorus.
     CONFIG_ARTIFACT_KNOWLEDGE_BOOK_RAIDS,
-    // Pente de difficulte, en pourcent par niveau de clef, au-dela de +15. Les GameTables
-    // montent de 10% composes par niveau, ce qui rend les clefs hautes injouables.
+    // Difficulty slope, in percent per keystone level, beyond +15. The GameTables
+    // compound 10% per level, which makes high keystones unplayable.
     CONFIG_DAMAGE_VARIANCE_PCT,
     CONFIG_CHALLENGE_BASE_KEY_SCALING,
     CONFIG_CHALLENGE_HIGH_KEY_SCALING,

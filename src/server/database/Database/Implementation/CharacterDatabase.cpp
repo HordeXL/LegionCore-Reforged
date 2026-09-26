@@ -153,9 +153,9 @@ void CharacterDatabaseConnection::DoPrepareStatements()
     PrepareStatement(CHAR_SEL_CHARACTER_BANNED, "SELECT guid FROM character_banned WHERE guid = ? AND active = 1", CONNECTION_ASYNC);
     PrepareStatement(CHAR_SEL_CHARACTER_QUESTSTATUSREW, "SELECT quest, guid FROM character_queststatus_rewarded WHERE account = ? AND (guid = 0 OR guid = ?)", CONNECTION_ASYNC);
     PrepareStatement(CHAR_SEL_ACCOUNT_QUEST, "SELECT quest FROM character_queststatus_rewarded WHERE account = ? GROUP BY quest", CONNECTION_ASYNC);
-    // Meilleure Connaissance des armes prodigieuses detenue par un personnage niveau max du compte
-    // (sert au livre/quete de rattrapage pour les rerolls). La valeur est a l'echelle CurrencyPrecision.
-    // Verrou hebdomadaire du livre de connaissance (1 exemplaire lootable par joueur et par semaine)
+    // Best Artifact Knowledge held by a max-level character of the account
+    // (used by the catch-up book/quest for alts). The value is scaled by CurrencyPrecision.
+    // Weekly lock of the knowledge book (1 lootable copy per player per week)
     PrepareStatement(CHAR_SEL_AK_BOOK_WEEKLY, "SELECT 1 FROM character_ak_book_weekly WHERE guid = ?", CONNECTION_ASYNC);
     PrepareStatement(CHAR_SEL_BAG_SLOT_FLAGS, "SELECT bagFlags, bankBagFlags, bagSettings FROM character_bag_slot_flags WHERE guid = ?", CONNECTION_ASYNC);
     PrepareStatement(CHAR_REP_BAG_SLOT_FLAGS, "REPLACE INTO character_bag_slot_flags (guid, bagFlags, bankBagFlags, bagSettings) VALUES (?, ?, ?, ?)", CONNECTION_ASYNC);

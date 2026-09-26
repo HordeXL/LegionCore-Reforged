@@ -6971,7 +6971,7 @@ void Unit::SendSpellNonMeleeDamageLog(SpellNonMeleeDamage* log)
     if (sandboxScalingData.GenerateDataForUnits(log->attacker, log->target))
         packet.SandboxScaling = sandboxScalingData;
 
-    // DEBUG: log dégâts anormalement bas (0 ou 1) pour identifier les sorts affectés
+    // DEBUG: log abnormally low damage (0 or 1) to find the affected spells
     if (log->damage <= 1 && log->attacker && log->attacker->IsPlayer())
         TC_LOG_DEBUG("spells", "DAMAGE_BUG: SpellID=%u damage=%u absorb=%u resist=%u blocked=%u preHitHealth=%u overkill=%i attacker=%s target=%s",
             log->SpellID, log->damage, log->absorb, log->resist, log->blocked, log->preHitHealth,

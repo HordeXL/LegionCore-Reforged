@@ -468,9 +468,9 @@ void LootItem::init(Loot* loot)
         ItemTemplate const* proto = sObjectMgr->GetItemTemplate(item.ItemID);
         freeforall  = proto && (proto->GetFlags() & ITEM_FLAG_MULTI_DROP);
 
-        // Livre de connaissance : butin personnel sans jet. Chaque joueur present et non verrouille
-        // pour la semaine ramasse sa propre copie sur la meme entree de butin : le resultat ne
-        // depend plus du nombre de joueurs presents.
+        // Knowledge book: personal loot, no roll. Every player present and not locked for the
+        // week picks up their own copy from the same loot entry: the result no longer depends
+        // on how many players are present.
         if (item.ItemID == ITEM_ARTIFACT_RESEARCH_NOTES)
             freeforall = true;
         follow_loot_rules = proto && (proto->FlagsCu & ITEM_FLAGS_CU_FOLLOW_LOOT_RULES);
@@ -538,10 +538,10 @@ static int32 GetRaidBossItemLevelOffset(uint32 creatureEntry)
     return 0;
 }
 
-// Karazhan rehausse (carte 1651) : mega-donjon de 9 boss, disponible uniquement en mythique.
-// Il ne suit pas le niveau d'objet d'un mythique 0 classique (840) mais son propre decoupage :
-// aile inferieure a 855, aile superieure a 860, et Nightbane a 875. Attumen et Nightbane n'ont
-// pas de spawn statique (invocation par script), ce qui est normal.
+// Return to Karazhan (map 1651): 9-boss mega-dungeon, Mythic only.
+// It does not follow the item level of a regular Mythic 0 (840) but its own split:
+// lower wing at 855, upper wing at 860, and Nightbane at 875. Attumen and Nightbane have
+// no static spawn (summoned by script), which is expected.
 struct KarazhanBossItemLevel
 {
     uint32 CreatureEntry;
@@ -550,19 +550,19 @@ struct KarazhanBossItemLevel
 
 static KarazhanBossItemLevel const KarazhanBossTable[] =
 {
-    { 114262, 855 },    // Attumen le Chasseur      - aile inferieure
-    { 114312, 855 },    // Moroes                   - aile inferieure
-    { 113971, 855 },    // Vierge de vertu          - aile inferieure
-    { 114247, 860 },    // Le Conservateur          - aile superieure
-    { 114350, 860 },    // Ombre de Medivh          - aile superieure
-    { 114252, 860 },    // Devoreur de mana         - aile superieure
-    { 114790, 860 },    // Viz'aduum le Guetteur    - aile superieure
-    { 114895, 875 },    // Nightbane                - boss bonus
+    { 114262, 855 },    // Attumen the Huntsman     - lower wing
+    { 114312, 855 },    // Moroes                   - lower wing
+    { 113971, 855 },    // Maiden of Virtue         - lower wing
+    { 114247, 860 },    // The Curator              - upper wing
+    { 114350, 860 },    // Shade of Medivh          - upper wing
+    { 114252, 860 },    // Mana Devourer            - upper wing
+    { 114790, 860 },    // Viz'aduum the Watcher    - upper wing
+    { 114895, 875 },    // Nightbane                - bonus boss
 };
 
-// Niveau d'objet d'origine du butin, par carte et par difficulte. Retourne 0 quand aucune valeur
-// n'est definie : Mythique+, scenarios et monde ouvert gardent alors leur propre mise a l'echelle
-// (ChallengeMgr pour les clefs, contexte 21 pour le reste).
+// Original loot item level, per map and difficulty. Returns 0 when no value is set:
+// Mythic+, scenarios and the open world then keep their own scaling
+// (ChallengeMgr for keystones, context 21 for the rest).
 static uint32 GetPatchItemLevelForDifficulty(uint32 mapId, uint32 difficultyId, uint32 objEntry)
 {
     if (mapId == 1651)
@@ -942,9 +942,9 @@ bool Loot::FillLoot(uint32 lootId, LootStore const& store, Player* lootOwner, bo
     if (!_isTokenLoot && !_isItemLoot) // TreeMod for token calculate in spelleffect
         _itemContext = lootOwner->GetMap()->GetDifficultyLootItemContext(false, lootOwner->getLevel() == MAX_LEVEL, isBoss);
 
-    // Progression du niveau d'objet par palier : sans le rattrapage, le butin reprend les valeurs
-    // d'origine du patch actif au lieu des valeurs 7.3.5 figees dans les DB2 du client. Le champ
-    // _needLevel force ensuite l'ilvl par delta de bonus (GetItemBonusForLevel).
+    // Item level progression per tier: without the catch-up, loot uses the original values of
+    // the active patch instead of the 7.3.5 values frozen in the client DB2. The _needLevel field
+    // then forces the ilvl through a bonus delta (GetItemBonusForLevel).
     if (!_isTokenLoot && !_isItemLoot && !sWorld->getBoolConfig(CONFIG_ITEMLEVEL_CATCHUP_ENABLE))
         if (uint32 tierItemLevel = GetPatchItemLevelForDifficulty(lootOwner->GetMapId(), _DifficultyID, objEntry))
             _needLevel = tierItemLevel;
@@ -960,8 +960,8 @@ bool Loot::FillLoot(uint32 lootId, LootStore const& store, Player* lootOwner, bo
                     if (_challenge->_complete)
                     {
                         _itemContext = sChallengeMgr->GetLootTreeMod(_levelBonus, _challengeLevel, _challenge);
-                        // Mythique+ : niveau d'objet explicite du palier actif, base configuree
-                        // + bonus du niveau de clef, au lieu de dependre de la base des DB2.
+                        // Mythic+: explicit item level of the active tier, configured base
+                        // + keystone level bonus, instead of relying on the DB2 base.
                         if (!sWorld->getBoolConfig(CONFIG_ITEMLEVEL_CATCHUP_ENABLE))
                             _needLevel = std::min<int32>(sWorld->getIntConfig(CONFIG_ITEMLEVEL_MYTHICPLUS_BASE) + _levelBonus,
                                                         sWorld->getIntConfig(CONFIG_ITEMLEVEL_MYTHICPLUS_CAP));
@@ -976,8 +976,8 @@ bool Loot::FillLoot(uint32 lootId, LootStore const& store, Player* lootOwner, bo
         {
             lootId = ReplaceLootID(lootId);
             _itemContext = sChallengeMgr->GetLootTreeMod(_levelBonus, _challengeLevel);
-            // Coffre hebdomadaire : meme principe que le Mythique+ ci-dessus, mais avec son
-            // propre plafond, qui passe au-dessus du raid heroique sans atteindre le mythique.
+            // Weekly chest: same idea as the Mythic+ above, but with its own cap, which goes
+            // above Heroic raid without reaching Mythic.
             if (!sWorld->getBoolConfig(CONFIG_ITEMLEVEL_CATCHUP_ENABLE))
                 _needLevel = std::min<int32>(sWorld->getIntConfig(CONFIG_ITEMLEVEL_MYTHICPLUS_BASE) + _levelBonus,
                                             sWorld->getIntConfig(CONFIG_ITEMLEVEL_MYTHICPLUS_WEEKLY_CAP));
@@ -1980,9 +1980,9 @@ bool Loot::AllowedForPlayer(Player const* player, uint32 ItemID, uint32 Currency
         if (!pProto || !player)
             return false;
 
-        // Livre de connaissance : desactivable globalement, et limite a 1 exemplaire par joueur et
-        // par semaine (raid, coffre de Mythique+, coffre de victoire JcJ). Un joueur deja verrouille
-        // ne le voit pas et ne peut pas jeter dessus : l'objet reste disponible pour les autres.
+        // Knowledge book: can be disabled globally, and limited to 1 copy per player per week
+        // (raid, Mythic+ chest, PvP victory chest). An already locked player does not see it and
+        // cannot roll on it: the item stays available to the others.
         if (ItemID == ITEM_ARTIFACT_RESEARCH_NOTES)
         {
             if (!sWorld->getBoolConfig(CONFIG_ARTIFACT_KNOWLEDGE_BOOK_LOOT_ENABLE))

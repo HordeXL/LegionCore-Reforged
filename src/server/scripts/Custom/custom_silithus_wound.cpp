@@ -1,19 +1,20 @@
 /*
- * Silithus : la Plaie - voyage dans le temps (contenu custom)
+ * Silithus: The Wound - time travel (custom content)
  *
- * Zidormi, 128607, se tient dans Silithus depuis toujours mais n'avait ni menu ni script. Le
- * terrain de Legion est la lui aussi : phase_definitions echange la zone 1377 vers la carte 1817,
- * et depuis 2026_09_08_03 il remplit VisibleMapID, sans quoi le sol restait celui de 2006.
+ * Zidormi, 128607, has always stood in Silithus but had neither menu nor script. The Legion
+ * terrain is there too: phase_definitions swaps zone 1377 to map 1817, and since 2026_09_08_03
+ * it fills VisibleMapID, without which the ground stayed the 2006 one.
  *
- * L'aura 255152 dit "Silithus avant que le monde soit blesse" : la porter, c'est se tenir dans la
- * zone d'avant, ne pas la porter c'est le present, ou l'epee est plantee.
+ * Aura 255152 means "Silithus before the world was wounded": wearing it puts you in the old zone,
+ * not wearing it is the present, with the sword planted.
  *
- * Elle est permanente et sauvegardee, et rien ne la retire tout seul : un joueur garde sa version
- * en quittant la zone, en changeant de carte et en se reconnectant.
+ * It is permanent and saved, and nothing removes it on its own: a player keeps their version
+ * when leaving the zone, changing map and logging back in.
  *
- * Custom.SilithusWound.Default dit seulement si le voyage est ouvert. A 1 Zidormi propose la
- * seule ligne qui manque - le passe a qui est au present, le retour a qui est dans le passe. A 0
- * elle n'a rien a dire et la zone reste au present, l'epee plantee comme le patch 7.3 l'a laissee.
+ * Custom.SilithusWound.Default only says whether the travel is open. At 1 Zidormi offers the one
+ * missing option - the past to whoever is in the present, the way back to whoever is in the past.
+ * At 0 she has nothing to say and the zone stays in the present, the sword planted as patch 7.3
+ * left it.
  */
 
 #include "ScriptMgr.h"
@@ -29,11 +30,11 @@ enum SilithusWound
 {
     NPC_ZIDORMI_SILITHUS   = 128607,
     ZONE_SILITHUS          = 1377,
-    SPELL_TIME_TRAVELLING  = 255152,   // la porter, c'est etre avant la Plaie ; sans elle, l'epee
-    GOSSIP_TEXT_ZIDORMI    = 14065,    // le texte de Zidormi, celui que sert deja celle de Norfendre
+    SPELL_TIME_TRAVELLING  = 255152,   // wearing it means being before the Wound; without it, the sword
+    GOSSIP_TEXT_ZIDORMI    = 14065,    // Zidormi's text, the one the Northrend Zidormi already uses
 
-    ACTION_TO_THE_PAST     = GOSSIP_ACTION_INFO_DEF + 1,   // pose l'aura : voyager avant la Plaie
-    ACTION_TO_THE_PRESENT  = GOSSIP_ACTION_INFO_DEF + 2    // la retire : revenir, l'epee reapparait
+    ACTION_TO_THE_PAST     = GOSSIP_ACTION_INFO_DEF + 1,   // adds the aura: travel to before the Wound
+    ACTION_TO_THE_PRESENT  = GOSSIP_ACTION_INFO_DEF + 2    // removes it: come back, the sword reappears
 };
 
 #define GOSSIP_SHOW_PAST    "Montre-moi Silithus avant la Plaie."
@@ -46,11 +47,11 @@ public:
 
     bool OnGossipHello(Player* player, Creature* creature) override
     {
-        // Voyage ferme : elle n'ouvre rien.
+        // Travel closed: she offers nothing.
         if (!sWorld->getBoolConfig(CONFIG_SILITHUS_WOUND_DEFAULT))
             return false;
 
-        // Une seule ligne, celle qui mene ailleurs que la ou on se tient.
+        // A single option, the one leading away from where the player stands.
         if (player->HasAura(SPELL_TIME_TRAVELLING))
             player->ADD_GOSSIP_ITEM(GossipOptionNpc::None, GOSSIP_SHOW_PRESENT, GOSSIP_SENDER_MAIN, ACTION_TO_THE_PRESENT);
         else
@@ -74,27 +75,26 @@ public:
             return true;
         }
 
-        // Le coeur ne previent le gestionnaire de phases pour aucun changement d'aura : rien dans
-        // les chemins d'aura ne mentionne CONDITION_AURA. Sans ce rappel, la phase n'est recalculee
-        // qu'au prochain changement de zone - l'epee restait donc en place au clic, puis basculait
-        // en sortant de Silithus et rebasculait en y revenant.
+        // The core never notifies the phase manager of an aura change: no aura code path mentions
+        // CONDITION_AURA. Without this call the phase is only recomputed on the next zone change -
+        // so the sword stayed on click, then switched when leaving Silithus and switched back on
+        // return.
         PhaseUpdateData phaseUpdateData;
         phaseUpdateData.AddConditionType(CONDITION_AURA);
         player->GetPhaseMgr().NotifyConditionChanged(phaseUpdateData);
 
         player->PlayerTalkClass->SendCloseGossip();
 
-        // Le recalcul ci-dessus suffit aux objets et aux creatures, pas au sol : un VisibleMapID
-        // n'est lu par le client qu'au chargement de la carte, si bien que le terrain restait celui
-        // d'avant jusqu'a ce qu'on sorte de la zone et qu'on y revienne. Une teleportation sur
-        // place lui fait recharger, ce qui est aussi ce que fait le jeu - la bascule de Zidormi
-        // passe par un bref ecran de chargement.
+        // The recompute above is enough for objects and creatures, not for the ground: the client
+        // only reads a VisibleMapID when the map loads, so the terrain stayed the old one until
+        // the player left the zone and came back. A teleport on the spot makes it reload, which is
+        // also what the game does - Zidormi's switch goes through a short loading screen.
         //
-        // TELE_TO_ZONE_MAP est indispensable : sans lui SafeTeleport voit la meme carte et prend le
-        // chemin proche, qui deplace le joueur sans rien recharger - donc sans ecran de chargement
-        // et sans nouveau sol. Ce drapeau force le chemin lointain sur place, et il epargne au
-        // passage les auras portant AURA_INTERRUPT_FLAG_CHANGE_MAP, ce qui compte ici puisque le
-        // marqueur temporel doit survivre au voyage qu'il declenche.
+        // TELE_TO_ZONE_MAP is required: without it SafeTeleport sees the same map and takes the
+        // near path, which moves the player without reloading anything - so no loading screen and
+        // no new ground. This flag forces the far path on the spot, and it also spares the auras
+        // carrying AURA_INTERRUPT_FLAG_CHANGE_MAP, which matters here since the time marker must
+        // survive the travel it triggers.
         player->TeleportTo(player->GetMapId(), player->GetPositionX(), player->GetPositionY(),
                            player->GetPositionZ(), player->GetOrientation(), TELE_TO_ZONE_MAP);
         return true;
@@ -114,9 +114,9 @@ public:
         if (newZone != ZONE_SILITHUS)
             return;
 
-        // Le voyage ferme ne doit laisser personne echoue dans le passe : un marqueur pris avant
-        // que l'option ne soit coupee est rendu a l'entree dans la zone. Le present redevient alors
-        // le seul etat possible, l'epee plantee.
+        // Closing the travel must not leave anyone stranded in the past: a marker taken before the
+        // option was turned off is removed on entering the zone. The present is then the only
+        // possible state, with the sword planted.
         if (!sWorld->getBoolConfig(CONFIG_SILITHUS_WOUND_DEFAULT) && player->HasAura(SPELL_TIME_TRAVELLING))
         {
             player->RemoveAurasDueToSpell(SPELL_TIME_TRAVELLING);
@@ -132,21 +132,21 @@ public:
         if (!player)
             return;
 
-        // La grille de l'effet de l'epee est forcee au chargement. Sans cela l'objet n'existe pas
-        // tant que personne n'est passe a cote : il n'entre dans le monde qu'avec sa grille, et
-        // AddMaxVisible ignore ce qui n'y est pas. Une fois cree il se marque actif et sa grille ne
-        // se decharge plus - il fallait seulement la charger une premiere fois.
+        // The grid of the sword effect is loaded by force. Otherwise the object does not exist
+        // until someone has walked by: it only enters the world with its grid, and AddMaxVisible
+        // ignores what is not there. Once created it marks itself active and its grid no longer
+        // unloads - it only had to be loaded once.
         if (player->GetMapId() == 1)
             if (Map* map = player->GetMap())
                 map->LoadGrid(-7128.0f, 930.0f);
     }
 
 
-    // Rien ici ne recharge plus le terrain a l'entree dans la zone. Ce rechargement existait parce
-    // que sortir de Silithus faisait tomber la bascule de terrain, phase_definitions etant indexe
-    // par zone ; depuis 2026_09_08_11 la definition est donnee a toutes les zones de Kalimdor, la
-    // bascule ne tombe donc plus et franchir une frontiere ne change rien. Seule Zidormi decide, et
-    // c'est elle seule qui provoque un ecran de chargement.
+    // Nothing here reloads the terrain on entering the zone any more. That reload existed because
+    // leaving Silithus dropped the terrain swap, phase_definitions being indexed by zone; since
+    // 2026_09_08_11 the definition is given to every Kalimdor zone, so the swap no longer drops
+    // and crossing a border changes nothing. Only Zidormi decides, and only she triggers a loading
+    // screen.
 };
 
 void AddSC_custom_silithus_wound()
