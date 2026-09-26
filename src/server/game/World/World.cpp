@@ -1499,6 +1499,11 @@ void World::LoadConfigSettings(bool reload)
 
     m_bool_configs[CONFIG_PVP_LEVEL_ENABLE]  = sConfigMgr->GetBoolDefault("PvP.LevelEnable", true);
     m_int_configs[CONFIG_PVP_ACTIVE_SEASON] = sConfigMgr->GetIntDefault("PvP.ActiveSeason", 0);
+    if (m_int_configs[CONFIG_PVP_ACTIVE_SEASON] >= std::extent<decltype(legionPvpItem)>::value)
+    {
+        TC_LOG_ERROR("server.loading", "PvP.ActiveSeason (%u) must be lower than " SZFMTD ", set to 0.", m_int_configs[CONFIG_PVP_ACTIVE_SEASON], std::extent<decltype(legionPvpItem)>::value);
+        m_int_configs[CONFIG_PVP_ACTIVE_SEASON] = 0;
+    }
     m_int_configs[CONFIG_PVP_ACTIVE_STEP] = sConfigMgr->GetIntDefault("PvP.ActiveStep", 0);
 
     m_bool_configs[CONFIG_PARAGON_ENABLE]  = sConfigMgr->GetBoolDefault("ParagonEnable", true);
