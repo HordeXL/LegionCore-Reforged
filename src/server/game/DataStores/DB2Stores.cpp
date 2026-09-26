@@ -1918,8 +1918,13 @@ void DB2Manager::InitDB2CustomStores()
     for (SpellTargetRestrictionsEntry const* restriction : sSpellTargetRestrictionsStore)
         _spellRestrictionDiff[restriction->SpellID].insert(restriction);
 
-    _spellEffectDiff.resize(sSpellEffectStore.GetNumRows() + 1);
-    _spellEffectMap.resize(sSpellEffectStore.GetNumRows() + 1);
+    // indexed by spell id, not by effect id
+    uint32 maxSpellId = 0;
+    for (SpellEffectEntry const* spellEffect : sSpellEffectStore)
+        maxSpellId = std::max(maxSpellId, spellEffect->SpellID);
+
+    _spellEffectDiff.resize(maxSpellId + 1);
+    _spellEffectMap.resize(maxSpellId + 1);
 
     for (SpellEffectEntry const* spellEffect : sSpellEffectStore)
     {
@@ -3320,6 +3325,9 @@ uint32 DB2Manager::GetSpellByTrigger(uint32 trigerSpell)
 
 SpellEffectEntry const* DB2Manager::GetSpellEffectEntry(uint32 spellId, uint32 effect, uint8 difficulty)
 {
+    if (spellId >= _spellEffectMap.size() || effect >= MAX_SPELL_EFFECTS)
+        return nullptr;
+
     if (difficulty)
     {
         SpellEffectsMap const* effects = &_spellEffectDiff[spellId].effects;

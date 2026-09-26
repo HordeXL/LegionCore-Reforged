@@ -65,6 +65,13 @@ uint32 LoadGameTable(std::vector<std::string>& errors, GameTable<T>& storage, bo
     boost::algorithm::trim(headers);
     Tokenizer columnDefs(headers, '\t', 0, false);
 
+    // each row is written column by column into T: a wider file would overflow it
+    if (columnDefs.size() > sizeof(T) / sizeof(float))
+    {
+        errors.push_back(Trinity::StringFormat("GameTable '%s' has more columns (" SZFMTD ") than its C++ structure (" SZFMTD ").", path.string().c_str(), columnDefs.size(), sizeof(T) / sizeof(float)));
+        return 0;
+    }
+
     if (columnDefs.size() != sizeof(T) / sizeof(float))
         TC_LOG_INFO("server.loading", "GameTable '%s' has different count of columns " SZFMTD " than expected by size of C++ structure (" SZFMTD ").", path.string().c_str(), columnDefs.size(), sizeof(T) / sizeof(float));
         // errors.push_back(Trinity::StringFormat("GameTable '%s' has different count of columns " SZFMTD " than expected by size of C++ structure (" SZFMTD ").", path.string().c_str(), columnDefs.size(), sizeof(T) / sizeof(float)));
