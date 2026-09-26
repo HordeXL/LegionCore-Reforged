@@ -1138,7 +1138,8 @@ void Battleground::PlayerReward(Player* player, bool isWinner)
 
     std::vector<uint32> itemsContainer = isAlliance ? reward->ItemsA : reward->ItemsH;
 
-    uint32 needLevel = reward->BaseLevel;
+    // unrated loot starts from the floor of the season, pvp_reward holding the fixed 7.3.5 level
+    uint32 needLevel = sWorld->getBoolConfig(CONFIG_PVP_LEVEL_ENABLE) ? Player::GetPvPSeasonFloorLevel() : reward->BaseLevel;
 
     if ((IsArena() || IsRBG()) && !IsSkirmish())
         player->GetPvPRatingAndLevel(reward, type, rating, needLevel, true);

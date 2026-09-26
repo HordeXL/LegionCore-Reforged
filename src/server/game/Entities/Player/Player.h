@@ -3166,6 +3166,7 @@ class TC_GAME_API Player : public Unit, public GridObject<Player>
         std::vector<uint32> GetPvPRewardItem(uint32& itemID, uint8 type, uint32 rating, bool elit, uint32 needLevel);
         void GetPvPRatingAndLevel(PvpReward* reward, uint8 type, uint32& rating, uint32& needLevel, bool elit);
         void GetPvPRatingAndLevelOld(PvpReward* reward, uint8 type, uint32& rating, uint32& needLevel, bool elit);
+        static uint32 GetPvPSeasonFloorLevel();     // lowest PvP item level of the season
 
         /*********************************************************/
         /***              GARRISON SYSTEM                      ***/

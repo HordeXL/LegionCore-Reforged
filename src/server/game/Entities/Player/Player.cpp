@@ -35524,6 +35524,15 @@ static uint32 elitPvpLeveling[][3]
 };
 static_assert(std::extent<decltype(elitPvpLeveling)>::value == MAX_PVP_SEASON, "one row per PvP season");
 
+// floors the season tables add up from: Season 1 Gladiator and Elite gear
+constexpr uint32 PvPSeasonEpicBaseLevel = 840;
+constexpr uint32 PvPSeasonEliteBaseLevel = 870;
+
+uint32 Player::GetPvPSeasonFloorLevel()
+{
+    return PvPSeasonEpicBaseLevel + epicPvpLeveling[sWorld->getIntConfig(CONFIG_PVP_ACTIVE_SEASON)][0];
+}
+
 std::tuple<uint32, uint32> Player::GetItemDataForRatedQuest(uint32 bracketType)
 {
     auto bracket = getBracket(bracketType);
@@ -35744,9 +35753,10 @@ void Player::GetPvPRatingAndLevel(PvpReward* reward, uint8 type, uint32& rating,
     needLevel += levelBonus;
 }
 
-void Player::GetPvPRatingAndLevelOld(PvpReward* reward, uint8 type, uint32& rating, uint32& needLevel, bool elit)
+void Player::GetPvPRatingAndLevelOld(PvpReward* /*reward*/, uint8 type, uint32& rating, uint32& needLevel, bool elit)
 {
-    needLevel = reward->BaseLevel;
+    // the season tables add up from the Season 1 floors, pvp_reward holding the fixed 7.3.5 levels
+    needLevel = PvPSeasonEpicBaseLevel;
 
     auto bracketType = 0;
     switch (type)
@@ -35772,7 +35782,9 @@ void Player::GetPvPRatingAndLevelOld(PvpReward* reward, uint8 type, uint32& rati
     uint8 activeSeason = sWorld->getIntConfig(CONFIG_PVP_ACTIVE_SEASON);
 
     //// Arena epic
-    if (rating >= 1400 && rating < 1600)
+    if (rating < 1400)
+        levelBonus += epicPvpLeveling[activeSeason][0];
+    else if (rating >= 1400 && rating < 1600)
         levelBonus += epicPvpLeveling[activeSeason][1];
     else if (rating >= 1600 && rating < 1800)
         levelBonus += epicPvpLeveling[activeSeason][2];
@@ -35781,8 +35793,8 @@ void Player::GetPvPRatingAndLevelOld(PvpReward* reward, uint8 type, uint32& rati
 
     if (elit)
     {
-        // Arena elit epic
-        if (rating >= 2000 && rating < 2200)
+        // Arena elit epic; the top two steps wait like the weekly chest
+        if (rating >= 2000 && (rating < 2200 || !sWorld->getIntConfig(CONFIG_PVP_ACTIVE_STEP)))
             levelBonus += elitPvpLeveling[activeSeason][0];
         else if (rating >= 2200 && rating < 2400)
             levelBonus += elitPvpLeveling[activeSeason][1];
@@ -35790,19 +35802,16 @@ void Player::GetPvPRatingAndLevelOld(PvpReward* reward, uint8 type, uint32& rati
             levelBonus += elitPvpLeveling[activeSeason][2];
 
         if (rating >= 2000)
-            needLevel = reward->ElitLevel;
+            needLevel = PvPSeasonEliteBaseLevel;
     }
     else
     {
-        if (rating >= 2000 && rating < 2200)
+        if (rating >= 2000 && (rating < 2200 || !sWorld->getIntConfig(CONFIG_PVP_ACTIVE_STEP)))
             levelBonus += epicPvpLeveling[activeSeason][4];
-        else if (sWorld->getIntConfig(CONFIG_PVP_ACTIVE_STEP) >= 1)
-        {
-            if (rating >= 2200 && rating < 2400)
-                levelBonus += epicPvpLeveling[activeSeason][5];
-            else if (rating >= 2400)
-                levelBonus += epicPvpLeveling[activeSeason][6];
-        }
+        else if (rating >= 2200 && rating < 2400)
+            levelBonus += epicPvpLeveling[activeSeason][5];
+        else if (rating >= 2400)
+            levelBonus += epicPvpLeveling[activeSeason][6];
     }
 
     needLevel += levelBonus;
