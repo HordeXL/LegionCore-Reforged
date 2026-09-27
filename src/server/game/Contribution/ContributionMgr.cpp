@@ -23,6 +23,40 @@ namespace
     // 1 while Legionfall is open: the client shows the construction on the Broken Isles map only then
     uint32 const LegionfallOpenWorldState = 13317;
 
+    // The Broken Shore rares of the map (AreaPOI 5284 to 5308): the client shows one while its world state is 1 and
+    // its tracking quest is not done. Three of the 25 have no spawn in the database.
+    uint32 const BrokenIslesMapId = 1220;
+    struct BrokenShoreRare
+    {
+        uint32 WorldState;
+        uint32 Entry;
+    };
+    BrokenShoreRare const BrokenShoreRares[] =
+    {
+        { 12867, 117141 },  // Malgrazoth
+        { 12868, 117140 },  // Salethan the Broodwalker
+        { 12869, 117094 },  // Malorus the Soulkeeper
+        { 12870, 117086 },  // Emberfire
+        { 12871, 117096 },  // Potionmaster Gloop
+        { 12872, 117091 },  // Felmaw Emberfiend
+        { 12873, 117089 },  // Inquisitor Chillbane
+        { 12875, 117095 },  // Dreadblade Annihilator
+        { 12877, 117090 },  // Xorogun the Flamecarver
+        { 12878, 116953 },  // Corrupted Bonebreaker
+        { 12879, 117103 },  // Felcaller Zelthae
+        { 12880, 118993 },  // Dreadeye
+        { 12882, 119718 },  // Imp Mother Bruva
+        { 12883, 120998 },  // Flllurlokkr
+        { 12884, 121016 },  // Aqueux
+        { 12885, 121029 },  // Brood Mother Nix
+        { 12886, 121037 },  // Grossir
+        { 12887, 121046 },  // Brother Badatin
+        { 12888, 121107 },  // Lady Eldrathe
+        { 12889, 121112 },  // Somber Dawn
+        { 12890, 121134 },  // Duke Sithizi
+        { 12891, 116166 },  // Eye of Gurgh
+    };
+
     uint32 GetPersonalTracker(uint32 contributionID)
     {
         switch (contributionID)
@@ -87,6 +121,37 @@ void ContributionMgr::Initialize()
 
     sWorldStateMgr.AddTemplate(LegionfallOpenWorldState, WorldStatesData::Types::World, 0, 1 << WorldStatesData::Flags::InitialState, 0);
     sWorldStateMgr.SetWorldState(LegionfallOpenWorldState, 0, IsOpen() ? 1 : 0);
+
+    // a rare is up unless its respawn is pending; respawns shorter than 15 minutes are not saved, so they read as up
+    _rareRespawn.clear();
+    std::string entries;
+    for (BrokenShoreRare const& rare : BrokenShoreRares)
+    {
+        sWorldStateMgr.AddTemplate(rare.WorldState, WorldStatesData::Types::World, 0, 1 << WorldStatesData::Flags::InitialState, 0);
+        _rareRespawn[rare.Entry] = 0;
+        entries += (entries.empty() ? "" : ",") + std::to_string(rare.Entry);
+    }
+    std::map<uint64, uint32> guidToEntry;
+    if (QueryResult result = WorldDatabase.PQuery("SELECT guid, id FROM creature WHERE map = %u AND id IN (%s)", BrokenIslesMapId, entries.c_str()))
+    {
+        do
+        {
+            Field* fields = result->Fetch();
+            guidToEntry[fields[0].GetUInt64()] = fields[1].GetUInt32();
+        }
+        while (result->NextRow());
+    }
+    if (QueryResult result = CharacterDatabase.PQuery("SELECT guid, respawnTime FROM creature_respawn WHERE mapId = %u", BrokenIslesMapId))
+    {
+        do
+        {
+            Field* fields = result->Fetch();
+            auto itr = guidToEntry.find(fields[0].GetUInt64());
+            if (itr != guidToEntry.end())
+                _rareRespawn[itr->second] = fields[1].GetUInt32();
+        }
+        while (result->NextRow());
+    }
 
     // the world states were loaded before these templates existed, so their saved values were skipped: read them back
     std::map<uint32, uint32> saved;
@@ -171,6 +236,9 @@ void ContributionMgr::Update(uint32 diff)
 
     std::lock_guard<std::recursive_mutex> guard(_lock);
     uint32 const now = uint32(GameTime::GetGameTime());
+    for (BrokenShoreRare const& rare : BrokenShoreRares)
+        SetValue(rare.WorldState, _rareRespawn[rare.Entry] <= now ? 1 : 0);
+
     for (auto& itr : _contributions)
     {
         ContributionLifeData& data = itr.second;
@@ -206,6 +274,15 @@ void ContributionMgr::Update(uint32 diff)
                 break;
         }
     }
+}
+
+void ContributionMgr::OnCreatureDeath(uint32 entry, uint32 respawnTime)
+{
+    // called from the map threads: the world state follows on the next update of the world thread
+    std::lock_guard<std::recursive_mutex> guard(_lock);
+    auto itr = _rareRespawn.find(entry);
+    if (itr != _rareRespawn.end())
+        itr->second = respawnTime;
 }
 
 void ContributionMgr::SendResult(Player* player, uint32 contributionID, ContributionResult result) const

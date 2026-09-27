@@ -17,6 +17,7 @@
  */
 
 #include "Creature.h"
+#include "ContributionMgr.h"
 #include "BattlegroundMgr.h"
 #include "CellImpl.h"
 #include "CharmInfo.h"
@@ -2590,6 +2591,8 @@ void Creature::setDeathState(DeathState s)
             }
         }
         m_respawnTime = GameTime::GetGameTime() + _respawnDelay + m_corpseDelay;
+        if (GetMapId() == 1220)
+            sContributionMgr.OnCreatureDeath(GetEntry(), uint32(m_respawnTime));
 
         // always save boss respawn time at death to prevent crash cheating
         if (sWorld->getBoolConfig(CONFIG_SAVE_RESPAWN_TIME_IMMEDIATELY) || isWorldBoss())

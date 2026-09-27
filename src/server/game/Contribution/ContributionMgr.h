@@ -67,6 +67,7 @@ public:
     void Update(uint32 diff);
 
     void Contribute(Player* player, uint32 orderIndex);
+    void OnCreatureDeath(uint32 entry, uint32 respawnTime);     // Broken Isles creatures only
     void SendLastChange(Player* player, uint32 contributionID, uint32 requestGuid);
 
     ContributionData::ContributionState GetState(uint32 contributionID) const;
@@ -88,6 +89,7 @@ private:
     void SendResult(Player* player, uint32 contributionID, ContributionData::ContributionResult result) const;
 
     std::map<uint32, ContributionLifeData> _contributions;     // by Contribution ID
+    std::map<uint32, uint32> _rareRespawn;                      // Broken Shore rare entry -> respawn time, 0 when up
     uint32 _updateTimer = 0;
     mutable std::recursive_mutex _lock;
 };
