@@ -257,6 +257,7 @@ enum WorldBoolConfigs
     // Item level catch-up: on = 7.3.5 DB2 values (original core behaviour),
     // off = values of the tier set by Game.Patch.
     CONFIG_ITEMLEVEL_CATCHUP_ENABLE,
+    CONFIG_LEGIONFALL_MAGE_TOWER_ALWAYS_BUILT,
     // Legion Assaults on the Broken Isles (7.2 content) and the pre-patch demon invasions on
     // Azeroth. Deliberately detached from Game.Patch: these are events an administrator opens
     // and closes at will, not consequences of the content tier.
@@ -519,6 +520,7 @@ enum WorldIntConfigs
     CONFIG_PLAYER_AFK_TIMEOUT,
     CONFIG_PLAYER_LEGION_LEGENDARY_EQUIP_COUNT,
     CONFIG_LEGION_ENABLED_PATCH,
+    CONFIG_LEGIONFALL_CONTRIBUTIONS_REQUIRED,
     CONFIG_UNIQUE_IP_TOKEN_TYPE,
     CONFIG_UNIQUE_IP_TOKEN_AMOUNT,
     CONFIG_EXPANSION,

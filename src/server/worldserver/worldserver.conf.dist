@@ -44,6 +44,24 @@ Game.Patch = 5
 Game.Patch.ContentScripts = 1
 
 #
+#    Legionfall.ContributionsRequired
+#        Number of contributions (100 War Supplies each) needed to build a Broken Shore building:
+#        Mage Tower, Command Center, Nether Disruptor. On retail a whole region contributed; the
+#        value should follow the population of the server. Each building is built on its own.
+#        Cycle, from the client data: building, active 2 days, under attack 1 day, destroyed 1
+#        day, then building again. Nothing moves below tier 7.2.
+#        GM commands: .legionfall info, state, progress.
+#        Default: 200
+#
+#    Legionfall.MageTower.AlwaysBuilt
+#        1 keeps the Mage Tower built for good, as Blizzard did in June 2018: its challenges stay
+#        open. The two other buildings still follow their cycle.
+#        Default: 0
+
+Legionfall.ContributionsRequired = 200
+Legionfall.MageTower.AlwaysBuilt = 0
+
+#
 #    Custom.ItemLevel.Catchup.Enable
 #        Item level catch-up.
 #            0 - Loot uses the original item levels of the content tier set by Game.Patch

@@ -162,6 +162,7 @@ TC_GAME_API extern DB2Storage<LFGDungeonsEntry>                         sLfgDung
 TC_GAME_API extern DB2Storage<LiquidTypeEntry>                          sLiquidTypeStore;
 TC_GAME_API extern DB2Storage<LockEntry>                                sLockStore;
 TC_GAME_API extern DB2Storage<MailTemplateEntry>                        sMailTemplateStore;
+TC_GAME_API extern DB2Storage<ContributionEntry>                       sContributionStore;
 TC_GAME_API extern DB2Storage<ManagedWorldStateBuffEntry>               sManagedWorldStateBuffStore;
 TC_GAME_API extern DB2Storage<ManagedWorldStateEntry>                   sManagedWorldStateStore;
 TC_GAME_API extern DB2Storage<ManagedWorldStateInputEntry>              sManagedWorldStateInputStore;

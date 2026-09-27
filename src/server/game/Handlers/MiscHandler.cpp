@@ -719,12 +719,12 @@ void WorldSession::HandleRequestConsumptionConversionInfo(WorldPackets::Misc::Re
 
 void WorldSession::HandleContributionGetState(WorldPackets::Misc::ContributionGetState& packet)
 {
-    sContributionMgr.ContributionGetState(GetPlayer(), packet.ContributionID, packet.ContributionGUID);
+    sContributionMgr.SendLastChange(GetPlayer(), packet.ContributionID, packet.ContributionGUID);
 }
 
 void WorldSession::HandleContributionCollectorContribute(WorldPackets::Misc::ContributionCollectorContribute& packet)
 {
-    Creature* unit = GetPlayer()->GetNPCIfCanInteractWith(packet.ContributionTableNpcGuid, UNIT_NPC_FLAG2_CONTRIBUTION_NPC);
+    Creature* unit = GetPlayer()->GetNPCIfCanInteractWith(packet.ContributionTableNpcGuid, 0, UNIT_NPC_FLAG2_CONTRIBUTION_NPC);
     if (!unit)
         return;
 

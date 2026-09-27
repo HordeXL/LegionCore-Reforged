@@ -1544,6 +1544,8 @@ void World::LoadConfigSettings(bool reload)
     m_int_configs[CONFIG_LEGION_ENABLED_PATCH] = sConfigMgr->GetIntDefault("Game.Patch", PATCH_7_3);
 
     m_bool_configs[CONFIG_ITEMLEVEL_CATCHUP_ENABLE] = sConfigMgr->GetBoolDefault("Custom.ItemLevel.Catchup.Enable", false);
+    m_int_configs[CONFIG_LEGIONFALL_CONTRIBUTIONS_REQUIRED] = sConfigMgr->GetIntDefault("Legionfall.ContributionsRequired", 200);
+    m_bool_configs[CONFIG_LEGIONFALL_MAGE_TOWER_ALWAYS_BUILT] = sConfigMgr->GetBoolDefault("Legionfall.MageTower.AlwaysBuilt", false);
     m_bool_configs[CONFIG_LEGION_INVASIONS_ENABLE] = sConfigMgr->GetBoolDefault("Custom.LegionInvasions.Enable", false);
     m_bool_configs[CONFIG_DEMON_INVASION_PREPATCH_ENABLE] = sConfigMgr->GetBoolDefault("Custom.DemonInvasionPrepatch.Enable", false);
     m_bool_configs[CONFIG_ARGUS_IN_SKY_ENABLE] = sConfigMgr->GetBoolDefault("Custom.ArgusInSky.Enable", false);

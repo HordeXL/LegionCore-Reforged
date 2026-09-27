@@ -6,6 +6,15 @@ Created by d7561985@gmail.com
 #ifndef ContributionMgr_h__
 #define ContributionMgr_h__
 
+#include "Define.h"
+#include <map>
+#include <mutex>
+
+class Player;
+struct ContributionEntry;
+struct ManagedWorldStateEntry;
+struct ManagedWorldStateInputEntry;
+
 namespace ContributionData
 {
     enum ContributionState : uint8
@@ -37,14 +46,16 @@ namespace ContributionData
     };
 }
 
+// A Legionfall building of the Broken Shore. Its stage, progress and number of completed constructions live in the
+// world states named by ManagedWorldState: the client reads them to draw the construction table and the map.
+// Building fills the progress with contributions; Active lasts UpTimeSecs; Under Attack drains the progress by
+// DepletionAmountPerMinute; Destroyed lasts DownTimeSecs, then building starts again.
 struct ContributionLifeData
 {
-    uint32 WorldStateVareables[3];
-    ContributionData::ContributionState State;
-    uint32 UpTimeSecs;
-    uint32 CurrentLifeTimer;
-    uint32 DownTimeSecs;
-    uint32 CurrentUnderAtackTimer;
+    ContributionEntry const* Contribution = nullptr;
+    ManagedWorldStateEntry const* WorldState = nullptr;
+    ManagedWorldStateInputEntry const* Input = nullptr;
+    uint32 LastChange = 0;      // unix time of the last stage change
 };
 
 class ContributionMgr
@@ -52,18 +63,33 @@ class ContributionMgr
 public:
     static ContributionMgr& Instance();
 
-    ContributionMgr();
-
+    void Initialize();
     void Update(uint32 diff);
 
-    void Initialize();
-    void OnChangeContributionState(uint32 contribuiontID, ContributionData::ContributionState newState);
-    void Contribute(Player* player, uint8 contributuinID);
-    void ContributionGetState(Player* player, uint32 contributionID, uint32 contributionGuid);
+    void Contribute(Player* player, uint32 orderIndex);
+    void SendLastChange(Player* player, uint32 contributionID, uint32 requestGuid);
+
+    ContributionData::ContributionState GetState(uint32 contributionID) const;
+    uint32 GetProgress(uint32 contributionID) const;
+    uint32 GetOccurrences(uint32 contributionID) const;
+    uint32 GetNextChange(uint32 contributionID) const;     // unix time, 0 while building
+    std::map<uint32, ContributionLifeData> const& GetContributions() const { return _contributions; }
+
+    // GM commands
+    bool SetState(uint32 contributionID, ContributionData::ContributionState state);
+    bool SetProgress(uint32 contributionID, uint32 percent);
 
 private:
-    std::map<uint32, ContributionLifeData> _contributionObjects;
-    uint32 m_nextUpdate;
+    bool IsOpen() const;
+    bool IsAlwaysBuilt(ContributionLifeData const& data) const;
+    uint32 GetValue(int32 worldStateID) const;
+    void SetValue(int32 worldStateID, uint32 value);
+    void ChangeState(ContributionLifeData& data, ContributionData::ContributionState state, uint32 now);
+    void SendResult(Player* player, uint32 contributionID, ContributionData::ContributionResult result) const;
+
+    std::map<uint32, ContributionLifeData> _contributions;     // by Contribution ID
+    uint32 _updateTimer = 0;
+    mutable std::recursive_mutex _lock;
 };
 
 #define sContributionMgr ContributionMgr::Instance()
