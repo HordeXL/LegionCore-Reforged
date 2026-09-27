@@ -5,6 +5,7 @@
 #include "ConditionMgr.h"
 #include "DatabaseEnv.h"
 #include "DB2Stores.h"
+#include "GameEventMgr.h"
 #include "GameTime.h"
 #include "Log.h"
 #include "MiscPackets.h"
@@ -57,6 +58,14 @@ namespace
         { 12889, 121112 },  // Somber Dawn
         { 12890, 121134 },  // Duke Sithizi
         { 12891, 116166 },  // Eye of Gurgh
+    };
+
+    // The Sentinax of the map (AreaPOI 5252 to 5261) reads its place from this world state, 1 to 9; the game events
+    // 117 to 125 move the ship from place to place
+    uint32 const SentinaxPlaceWorldState = 13321;
+    std::pair<uint16, uint32> const SentinaxPlaces[] =
+    {
+        { 117, 1 }, { 121, 2 }, { 125, 3 }, { 124, 4 }, { 119, 5 }, { 123, 6 }, { 122, 7 }, { 120, 8 }, { 118, 9 }
     };
 
     uint32 GetPersonalTracker(uint32 contributionID)
@@ -254,6 +263,12 @@ void ContributionMgr::Update(uint32 diff)
         RareState const& state = _rares[rare.Entry];
         SetValue(rare.WorldState, state.Out && state.RespawnTime <= now ? 1 : 0);
     }
+
+    uint32 sentinaxPlace = 0;
+    for (auto const& place : SentinaxPlaces)
+        if (sGameEventMgr->IsActiveEvent(place.first))
+            sentinaxPlace = place.second;
+    SetValue(SentinaxPlaceWorldState, sentinaxPlace);
 
     for (auto& itr : _contributions)
     {
