@@ -24,8 +24,10 @@ namespace
     uint32 const LegionfallOpenWorldState = 13317;
 
     // The Broken Shore rares of the map (AreaPOI 5284 to 5308): the client shows one while its world state is 1 and
-    // its tracking quest is not done. Three of the 25 have no spawn in the database.
+    // its tracking quest is not done. Three of the 25 have no spawn in the database. A pool keeps a few of them up at a
+    // time; the icon follows the ones the pool has out.
     uint32 const BrokenIslesMapId = 1220;
+    uint32 const RareLifetime = 30 * MINUTE;       // a rare left alive leaves after this, as on retail
     struct BrokenShoreRare
     {
         uint32 WorldState;
@@ -122,13 +124,14 @@ void ContributionMgr::Initialize()
     sWorldStateMgr.AddTemplate(LegionfallOpenWorldState, WorldStatesData::Types::World, 0, 1 << WorldStatesData::Flags::InitialState, 0);
     sWorldStateMgr.SetWorldState(LegionfallOpenWorldState, 0, IsOpen() ? 1 : 0);
 
-    // a rare is up unless its respawn is pending; respawns shorter than 15 minutes are not saved, so they read as up
-    _rareRespawn.clear();
+    // a rare is up while out of its pool and not waiting for its respawn; respawns shorter than 15 minutes are not
+    // saved, so they read as over. The pools spawn after this, and tell which rares they bring out.
+    _rares.clear();
     std::string entries;
     for (BrokenShoreRare const& rare : BrokenShoreRares)
     {
         sWorldStateMgr.AddTemplate(rare.WorldState, WorldStatesData::Types::World, 0, 1 << WorldStatesData::Flags::InitialState, 0);
-        _rareRespawn[rare.Entry] = 0;
+        _rares[rare.Entry] = RareState();
         entries += (entries.empty() ? "" : ",") + std::to_string(rare.Entry);
     }
     std::map<uint64, uint32> guidToEntry;
@@ -148,7 +151,17 @@ void ContributionMgr::Initialize()
             Field* fields = result->Fetch();
             auto itr = guidToEntry.find(fields[0].GetUInt64());
             if (itr != guidToEntry.end())
-                _rareRespawn[itr->second] = fields[1].GetUInt32();
+                _rares[itr->second].RespawnTime = fields[1].GetUInt32();
+        }
+        while (result->NextRow());
+    }
+    if (QueryResult result = WorldDatabase.Query("SELECT guid FROM pool_creature"))
+    {
+        do
+        {
+            auto itr = guidToEntry.find(result->Fetch()[0].GetUInt64());
+            if (itr != guidToEntry.end())
+                _rares[itr->second].Out = false;
         }
         while (result->NextRow());
     }
@@ -237,7 +250,10 @@ void ContributionMgr::Update(uint32 diff)
     std::lock_guard<std::recursive_mutex> guard(_lock);
     uint32 const now = uint32(GameTime::GetGameTime());
     for (BrokenShoreRare const& rare : BrokenShoreRares)
-        SetValue(rare.WorldState, _rareRespawn[rare.Entry] <= now ? 1 : 0);
+    {
+        RareState const& state = _rares[rare.Entry];
+        SetValue(rare.WorldState, state.Out && state.RespawnTime <= now ? 1 : 0);
+    }
 
     for (auto& itr : _contributions)
     {
@@ -280,9 +296,34 @@ void ContributionMgr::OnCreatureDeath(uint32 entry, uint32 respawnTime)
 {
     // called from the map threads: the world state follows on the next update of the world thread
     std::lock_guard<std::recursive_mutex> guard(_lock);
-    auto itr = _rareRespawn.find(entry);
-    if (itr != _rareRespawn.end())
-        itr->second = respawnTime;
+    auto itr = _rares.find(entry);
+    if (itr != _rares.end())
+        itr->second.RespawnTime = respawnTime;
+}
+
+void ContributionMgr::OnPoolSpawn(uint32 entry, bool out)
+{
+    std::lock_guard<std::recursive_mutex> guard(_lock);
+    auto itr = _rares.find(entry);
+    if (itr == _rares.end())
+        return;
+
+    itr->second.Out = out;
+    if (out)
+        itr->second.OutSince = uint32(GameTime::GetGameTime());
+}
+
+uint32 ContributionMgr::GetRareTimeLeft(uint32 entry) const
+{
+    std::lock_guard<std::recursive_mutex> guard(_lock);
+    auto itr = _rares.find(entry);
+    if (itr == _rares.end() || !itr->second.Out || !itr->second.OutSince)
+        return 0;
+
+    // counted from its coming out, so that a reload of its grid does not start it again
+    uint32 const now = uint32(GameTime::GetGameTime());
+    uint32 const end = itr->second.OutSince + RareLifetime;
+    return end > now ? (end - now) * IN_MILLISECONDS : IN_MILLISECONDS;
 }
 
 void ContributionMgr::SendResult(Player* player, uint32 contributionID, ContributionResult result) const

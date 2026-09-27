@@ -17,6 +17,7 @@
  */
 
 #include "PoolMgr.h"
+#include "ContributionMgr.h"
 #include "Containers.h"
 #include "ObjectMgr.h"
 #include "Log.h"
@@ -222,6 +223,8 @@ void PoolGroup<Creature>::Despawn1Object(uint64 const& guid)
 {
     if (CreatureData const* data = sObjectMgr->GetCreatureData(guid))
     {
+        if (data->mapid == 1220)
+            sContributionMgr.OnPoolSpawn(data->id, false);
         sObjectMgr->RemoveCreatureFromGrid(guid, data);
 
         if (Creature* creature = ObjectAccessor::GetObjectInWorld(ObjectGuid::Create<HighGuid::Creature>(data->mapid, data->id, guid), (Creature*)nullptr))
@@ -372,6 +375,8 @@ void PoolGroup<Creature>::Spawn1Object(PoolObject* obj)
             return;
         
         sObjectMgr->AddCreatureToGrid(obj->guid, data);
+        if (data->mapid == 1220)
+            sContributionMgr.OnPoolSpawn(data->id, true);
 
         // Spawn if necessary (loaded grids only)
         Map* map = sMapMgr->CreateBaseMap(data->mapid);
@@ -524,8 +529,12 @@ template <>
 void PoolGroup<Creature>::ReSpawn1Object(PoolObject* obj)
 {
     if (CreatureData const* data = sObjectMgr->GetCreatureData(obj->guid))
-    if (Creature* creature = ObjectAccessor::GetObjectInWorld(ObjectGuid::Create<HighGuid::Creature>(data->mapid, data->id, obj->guid), (Creature*)nullptr))
+    {
+        if (data->mapid == 1220)
+            sContributionMgr.OnPoolSpawn(data->id, true);
+        if (Creature* creature = ObjectAccessor::GetObjectInWorld(ObjectGuid::Create<HighGuid::Creature>(data->mapid, data->id, obj->guid), (Creature*)nullptr))
             creature->GetMap()->AddToMapWait(creature);
+    }
 }
 
 // Method that does the respawn job on the specified gameobject

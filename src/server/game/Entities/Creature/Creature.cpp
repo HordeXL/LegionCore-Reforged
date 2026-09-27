@@ -487,6 +487,14 @@ Creature::~Creature()
     creatureCountInArea[m_areaId]--;
 }
 
+// Broken Shore rares leave once their time is out, as on retail; their pool then brings another one out
+static void ScheduleRareDeparture(Creature* creature)
+{
+    if (creature->GetMapId() == 1220 && creature->IsAlive())
+        if (uint32 timeLeft = sContributionMgr.GetRareTimeLeft(creature->GetEntry()))
+            creature->DespawnOrUnsummon(timeLeft);
+}
+
 void Creature::AddToWorld()
 {
     ///- Register the creature for guid lookup
@@ -514,6 +522,8 @@ void Creature::AddToWorld()
         if (MaxVisible && !isAnySummons())
             if (Map* mapInfo = GetMap())
                 mapInfo->AddMaxVisible(this);
+
+        ScheduleRareDeparture(this);
     }
 }
 
@@ -2726,6 +2736,7 @@ void Creature::Respawn(bool force, uint32 timer /*= 3*/)
         uint32 poolid = GetDBTableGUIDLow() ? sPoolMgr->IsPartOfAPool<Creature>(GetDBTableGUIDLow()) : 0;
         if (poolid)
             sPoolMgr->UpdatePool<Creature>(poolid, GetDBTableGUIDLow());
+        ScheduleRareDeparture(this);
 
         //Re-initialize reactstate that could be altered by movementgenerators
         InitializeReactState();
