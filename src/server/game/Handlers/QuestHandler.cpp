@@ -1054,60 +1054,8 @@ void WorldSession::HandleRequestAreaPoiUpdate(WorldPackets::Quest::RequestAreaPo
             }
         }
     }
-    if (sGameEventMgr->IsActiveEvent(117))
-    {
-        GameEventData const* ged = &sGameEventMgr->GetEventMap()[117];
-        response.Pois.emplace_back(ged->start, 5252, ged->start * 60, 13321, 1);
-        needSend = true;
-    }
-    if (sGameEventMgr->IsActiveEvent(118))
-    {
-        GameEventData const* ged = &sGameEventMgr->GetEventMap()[118];
-        response.Pois.emplace_back(ged->start, 5261, ged->start * 60, 13321, 9);
-        needSend = true;
-    }
-    if (sGameEventMgr->IsActiveEvent(119))
-    {
-        GameEventData const* ged = &sGameEventMgr->GetEventMap()[119];
-        response.Pois.emplace_back(ged->start, 5257, ged->start * 60, 13321, 5);
-        needSend = true;
-    }
-    if (sGameEventMgr->IsActiveEvent(120))
-    {
-        GameEventData const* ged = &sGameEventMgr->GetEventMap()[120];
-        response.Pois.emplace_back(ged->start, 5260, ged->start * 60, 13321, 8);
-        needSend = true;
-    }
-    if (sGameEventMgr->IsActiveEvent(121))
-    {
-        GameEventData const* ged = &sGameEventMgr->GetEventMap()[121];
-        response.Pois.emplace_back(ged->start, 5254, ged->start * 60, 13321, 2);
-        needSend = true;
-    }
-    if (sGameEventMgr->IsActiveEvent(122))
-    {
-        GameEventData const* ged = &sGameEventMgr->GetEventMap()[122];
-        response.Pois.emplace_back(ged->start, 5259, ged->start * 60, 13321, 7);
-        needSend = true;
-    }
-    if (sGameEventMgr->IsActiveEvent(123))
-    {
-        GameEventData const* ged = &sGameEventMgr->GetEventMap()[123];
-        response.Pois.emplace_back(ged->start, 5258, ged->start * 60, 13321, 6);
-        needSend = true;
-    }
-    if (sGameEventMgr->IsActiveEvent(124))
-    {
-        GameEventData const* ged = &sGameEventMgr->GetEventMap()[124];
-        response.Pois.emplace_back(ged->start, 5256, ged->start * 60, 13321, 4);
-        needSend = true;
-    }
-    if (sGameEventMgr->IsActiveEvent(125))
-    {
-        GameEventData const* ged = &sGameEventMgr->GetEventMap()[125];
-        response.Pois.emplace_back(ged->start, 5255, ged->start * 60, 13321, 3);
-        needSend = true;
-    }
+    // No entry for the Sentinax (AreaPOI 5252 to 5261, events 117 to 125): a timed POI hides its name on hover and only shows
+    // a tooltip when it has a description, which the Sentinax has not. Its place comes from world state 13321 (ContributionMgr).
     // Spring Balloon Festival
     if (sGameEventMgr->IsActiveEvent(87))
     {
