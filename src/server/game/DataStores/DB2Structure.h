@@ -301,10 +301,13 @@ struct AreaPOIEntry
     uint16      ContinentID;
     uint16      AreaID;
     uint16      WorldStateID;
+    // A short here, not an int further down: AreaPOIMeta says four shorts then two bytes then
+    // four ints, and its layout hash is the 7.3.5 file's. The struct is packed, so the two
+    // bytes this saves are what brought sizeof back to the 70 the meta computes.
+    uint16      PortLocID;
     uint8       Importance;
     uint8       Icon;
     int32       PlayerConditionID;
-    int32       PortLocID;
     int32       UiTextureAtlasMemberID;
     int32       MapFloor;
     int32       WmoGroupID;

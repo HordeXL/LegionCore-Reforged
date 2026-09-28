@@ -111,7 +111,7 @@ void HotfixDatabaseConnection::DoPrepareStatements()
 
     // AreaPOI.db2
     PrepareStatement(HOTFIX_SEL_AREA_P_O_I, "SELECT ID, Name, Description, Flags, Pos1, Pos2, Pos3, PoiDataType, PoiData, ContinentID, AreaID, "
-        "WorldStateID, Importance, Icon, PlayerConditionID, PortLocID, UiTextureAtlasMemberID, MapFloor, WmoGroupID FROM area_p_o_i ORDER BY ID DESC", CONNECTION_SYNCH);
+        "WorldStateID, PortLocID, Importance, Icon, PlayerConditionID, UiTextureAtlasMemberID, MapFloor, WmoGroupID FROM area_p_o_i ORDER BY ID DESC", CONNECTION_SYNCH);
     PREPARE_LOCALE_STMT(HOTFIX_SEL_AREA_P_O_I, "SELECT ID, Name_lang, Description_lang FROM area_p_o_i_locale WHERE locale = ?", CONNECTION_SYNCH);
 
     // AreaPOIState.db2

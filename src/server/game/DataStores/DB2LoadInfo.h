@@ -405,10 +405,16 @@ struct AreaPOILoadInfo
             { false, FT_SHORT, "ContinentID" },
             { false, FT_SHORT, "AreaID" },
             { false, FT_SHORT, "WorldStateID" },
+            // A fourth short, and only four ints after the two bytes: that is what the 7.3.5
+            // file holds, and AreaPOIMeta agrees -- its layout hash is the file's. This list
+            // used to declare three shorts and five ints. Both add up to the same 19 fields,
+            // so the column count check in DB2DatabaseLoader let it through, but offsets come
+            // from the meta while types come from here: the tail ran two bytes past the record.
+            // The short is PortLocID; the first int holds the player conditions (14882, 53948...).
+            { false, FT_SHORT, "PortLocID" },
             { false, FT_BYTE, "Importance" },
             { false, FT_BYTE, "Icon" },
             { true, FT_INT, "PlayerConditionID" },
-            { true, FT_INT, "PortLocID" },
             { true, FT_INT, "UiTextureAtlasMemberID" },
             { true, FT_INT, "MapFloor" },
             { true, FT_INT, "WmoGroupID" },
