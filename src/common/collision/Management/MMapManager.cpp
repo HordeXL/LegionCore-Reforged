@@ -20,6 +20,7 @@
 #include "Errors.h"
 #include "Log.h"
 #include "MapDefines.h"
+#include <atomic>
 
 namespace MMAP
 {
@@ -247,22 +248,8 @@ namespace MMAP
         if (!loadMapData(basePath, mapId))
             return false;
 
-        MMapData* mmap = loadedMMaps[mapId];
-        if (mmap->navMeshQueries.find(instanceId) != mmap->navMeshQueries.end())
-            return true;
-
-        // allocate mesh query
-        dtNavMeshQuery* query = dtAllocNavMeshQuery();
-        ASSERT(query);
-        if (dtStatusFailed(query->init(mmap->navMesh, 2048)))
-        {
-            dtFreeNavMeshQuery(query);
-            TC_LOG_ERROR("maps", "MMAP:GetNavMeshQuery: Failed to initialize dtNavMeshQuery for mapId %04u instanceId %u", mapId, instanceId);
-            return false;
-        }
-
-        TC_LOG_DEBUG("maps", "MMAP:GetNavMeshQuery: created dtNavMeshQuery for mapId %04u instanceId %u", mapId, instanceId);
-        mmap->navMeshQueries.insert(std::pair<uint32, dtNavMeshQuery*>(instanceId, query));
+        std::unique_lock<std::shared_mutex> lock(_queryLock);
+        loadedMMaps[mapId]->instances.insert(instanceId);
         return true;
     }
 
@@ -372,17 +359,25 @@ namespace MMAP
             return false;
         }
 
+        std::unique_lock<std::shared_mutex> lock(_queryLock);
         MMapData* mmap = itr->second;
-        if (mmap->navMeshQueries.find(instanceId) == mmap->navMeshQueries.end())
+        if (!mmap->instances.erase(instanceId))
         {
             TC_LOG_DEBUG("maps", "MMAP:unloadMapInstance: Asked to unload not loaded dtNavMeshQuery mapId %04u instanceId %u", mapId, instanceId);
             return false;
         }
 
-        dtNavMeshQuery* query = mmap->navMeshQueries[instanceId];
+        for (auto query = mmap->navMeshQueries.begin(); query != mmap->navMeshQueries.end();)
+        {
+            if (uint32(query->first >> 32) != instanceId)
+            {
+                ++query;
+                continue;
+            }
 
-        dtFreeNavMeshQuery(query);
-        mmap->navMeshQueries.erase(instanceId);
+            dtFreeNavMeshQuery(query->second);
+            query = mmap->navMeshQueries.erase(query);
+        }
         TC_LOG_DEBUG("maps", "MMAP:unloadMapInstance: Unloaded mapId %04u instanceId %u", mapId, instanceId);
 
         return true;
@@ -403,11 +398,39 @@ namespace MMAP
         if (itr == loadedMMaps.end())
             return nullptr;
 
-        auto queryItr = itr->second->navMeshQueries.find(instanceId);
-        if (queryItr == itr->second->navMeshQueries.end())
-            return nullptr;
+        static std::atomic<uint32> nextSlot(0);
+        thread_local uint32 const slot = nextSlot++;
+        uint64 const key = (uint64(instanceId) << 32) | slot;
 
-        return queryItr->second;
+        MMapData* mmap = itr->second;
+        {
+            std::shared_lock<std::shared_mutex> lock(_queryLock);
+            auto queryItr = mmap->navMeshQueries.find(key);
+            if (queryItr != mmap->navMeshQueries.end())
+                return queryItr->second;
+
+            if (!mmap->instances.count(instanceId))
+                return nullptr;
+        }
+
+        dtNavMeshQuery* query = dtAllocNavMeshQuery();
+        ASSERT(query);
+        if (dtStatusFailed(query->init(mmap->navMesh, 2048)))
+        {
+            dtFreeNavMeshQuery(query);
+            TC_LOG_ERROR("maps", "MMAP:GetNavMeshQuery: Failed to initialize dtNavMeshQuery for mapId %04u instanceId %u", mapId, instanceId);
+            return nullptr;
+        }
+
+        std::unique_lock<std::shared_mutex> lock(_queryLock);
+        if (!mmap->instances.count(instanceId))     // unloaded in the meantime
+        {
+            dtFreeNavMeshQuery(query);
+            return nullptr;
+        }
+
+        mmap->navMeshQueries.emplace(key, query);
+        return query;
     }
 
     bool MMapManager::loadGameObject(uint32 displayId, std::string patch)

@@ -22,15 +22,17 @@
 #include "Define.h"
 #include "DetourNavMesh.h"
 #include "DetourNavMeshQuery.h"
+#include <shared_mutex>
 #include <string>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 //  move map related classes
 namespace MMAP
 {
     typedef std::unordered_map<uint32, dtTileRef> MMapTileSet;
-    typedef std::unordered_map<uint32, dtNavMeshQuery*> NavMeshQuerySet;
+    typedef std::unordered_map<uint64, dtNavMeshQuery*> NavMeshQuerySet;
 
     // dummy struct to hold map's mmap data
     struct TC_COMMON_API MMapData
@@ -45,8 +47,10 @@ namespace MMAP
                 dtFreeNavMesh(navMesh);
         }
 
-        // we have to use single dtNavMeshQuery for every instance, since those are not thread safe
-        NavMeshQuerySet navMeshQueries;     // instanceId to query
+        // A dtNavMeshQuery keeps its search state in itself, and the objects of one map are updated
+        // by several workers: one query per instance and per thread, made on first use.
+        NavMeshQuerySet navMeshQueries;     // (instanceId << 32 | thread slot) to query
+        std::unordered_set<uint32> instances;
 
         dtNavMesh* navMesh;
         MMapTileSet loadedTileRefs;        // maps [map grid coords] to [dtTile]
@@ -71,7 +75,7 @@ namespace MMAP
             bool unloadMapInstance(uint32 mapId, uint32 instanceId);
             bool loadGameObject(uint32 displayId, std::string patch);
 
-            // the returned [dtNavMeshQuery const*] is NOT threadsafe
+            // the returned query belongs to the calling thread
             dtNavMeshQuery const* GetNavMeshQuery(uint32 mapId, uint32 instanceId);
             dtNavMesh const* GetNavMesh(uint32 mapId);
 
@@ -93,6 +97,7 @@ namespace MMAP
 
             std::unordered_map<uint32, std::vector<uint32>> childMapData;
             std::unordered_map<uint32, uint32> parentMapData;
+            std::shared_mutex _queryLock;       // navMeshQueries and instances of every MMapData
     };
 }
 

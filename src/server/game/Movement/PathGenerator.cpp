@@ -128,6 +128,14 @@ bool PathGenerator::CalculatePath(G3D::Vector3 const& startPoint, G3D::Vector3 c
 
     _forceDestination = forceDest;
 
+    // Movement generators keep their path from one update to the next, and the objects of a map
+    // are updated by several workers: take the calling thread's query each time.
+    if (_navMeshQuery)
+    {
+        dtNavMeshQuery const* query = MMAP::MMapFactory::createOrGetMMapManager()->GetNavMeshQuery(_source->GetMapId(), _source->GetInstanceId());
+        _navMeshQuery = query && query->getAttachedNavMesh() == _navMesh ? query : nullptr;
+    }
+
     TC_LOG_DEBUG("maps.mmaps", "++ PathGenerator::CalculatePath() for %lu", _source->GetGUID().GetCounter());
 
     // make sure navMesh works - we can run on map w/o mmap
