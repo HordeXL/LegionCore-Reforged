@@ -1177,6 +1177,21 @@ void Creature::Update(uint32 diff)
             if (AI() && IsDungeonBoss() && isInCombat())
                 AI()->DoAggroPulse(diff);
 
+            // Counted on every update: below the regeneration gate it only ran once every 5 seconds and
+            // added a single update each time, so giving up on an unreachable target took minutes.
+            // In combat only (following an owner who flies away is no reason to evade), and once:
+            // clearing the flag resets the timer, since some AIs neither clear it nor set the evade state.
+            if (CanNotReachTarget() && isInCombat() && !IsInEvadeMode() && !GetMap()->IsRaid())
+            {
+                m_cannotReachTimer += diff;
+                if (m_cannotReachTimer >= CREATURE_NOPATH_EVADE_TIME)
+                {
+                    SetCannotReachTarget(false);
+                    if (IsAIEnabled)
+                        AI()->EnterEvadeMode();
+                }
+            }
+
             if (m_regenTimer != 0)
                break;
 
@@ -1189,13 +1204,6 @@ void Creature::Update(uint32 diff)
 
             m_regenTimer = isAnySummons() ? PET_FOCUS_REGEN_INTERVAL : CREATURE_REGEN_INTERVAL;
 
-            if (CanNotReachTarget() && !IsInEvadeMode() && !GetMap()->IsRaid())
-            {
-                m_cannotReachTimer += diff;
-                if (m_cannotReachTimer >= CREATURE_NOPATH_EVADE_TIME)
-                    if (IsAIEnabled)
-                        AI()->EnterEvadeMode();
-            }
             break;
         }
         default:

@@ -54,7 +54,11 @@ void HomeMovementGenerator<Creature>::SetTargetLocation(Creature& owner)
         init.SetFacing(o);
     }
     owner.UpdateAllowedPositionZ(x, y, z);
-    init.MoveTo(x, y, z);
+    // Pathed, as in TrinityCore: MoveTo does not path by default here, so evading creatures walked
+    // back to their spawn in a straight line, through walls. The destination is forced so that a path
+    // cut short (spawn off the navmesh, on a roof or a bridge) still ends at the spawn; with no usable
+    // path at all it goes straight, as before.
+    init.MoveTo(x, y, z, true, true);
     init.SetWalk(false);
     init.Launch();
 
