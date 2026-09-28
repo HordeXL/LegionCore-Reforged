@@ -1607,14 +1607,29 @@ struct go_midsummer_music : public GameObjectAI
     }
 };
 
+// The faire's music (darkmoonfaire_2, 74 s) used to go out every 5 s to the whole visibility range,
+// through SoundKit 8440, heard up to 150 yards: a new copy over the zone music every 5 s. It now goes
+// once per play-through to players who come within 18 yards, through a copy of that kit that fades
+// out over those 18 yards. 8440 itself stays as it is: it is also the Darkmoon Island zone music.
+// Meanwhile a near-silent stinger holds their music channel, which keeps the zone music quiet.
 struct go_darkmoon_faire_music : public GameObjectAI
 {
+    enum
+    {
+        SOUND_KIT_MUSIC_CLOSE   = 98010,
+        SOUND_KIT_HUSH          = 98011,
+        MUSIC_LENGTH            = 75 * IN_MILLISECONDS,
+        HUSH_EVERY              = 8,        // seconds; the stinger lasts 9.8
+    };
+
     go_darkmoon_faire_music(GameObject* go) : GameObjectAI(go)
     {
         events.ScheduleEvent(EVENT_1, 1000);
     }
 
     EventMap events;
+    std::unordered_map<ObjectGuid, uint32> startedAt;
+    uint32 tick = 0;
 
     void UpdateAI(uint32 diff) override
     {
@@ -1625,11 +1640,29 @@ struct go_darkmoon_faire_music : public GameObjectAI
             switch (eventId)
             {
             case EVENT_1:
-                if (IsHolidayActive(HOLIDAY_DARKMOON_FAIRE))
-                    go->PlayDirectSound(8440);
+            {
+                uint32 const now = getMSTime();
+                for (auto itr = startedAt.begin(); itr != startedAt.end();)
+                    itr = getMSTimeDiff(itr->second, now) >= uint32(MUSIC_LENGTH) ? startedAt.erase(itr) : std::next(itr);
 
-                events.ScheduleEvent(EVENT_1, 5000);
+                if (IsHolidayActive(HOLIDAY_DARKMOON_FAIRE))
+                {
+                    bool const hush = tick++ % HUSH_EVERY == 0;
+                    std::list<Player*> playersNearby;
+                    go->GetPlayerListInGrid(playersNearby, 18.0f);
+                    for (Player* player : playersNearby)
+                    {
+                        bool const arriving = startedAt.emplace(player->GetGUID(), now).second;
+                        if (arriving || hush)
+                            player->SendMusic(SOUND_KIT_HUSH);
+                        if (arriving)
+                            go->PlayDirectSound(SOUND_KIT_MUSIC_CLOSE, player);
+                    }
+                }
+
+                events.ScheduleEvent(EVENT_1, 1000);
                 break;
+            }
             default:
                 break;
             }
