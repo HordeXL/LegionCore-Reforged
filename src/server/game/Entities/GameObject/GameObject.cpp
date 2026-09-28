@@ -2843,13 +2843,22 @@ void GameObject::UpdateModel()
 {
     if (!IsInWorld())
         return;
+
+    // A new model starts without collision: keep what the old one had (a damaged wall stays solid),
+    // or take it from the state as AddToWorld does.
+    bool const collision = m_model ? m_model->isCollisionEnabled()
+        : (GetGoType() == GAMEOBJECT_TYPE_CHEST ? getLootState() == GO_READY : (GetGoState() == GO_STATE_READY || IsTransport()));
+
     if (m_model)
         if (GetMap()->ContainsGameObjectModel(*m_model))
             GetMap()->RemoveGameObjectModel(*m_model);
     delete m_model;
     m_model = CreateModel();
     if (m_model)
+    {
         GetMap()->InsertGameObjectModel(*m_model);
+        EnableCollision(collision);
+    }
 }
 
 bool GameObject::_IsWithinDist(WorldObject const* obj, float dist2compare, bool is3D, bool ignoreObjectSize) const

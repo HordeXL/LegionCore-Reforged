@@ -9189,15 +9189,37 @@ bool Spell::CheckEffectTarget(Unit const* target, uint32 eff) const
             // all ok by some way or another, skip normal check
             break;
         default:                                            // normal case
+        {
+            // Area, cone and line targets were checked from their own centre when they were searched;
+            // checking them again from the caster would drop a unit standing inside a ground effect.
+            auto const checkedWhenSearched = [](SpellTargetSelectionCategories category)
+            {
+                return category != TARGET_SELECT_CATEGORY_NYI && category != TARGET_SELECT_CATEGORY_DEFAULT &&
+                    category != TARGET_SELECT_CATEGORY_CHANNEL && category != TARGET_SELECT_CATEGORY_NEARBY;
+            };
+            SpellEffectInfo const* effect = m_spellInfo->GetEffect(eff, m_diffMode);
+            if (checkedWhenSearched(effect->TargetA.GetSelectionCategory()) || checkedWhenSearched(effect->TargetB.GetSelectionCategory()))
+                break;
+
+            // Only where a player stands on either side. Creature to creature casts were written while this
+            // check was off: beams to bunnies hidden inside the scenery would lose their target.
+            if (!target->GetCharmerOrOwnerPlayerOrPlayerItself() && !m_caster->GetCharmerOrOwnerPlayerOrPlayerItself())
+                break;
+
+            // Same exemptions as CheckCast
+            if (m_caster->GetEntry() == WORLD_TRIGGER || target->GetEntry() == 56895)
+                break;
+
             // Get GO cast coordinates if original caster -> GO
             WorldObject* caster = nullptr;
             if (m_originalCasterGUID.IsGameObject())
                 caster = m_caster->GetMap()->GetGameObject(m_originalCasterGUID);
             if (!caster)
                 caster = m_caster;
-//             if (target != m_caster && !target->IsWithinLOSInMap(caster))
-//                 return false;
+            if (target != m_caster && !target->IsWithinLOSInMap(caster, VMAP::ModelIgnoreFlags::M2))
+                return false;
             break;
+        }
     }
 
     return true;

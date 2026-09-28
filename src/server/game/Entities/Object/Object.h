@@ -549,6 +549,8 @@ class TC_GAME_API WorldObject : public Object, public WorldLocation
         bool IsWithinDist(WorldObject const* obj, float dist2compare, bool is3D = true, bool ignoreObjectSize = false) const; // use only if you will sure about placing both object at same map
         bool IsWithinDistInMap(WorldObject const* obj, float dist2compare, bool is3D = true, bool ignoreObjectSize = false) const;
         bool IsWithinLOS(float x, float y, float z, VMAP::ModelIgnoreFlags ignoreFlags = VMAP::ModelIgnoreFlags::Nothing) const;
+        float GetLineOfSightHeight() const;
+        void GetLineOfSightPoint(Position const& towards, float& x, float& y, float& z) const;
         bool IsWithinLOSInMap(WorldObject const* obj, VMAP::ModelIgnoreFlags ignoreFlags = VMAP::ModelIgnoreFlags::Nothing) const;
         Position GetHitSpherePointFor(Position const& dest) const;
         void GetHitSpherePointFor(Position const& dest, float& x, float& y, float& z) const;

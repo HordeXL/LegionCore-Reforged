@@ -147,14 +147,16 @@ struct DynamicTreeIntersectionCallback
 
     bool operator()(G3D::Ray const& r, GameObjectModel const& obj, float& distance)
     {
-        _didHit = obj.intersectRay(r, distance, true, _phases, _otherUsePlayerPhasingRules, VMAP::ModelIgnoreFlags::Nothing);
-        if (_didHit)
+        // Only ever set: a model missed further along the ray must not clear an earlier hit.
+        bool const hit = obj.intersectRay(r, distance, true, _phases, _otherUsePlayerPhasingRules, VMAP::ModelIgnoreFlags::Nothing);
+        if (hit)
         {
+            _didHit = true;
             if (obj.owner->IsDoor()) // Collision for door
                 distance = distance > 1.0f ? distance - 1.0f : 0.0f;
             _go = const_cast<GameObject*>(obj.owner->GetOwner());
         }
-        return _didHit;
+        return hit;
     }
 
     bool didHit() const { return _didHit; }
@@ -172,10 +174,13 @@ struct DynamicTreeisInLineOfSightCallback
 
     bool operator()(G3D::Ray const& r, GameObjectModel const& obj, float& distance)
     {
-        _didHit = obj.intersectRay(r, distance, true, _phases, _otherUsePlayerPhasingRules, VMAP::ModelIgnoreFlags::Nothing);
-        if (_didHit)
+        bool const hit = obj.intersectRay(r, distance, true, _phases, _otherUsePlayerPhasingRules, VMAP::ModelIgnoreFlags::Nothing);
+        if (hit)
+        {
+            _didHit = true;
             _go = const_cast<GameObject*>(obj.owner->GetOwner());
-        return _didHit;
+        }
+        return hit;
     }
 
     bool didHit() const { return _didHit; }

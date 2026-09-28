@@ -1949,13 +1949,13 @@ bool WorldObject::IsWithinLOSInMap(const WorldObject* obj, VMAP::ModelIgnoreFlag
 //    }
 //    obj->GetPosition(ox, oy, oz);
 
-    float x, y, z;
-    if (obj->GetTypeId() == TYPEID_PLAYER)
-        obj->GetPosition(x, y, z);
-    else
-        obj->GetHitSpherePointFor(GetPosition(), x, y, z);
+    float ox, oy, oz;
+    obj->GetLineOfSightPoint({ GetPositionX(), GetPositionY(), GetPositionZ() + GetLineOfSightHeight() }, ox, oy, oz);
 
-    return IsWithinLOS(x, y, z, ignoreFlags);
+    float x, y, z;
+    GetLineOfSightPoint({ obj->GetPositionX(), obj->GetPositionY(), obj->GetPositionZ() + obj->GetLineOfSightHeight() }, x, y, z);
+
+    return GetMap()->isInLineOfSight(x, y, z, ox, oy, oz, GetPhases(), ignoreFlags);
 }
 
 bool WorldObject::IsWithinLOS(float ox, float oy, float oz, VMAP::ModelIgnoreFlags ignoreFlags) const
@@ -1977,16 +1977,38 @@ bool WorldObject::IsWithinLOS(float ox, float oy, float oz, VMAP::ModelIgnoreFla
 //        }
 //        if (!GetMap())
 //            return false;
+        oz += GetLineOfSightHeight();
         float x, y, z;
-        if (GetTypeId() == TYPEID_PLAYER)
-            GetPosition(x, y, z);
-        else
-            GetHitSpherePointFor({ ox, oy, oz }, x, y, z);
+        GetLineOfSightPoint({ ox, oy, oz }, x, y, z);
 
-        return GetMap()->isInLineOfSight(x, y, z + 2.f, ox, oy, oz + 2.f, GetPhases(), ignoreFlags);
+        return GetMap()->isInLineOfSight(x, y, z, ox, oy, oz, GetPhases(), ignoreFlags);
     }
 
     return true;
+}
+
+// Units look from their collision height, as in TrinityCore. A flat 2 yards used to be added on top
+// of it, which put a creature's eyes at about 4 yards: low walls, railings and crates hid nothing.
+// Objects without a body (game objects, area triggers) keep the 2 yards they always had.
+float WorldObject::GetLineOfSightHeight() const
+{
+    return ToUnit() ? GetCollisionHeight() : 2.0f;
+}
+
+void WorldObject::GetLineOfSightPoint(Position const& towards, float& x, float& y, float& z) const
+{
+    if (GetTypeId() == TYPEID_PLAYER)
+    {
+        GetPosition(x, y, z);
+        z += GetLineOfSightHeight();
+    }
+    else if (ToUnit())
+        GetHitSpherePointFor(towards, x, y, z);     // already at the collision height
+    else
+    {
+        GetHitSpherePointFor(towards, x, y, z);
+        z += GetLineOfSightHeight();
+    }
 }
 
 float WorldObject::GetWaterOrGroundLevel(float x, float y, float z, float* ground /*= NULL*/, bool /*swim = false*/) const
