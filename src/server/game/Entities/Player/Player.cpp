@@ -5882,13 +5882,18 @@ void Player::UpdateSpellCharges(uint32 diff)
         uint32 chargeRegenTime = data.chargeRegenTime;
         data.timer += diff * data.speed;
 
+        // Subtract the time the timer was compared with, then look up the next charge's. Subtracting
+        // the recomputed one wrapped the unsigned timer when it had grown (a haste aura ending), and
+        // every missing charge came back at once.
         while (data.timer >= chargeRegenTime && data.charges < data.maxCharges)
         {
-            data.chargeRegenTime = GetSpellCategoryChargesTimer(data.categoryEntry, data.spellInfo);
-            data.timer -= data.chargeRegenTime;
+            data.timer -= chargeRegenTime;
             ++data.charges;
             if (data.charges == data.maxCharges)
                 data.timer = 0;
+            chargeRegenTime = data.chargeRegenTime = GetSpellCategoryChargesTimer(data.categoryEntry, data.spellInfo);
+            if (!chargeRegenTime)
+                break;
         }
     }
 }
@@ -6015,7 +6020,11 @@ void Player::ModSpellChargeCooldown(uint32 SpellID, int32 delta)
     {
         SpellChargeData& data = itr->second;
 
-        data.timer += delta;
+        // a negative delta larger than the elapsed time wrapped the unsigned timer and granted a charge
+        if (delta < 0 && uint32(-delta) > data.timer)
+            data.timer = 0;
+        else
+            data.timer += delta;
 
         if (data.timer >= data.chargeRegenTime && data.charges < data.maxCharges)
         {
@@ -28820,8 +28829,9 @@ void Player::AddSpellAndCategoryCooldowns(SpellInfo const* spellInfo, uint32 ite
         if (cooldown == 0 && categoryCooldown == 0)
             return;
 
-        categoryCooldownTime = categoryCooldown ? curTime + categoryCooldown / IN_MILLISECONDS : curTime;
-        cooldownTime = cooldown ? curTime + cooldown / IN_MILLISECONDS : categoryCooldownTime;
+        // in seconds with their fraction: the integer division cut 7.8 s to 7 s and dropped anything under 1 s
+        categoryCooldownTime = categoryCooldown ? curTime + categoryCooldown / double(IN_MILLISECONDS) : curTime;
+        cooldownTime = cooldown ? curTime + cooldown / double(IN_MILLISECONDS) : categoryCooldownTime;
     }
 
     // self spell cooldown
