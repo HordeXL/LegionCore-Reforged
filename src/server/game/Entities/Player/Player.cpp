@@ -11988,6 +11988,7 @@ void Player::SendLoot(ObjectGuid guid, LootType loot_type, bool AoeLoot, uint8 p
             // It may need a better formula
             // Now it works like this: lvl10: ~6copper, lvl70: ~9silver
             bones->loot.gold = uint32(urand(50, 150) * 0.016f * pow(float(pLevel)/5.76f, 2.5f) * (GetMap()->IsDungeon() && sWorld->getBoolConfig(CONFIG_DROP_DUNGEON_ONLY_X1)? 1.0f : sWorld->getRate(RATE_DROP_MONEY)));
+            loot->gold = bones->loot.gold;      // the window shows the personal loot, not the bones' own
         }
 
         if (bones->lootRecipient != this)
@@ -32793,9 +32794,9 @@ void Player::StoreLootItem(uint8 lootSlot, Loot* loot)
         return;
     }
 
+    // null also when the item was stored then used up by its on-obtain spell (garrison follower): the loot
+    // slot is emptied all the same, returning here left it lootable again, with the spell recast each time
     Item* newitem = StoreNewItem(dest, item->item.ItemID, true, item->item.RandomPropertiesID, item->GetAllowedLooters(), item->item.ItemBonus.BonusListIDs, item->item.ItemBonus.Context);
-    if (!newitem)
-        return;
 
     // Knowledge book: lock the player for the week as soon as they loot one
     if (item->item.ItemID == ITEM_ARTIFACT_RESEARCH_NOTES)
@@ -32830,13 +32831,17 @@ void Player::StoreLootItem(uint8 lootSlot, Loot* loot)
         }
     }
 
-    newitem->dungeonEncounterID = loot->dungeonEncounterID;
+    if (newitem)
+        newitem->dungeonEncounterID = loot->dungeonEncounterID;
 
     //if only one person is supposed to loot the item, then set it to looted
     if (!item->freeforall)
         item->is_looted = true;
 
     --loot->unlootedCount;
+
+    if (!newitem)
+        return;
 
     if (ItemTemplate const* proto = sObjectMgr->GetItemTemplate(item->item.ItemID))
     {

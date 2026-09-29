@@ -26573,6 +26573,10 @@ void Unit::GeneratePersonalLoot(Creature* creature, Player* anyLooter)
     uint32 questId = creature->GetTrackingQuestID();
 
     GuidSet* onlyGoldList = creature->GetSaveThreatList();
+    // before looterList is built, or a solo killer is never drawn
+    if (onlyGoldList->empty()) // If creature killed without add to thread add killer
+        onlyGoldList->insert(anyLooter->GetGUID());
+
     GuidList looterList;
     for (GuidSet::const_iterator itr = onlyGoldList->begin(); itr != onlyGoldList->end(); ++itr)
     {
@@ -26587,9 +26591,6 @@ void Unit::GeneratePersonalLoot(Creature* creature, Player* anyLooter)
             looterList.push_back(*itr);
         }
     }
-
-    if (onlyGoldList->empty()) // If creature killed without add to thread add killer
-        onlyGoldList->insert(anyLooter->GetGUID());
 
     uint8 lootCount = onlyGoldList->size() > 5 ? uint8(onlyGoldList->size() / 5) : 1;
     Trinity::Containers::RandomResizeList(looterList, lootCount);
