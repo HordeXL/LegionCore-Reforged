@@ -210,7 +210,7 @@ void TempSummon::InitStats(uint32 duration)
         if (m_Properties->Title == 17) //hack for spirit copy
             slot = 17;
 
-        if (slot > MAX_SUMMON_SLOT)
+        if (slot >= MAX_SUMMON_SLOT)    // m_SummonSlot holds MAX_SUMMON_SLOT entries
             slot = 0;
 
         switch (spellID)
@@ -287,13 +287,14 @@ void TempSummon::InitStats(uint32 duration)
             {
                 //Auto get free slot
                 slot = SUMMON_SLOT_TOTEM;
+                // [i], not [slot]: only slot 1 was ever checked for an older summon of the same entry
                 for (int32 i = SUMMON_SLOT_TOTEM; i < MAX_SUMMON_SLOT; ++i)
                 {
-                    if (canUnsummon && owner->m_SummonSlot[slot] && owner->m_SummonSlot[slot].GetEntry() == GetEntry())
+                    if (canUnsummon && owner->m_SummonSlot[i] && owner->m_SummonSlot[i].GetEntry() == GetEntry())
                     {
-                        if (owner->m_SummonSlot[slot] != GetGUID())
+                        if (owner->m_SummonSlot[i] != GetGUID())
                         {
-                            Creature* oldSummon = GetMap()->GetCreature(owner->m_SummonSlot[slot]);
+                            Creature* oldSummon = GetMap()->GetCreature(owner->m_SummonSlot[i]);
                             if (oldSummon && oldSummon->isSummon())
                                 oldSummon->ToTempSummon()->UnSummon();
                         }
@@ -487,16 +488,13 @@ void TempSummon::RemoveFromWorld()
     if (!IsInWorld())
         return;
 
-    if (m_Properties)
-        if (uint32 slot = m_Properties->Slot)
-        {
-            if (slot > MAX_SUMMON_SLOT)
-                slot = 0;
-
-            if (Unit* owner = GetSummoner())
-                if (owner->m_SummonSlot[slot] == GetGUID())
-                    owner->m_SummonSlot[slot].Clear();
-        }
+    // any slot holding this summon, as in TrinityCore: an auto slot (-1) is only known once taken,
+    // and reading the property turned it into slot 0, so auto slots were never freed
+    if (m_Properties && m_Properties->Slot)
+        if (Unit* owner = GetSummoner())
+            for (ObjectGuid& summonSlot : owner->m_SummonSlot)
+                if (summonSlot == GetGUID())
+                    summonSlot.Clear();
 
     if (Unit* owner = GetSummoner())
     {
