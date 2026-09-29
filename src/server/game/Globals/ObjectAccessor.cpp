@@ -374,7 +374,7 @@ void ObjectAccessor::AddCorpsesToGrid(GridCoord const& gridpair, Grid& grid, Map
         if (iter->second->IsInGrid())
             continue;
 
-        if (iter->second->GetGridCoord() == gridpair)
+        if (iter->second->GetMapId() == map->GetId() && iter->second->GetGridCoord() == gridpair)
         {
             // verify, if the corpse in our instance (add only corpses which are)
             if (map->Instanceable())
@@ -450,17 +450,19 @@ Corpse* ObjectAccessor::ConvertCorpseForPlayer(ObjectGuid player_guid, bool insi
 void ObjectAccessor::RemoveOldCorpses()
 {
     time_t now = GameTime::GetGameTime();
-    Player2CorpsesMapType::iterator next;
-    for (Player2CorpsesMapType::iterator itr = i_player2corpse.begin(); itr != i_player2corpse.end(); itr = next)
+    // map threads add and remove corpses meanwhile; the lock is not held while converting to keep the map/corpse lock order
+    GuidList expired;
     {
-        next = itr;
-        ++next;
-
-        if (!itr->second->IsExpired(now))
-            continue;
-
-        ConvertCorpseForPlayer(itr->first);
+        std::lock_guard<std::recursive_mutex> _lock(i_corpseLock);
+        for (auto const& itr : i_player2corpse)
+            if (itr.second->IsExpired(now))
+                expired.push_back(itr.first);
     }
+
+    for (ObjectGuid const& ownerGuid : expired)
+        if (Corpse* corpse = GetCorpseForPlayerGUID(ownerGuid))
+            if (corpse->IsExpired(now))             // the player may have died again since
+                ConvertCorpseForPlayer(ownerGuid);
 }
 
 void ObjectAccessor::Update(uint32 /*diff*/)

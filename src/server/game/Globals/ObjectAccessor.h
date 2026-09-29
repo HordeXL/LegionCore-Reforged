@@ -25,6 +25,8 @@
 #include "Player.h"
 #include "Transport.h"
 #include <safe_ptr.h>
+#include <shared_mutex>
+#include <type_traits>
 
 class Creature;
 class Corpse;
@@ -50,12 +52,16 @@ public:
 
     static void Insert(T* o)
     {
-        volatile uint32 _guidlow = o->GetGUIDLow(); // For debug
-        volatile uint32 _sizeV = _size; // For debug
-        if (_guidlow >= _size) // If guid buged don`t check it
-            return;
+        uint64 guidlow = o->GetGUIDLow();
+        {
+            // shared: slots are written in place, only SetSize reallocates the vector
+            std::shared_lock<sf::contention_free_shared_mutex< >> guard(i_lockVector);
+            if (guidlow >= _size) // If guid buged don`t check it
+                return;
 
-        _objectVector[_guidlow] = o;
+            _objectVector[guidlow] = o;
+        }
+
         if (o->IsPlayer())
         {
             i_lock.lock();
@@ -69,12 +75,17 @@ public:
 
     static void Remove(T* o)
     {
-        volatile uint32 _guidlow = o->GetGUIDLow(); // For debug
-        volatile uint32 _sizeV = _size; // For debug
-        if (_guidlow >= _size) // If guid buged don`t check it
-            return;
+        uint64 guidlow = o->GetGUIDLow();
+        {
+            std::shared_lock<sf::contention_free_shared_mutex< >> guard(i_lockVector);
+            if (guidlow >= _size) // If guid buged don`t check it
+                return;
 
-        _objectVector[_guidlow] = NULL;
+            // transports and gameobjects have separate counters but share this table
+            if (_objectVector[guidlow] == o)
+                _objectVector[guidlow] = nullptr;
+        }
+
         if (o->IsPlayer())
         {
             i_lock.lock();
@@ -88,21 +99,24 @@ public:
 
     static T* Find(ObjectGuid guid)
     {
-        if (_checkLock)
+        T* object;
         {
-            i_lockVector.lock_shared();
-            i_lockVector.unlock_shared();
+            std::shared_lock<sf::contention_free_shared_mutex< >> guard(i_lockVector);
+            uint64 guidlow = guid.GetGUIDLow();
+            if (guidlow >= _size) // If guid buged don`t check it
+                return nullptr;
+            object = _objectVector[guidlow];
         }
 
-        volatile uint32 _guidlow = guid.GetGUIDLow(); // For debug
-        volatile uint32 _sizeV = _size; // For debug
-        if (_guidlow >= _size) // If guid buged don`t check it
+        if (object && !IsSameKind(object, guid.GetHigh()))
             return nullptr;
-        return _objectVector[_guidlow];
+
+        return object;
     }
 
     static T* FindLow(ObjectGuid::LowType guidLow)
     {
+        std::shared_lock<sf::contention_free_shared_mutex< >> guard(i_lockVector);
         if (guidLow < _size)
             return _objectVector[guidLow];
 
@@ -111,22 +125,25 @@ public:
 
     static T* FindStr(std::string name)
     {
-        i_lock.lock_shared();
+        std::shared_lock<sf::contention_free_shared_mutex< >> guard(i_lock);
         typename MapTypeStr::iterator itr = _objectMapStr.find(name);
-        i_lock.unlock_shared();
-        return (itr != _objectMapStr.end()) ? itr->second : NULL;
+        return (itr != _objectMapStr.end()) ? itr->second : nullptr;
     }
 
     static void SetSize(uint64 size)
     {
+        // called on every guid generation: the exclusive lock only for an actual resize
+        {
+            std::shared_lock<sf::contention_free_shared_mutex< >> guard(i_lockVector);
+            if (_objectVector.size() >= (size + INCREMENT_COUNTER))
+                return;
+        }
+
+        std::unique_lock<sf::contention_free_shared_mutex< >> guard(i_lockVector);
         if (_objectVector.size() < (size + INCREMENT_COUNTER))
         {
-            _checkLock = true;
-            i_lockVector.lock();
             _objectVector.resize(size + INCREMENT_COUNTER * 3);
             _size = _objectVector.size();
-            i_lockVector.unlock();
-            _checkLock = false;
         }
     }
 
@@ -140,6 +157,22 @@ private:
 
     //Non instanceable only static
     HashMapHolder() { _checkLock = false; _size = 0; }
+
+    // several high types share one counter per table; anything else under another high type is a different object with the same low guid
+    // (e.g. ship transports, numbered 1..n, against the first gameobject spawns)
+    static bool IsSameKind(T const* object, HighGuid wanted)
+    {
+        HighGuid stored = object->GetGUID().GetHigh();
+        if (stored == wanted)
+            return true;
+
+        if constexpr (std::is_same_v<T, Creature>)
+            return (stored == HighGuid::Creature || stored == HighGuid::Vehicle) && (wanted == HighGuid::Creature || wanted == HighGuid::Vehicle);
+        else if constexpr (std::is_same_v<T, GameObject>)
+            return stored == HighGuid::Transport && wanted == HighGuid::GameObject && object->ToStaticTransport(); // elevators use gameobject spawn guids
+        else
+            return false;
+    }
 
     static sf::contention_free_shared_mutex< > i_lock;
     static sf::contention_free_shared_mutex< > i_lockVector;
