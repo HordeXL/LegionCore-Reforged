@@ -49,7 +49,7 @@
 #include "World.h"
 
 GameObject::GameObject() : WorldObject(false), m_groupLootTimer(0), m_model(nullptr), m_goValue(), m_spellId(0), m_respawnTime(0), m_respawnDelayTime(300),
-m_lootState(GO_NOT_READY), m_spawnedByDefault(true), m_cooldownTime(0), m_prevGoState(GO_STATE_ACTIVE), m_ritualOwner(nullptr), m_usetimes(0), m_DBTableGuid(0), m_goInfo(nullptr),
+m_lootState(GO_NOT_READY), m_spawnedByDefault(true), m_cooldownTime(0), m_prevGoState(GO_STATE_ACTIVE), m_ritualOwnerGUID(), m_usetimes(0), m_DBTableGuid(0), m_goInfo(nullptr),
 m_goData(nullptr), m_manual_anim(false), m_isDynActive(false), m_onUse(false), m_actionVector(nullptr), m_AI(nullptr)
 {
     m_valuesCount = GAMEOBJECT_END;
@@ -60,7 +60,10 @@ m_goData(nullptr), m_manual_anim(false), m_isDynActive(false), m_onUse(false), m
     m_updateFlag = UPDATEFLAG_STATIONARY_POSITION | UPDATEFLAG_ROTATION;
 
     m_IfUpdateTimer = 0;
-    m_RateUpdateTimer = MAX_VISIBILITY_DISTANCE;
+    // 40 as for creatures (an update every 200 ms). Nothing ever lowers it for game objects: the
+    // notifier that does so for creatures only walks the world containers, which never hold them. At
+    // MAX_VISIBILITY_DISTANCE every trap, door, chest and fishing bobber only updated every 2.7 s.
+    m_RateUpdateTimer = 40;
     m_RateUpdateWait = 0;
     m_packedRotation = 0;
 
@@ -1905,8 +1908,9 @@ void GameObject::Use(Unit* user)
             GameObjectTemplate const* info = GetGOInfo();
 
             // ritual owner is set for GO's without owner (not summoned)
-            if (!m_ritualOwner && !owner)
-                m_ritualOwner = player;
+            if (m_ritualOwnerGUID.IsEmpty() && !owner)
+                m_ritualOwnerGUID = player->GetGUID();
+            Player* ritualOwner = m_ritualOwnerGUID.IsEmpty() ? nullptr : ObjectAccessor::GetPlayer(*this, m_ritualOwnerGUID);
 
             if (owner)
             {
@@ -1926,7 +1930,7 @@ void GameObject::Use(Unit* user)
             }
             else
             {
-                if (player != m_ritualOwner && (info->ritual.castersGrouped && !player->IsInSameRaidWith(m_ritualOwner)))
+                if (player != ritualOwner && (info->ritual.castersGrouped && (!ritualOwner || !player->IsInSameRaidWith(ritualOwner))))
                     return;
 
                 spellCaster = player;
@@ -1945,9 +1949,8 @@ void GameObject::Use(Unit* user)
             // full amount unique participants including original summoner
             if (GetUniqueUseCount() == info->ritual.casters)
             {
-                spellCaster = m_ritualOwner ? m_ritualOwner : spellCaster;
-                if (m_ritualOwner)
-                    spellCaster = m_ritualOwner;
+                if (ritualOwner)
+                    spellCaster = ritualOwner;
 
                 spellId = info->ritual.spell;
 
@@ -1978,7 +1981,7 @@ void GameObject::Use(Unit* user)
                 else
                 {
                     // reset ritual for this GO
-                    m_ritualOwner = nullptr;
+                    m_ritualOwnerGUID.Clear();
                     m_unique_users.clear();
                     m_usetimes = 0;
                 }
@@ -2703,8 +2706,11 @@ void GameObject::SetLootState(LootState state, Unit* unit)
     {
         bool collision = false;
 
+        // doors and buttons: only the go state tells open from closed; the loot state rule below left opened doors solid
+        if (GetGoType() == GAMEOBJECT_TYPE_DOOR || GetGoType() == GAMEOBJECT_TYPE_BUTTON)
+            collision = GetGoState() == GO_STATE_READY;
         // Use the current go state
-        if (GetGoState() != GO_STATE_READY && (state == GO_ACTIVATED || state == GO_JUST_DEACTIVATED) || state == GO_READY)
+        else if (GetGoState() != GO_STATE_READY && (state == GO_ACTIVATED || state == GO_JUST_DEACTIVATED) || state == GO_READY)
             collision = !collision;
 
         EnableCollision(collision);

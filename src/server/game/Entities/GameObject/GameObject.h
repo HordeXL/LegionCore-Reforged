@@ -328,7 +328,7 @@ class TC_GAME_API GameObject : public WorldObject, public GridObject<GameObject>
 
         GuidSet m_SkillupList;
 
-        Player* m_ritualOwner;                              // used for GAMEOBJECT_TYPE_RITUAL where GO is not summoned (no owner)
+        ObjectGuid m_ritualOwnerGUID;                       // used for GAMEOBJECT_TYPE_RITUAL where GO is not summoned (no owner); a guid, the player may log out meanwhile
         GuidSet m_unique_users;
         uint32 m_usetimes;
 
