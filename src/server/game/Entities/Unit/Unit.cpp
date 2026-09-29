@@ -2022,19 +2022,59 @@ void Unit::CastSpellOnAttackablTarget(uint32 spellId, float dist, Unit* exclude,
     }
 }
 
+// The item and aura effect of a delayed cast, kept as guids and looked up again when the cast
+// happens: the raw pointers were read after the item was used up or the aura had expired.
+struct DelayedCastSource
+{
+    DelayedCastSource(Item const* item, AuraEffect const* aurEff)
+    {
+        if (item)
+            ItemGuid = item->GetGUID();
+        if (aurEff)
+        {
+            if (Unit* owner = aurEff->GetBase()->GetUnitOwner())
+                AuraOwner = owner->GetGUID();
+            AuraSpellId = aurEff->GetId();
+            AuraEffIndex = uint8(aurEff->GetEffIndex());
+            AuraCaster = aurEff->GetCasterGUID();
+        }
+    }
+
+    Item* FindItem(Unit* caster) const
+    {
+        Player* player = caster->ToPlayer();
+        return ItemGuid.IsEmpty() || !player ? nullptr : player->GetItemByGuid(ItemGuid);
+    }
+
+    AuraEffect const* FindAuraEffect(Unit* caster) const
+    {
+        if (!AuraSpellId || AuraOwner.IsEmpty())
+            return nullptr;
+        Unit* owner = AuraOwner == caster->GetGUID() ? caster : ObjectAccessor::GetUnit(*caster, AuraOwner);
+        return owner ? owner->GetAuraEffect(AuraSpellId, AuraEffIndex, AuraCaster) : nullptr;
+    }
+
+    ObjectGuid ItemGuid;
+    ObjectGuid AuraOwner;
+    ObjectGuid AuraCaster;
+    uint32 AuraSpellId = 0;
+    uint8 AuraEffIndex = 0;
+};
+
 void Unit::CastSpellDelay(Unit* victim, uint32 spellId, bool triggered, uint32 delay, Item* castItem, AuraEffect const* triggeredByAura, ObjectGuid originalCaster)
 {
     if (m_cleanupDone)
         return;
 
     ObjectGuid targetGUID = victim->GetGUID();
-    AddDelayedCombat(delay, [this, spellId, triggered, castItem, triggeredByAura, originalCaster, targetGUID]() -> void
+    DelayedCastSource const source(castItem, triggeredByAura);
+    AddDelayedCombat(delay, [this, spellId, triggered, source, originalCaster, targetGUID]() -> void
     {
         Unit* target = ObjectAccessor::GetUnit(*this, targetGUID);
         if (!target)
             return;
 
-        CastSpell(target, spellId, triggered ? TRIGGERED_FULL_MASK : TRIGGERED_NONE, castItem, triggeredByAura, originalCaster);
+        CastSpell(target, spellId, triggered ? TRIGGERED_FULL_MASK : TRIGGERED_NONE, source.FindItem(this), source.FindAuraEffect(this), originalCaster);
     });
 }
 
@@ -2047,9 +2087,10 @@ void Unit::CastSpellDelay(Position pos, uint32 spellId, bool triggered, uint32 d
         CastSpell(pos, spellId, triggered ? TRIGGERED_FULL_MASK : TRIGGERED_NONE, castItem, triggeredByAura, originalCaster);
     else
     {
-        AddDelayedCombat(delay, [this, pos, spellId, triggered, castItem, triggeredByAura, originalCaster]() -> void
+        DelayedCastSource const source(castItem, triggeredByAura);
+        AddDelayedCombat(delay, [this, pos, spellId, triggered, source, originalCaster]() -> void
         {
-            CastSpell(pos, spellId, triggered ? TRIGGERED_FULL_MASK : TRIGGERED_NONE, castItem, triggeredByAura, originalCaster);
+            CastSpell(pos, spellId, triggered ? TRIGGERED_FULL_MASK : TRIGGERED_NONE, source.FindItem(this), source.FindAuraEffect(this), originalCaster);
         });
     }
 }
