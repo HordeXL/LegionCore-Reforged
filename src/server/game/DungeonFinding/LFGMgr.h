@@ -326,7 +326,7 @@ public:
 
     bool selectedRandomLfgDungeon(ObjectGuid guid, uint32 queueId);
     bool inLfgDungeonMap(ObjectGuid guid, uint32 map, Difficulty difficulty, uint32& queueId);
-    LfgDungeonSet const& GetSelectedDungeons(ObjectGuid guid, uint32 queueId);
+    LfgDungeonSet GetSelectedDungeons(ObjectGuid guid, uint32 queueId);
     LfgState GetState(ObjectGuid guid, uint32 queueId);
     uint32 GetDungeon(ObjectGuid guid, bool asId = true);
     uint32 GetDungeonMapId(ObjectGuid guid);
@@ -370,7 +370,7 @@ public:
     void SetRoles(ObjectGuid guid, uint8 roles, uint32 queueId);
     void JoinLfg(Player* player, uint8 roles, LfgDungeonSet& dungeons);
     void LeaveLfg(ObjectGuid guid, uint32 queueId = 0);
-    WorldPackets::LFG::RideTicket const* GetTicket(ObjectGuid guid, uint32 queueId) const;
+    Optional<WorldPackets::LFG::RideTicket> GetTicket(ObjectGuid guid, uint32 queueId) const;
 
     LfgLockMap GetLockedDungeons(ObjectGuid guid);
     void SendLfgPlayerLockInfo(Player* player);
@@ -417,7 +417,7 @@ public:
     uint8 GetShortageRolesForQueue(ObjectGuid guid, uint32 dungeonId);
     uint8 GetEligibleRolesForCTA(ObjectGuid guid);
 
-    GuidSet const& GetPlayers(ObjectGuid guid);
+    GuidSet GetPlayers(ObjectGuid guid);
 
     void InitiBattlgroundCheckRoles(Group* group, ObjectGuid playerGuid, uint32 queueid, uint8 roles, uint8 bgQueueTypeId, WorldPackets::Battleground::IgnorMapInfo ignormap, bool isSkirmish = false);
 
@@ -459,7 +459,9 @@ private:
     LfgCompletedMaskContainer CompletedMaskStore;      ///< Instance Completed Encounter Mask
     DungeonSet PlayerDungeons;
     DungeonSet GroupDungeons;
-    std::recursive_mutex m_lock;
+    // Taken by every function that touches the stores below: the world thread runs Update while
+    // each map thread calls in (finished encounters, group changes, packets of its players)
+    mutable std::recursive_mutex m_lock;
     bool m_Testing = false;
 
     LfgCTARewardContainer CTARewardStore;              ///< Player selecter roles which were eligible for CTA reward when joining a queue
