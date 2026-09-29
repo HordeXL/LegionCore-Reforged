@@ -3609,13 +3609,13 @@ bool LootTemplate::CheckItemCondition(Player const* player, uint32 itemId, uint8
                 return false;
         }
 
-        ConditionList conditionsList = sConditionMgr->GetConditionsForItemLoot(1, itemId);
+        ConditionList const& conditionsList = sConditionMgr->GetConditionsForItemLoot(1, itemId);
         if (!sConditionMgr->IsObjectMeetToConditions(const_cast<Player*>(player), conditionsList))
             return false;
     }
     else
     {
-        ConditionList conditionsList = sConditionMgr->GetConditionsForItemLoot(2, itemId);
+        ConditionList const& conditionsList = sConditionMgr->GetConditionsForItemLoot(2, itemId);
         if (!sConditionMgr->IsObjectMeetToConditions(const_cast<Player*>(player), conditionsList))
             return false;
     }

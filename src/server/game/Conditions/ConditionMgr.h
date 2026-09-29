@@ -267,14 +267,14 @@ class TC_GAME_API ConditionMgr
         bool IsObjectMeetToConditions(ConditionSourceInfo& sourceInfo, ConditionList const& conditions) const;
         bool CanHaveSourceGroupSet(ConditionSourceType sourceType) const;
         bool CanHaveSourceIdSet(ConditionSourceType sourceType) const;
-        ConditionList GetConditionsForNotGroupedEntry(ConditionSourceType sourceType, uint32 entry);
-        ConditionList GetConditionsForSpellClickEvent(uint32 creatureId, uint32 spellId);
-        ConditionList GetConditionsForSmartEvent(int64 entryOrGuid, uint32 eventId, uint32 sourceType);
-        ConditionList GetConditionsForVehicleSpell(uint32 creatureId, uint32 spellId);
-        ConditionList GetConditionsForNpcVendorEvent(uint32 creatureId, uint32 itemId);
-        ConditionList GetConditionsForPhaseDefinition(uint32 zone, uint32 entry);
-        ConditionList GetConditionsForAreaTriggerAction(uint32 areaTriggerId, uint32 actionId);
-        ConditionList GetConditionsForItemLoot(uint32 creatureId, uint32 itemId);
+        ConditionList const& GetConditionsForNotGroupedEntry(ConditionSourceType sourceType, uint32 entry);
+        ConditionList const& GetConditionsForSpellClickEvent(uint32 creatureId, uint32 spellId);
+        ConditionList const& GetConditionsForSmartEvent(int64 entryOrGuid, uint32 eventId, uint32 sourceType);
+        ConditionList const& GetConditionsForVehicleSpell(uint32 creatureId, uint32 spellId);
+        ConditionList const& GetConditionsForNpcVendorEvent(uint32 creatureId, uint32 itemId);
+        ConditionList const& GetConditionsForPhaseDefinition(uint32 zone, uint32 entry);
+        ConditionList const& GetConditionsForAreaTriggerAction(uint32 areaTriggerId, uint32 actionId);
+        ConditionList const& GetConditionsForItemLoot(uint32 creatureId, uint32 itemId);
 		bool IsObjectMeetingSmartEventConditions(int64 entryOrGuid, uint32 eventId, uint32 sourceType, Unit* unit, WorldObject* baseObject) const;
         
         static bool IsPlayerMeetingCondition(Unit* unit, int32 conditionID, bool send = false);

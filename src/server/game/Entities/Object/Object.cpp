@@ -4010,7 +4010,7 @@ void WorldObject::RebuildWorldMapAreaSwaps()
     {
         for (uint32 swap : itr->second)
         {
-            ConditionList conditions = sConditionMgr->GetConditionsForNotGroupedEntry(CONDITION_SOURCE_TYPE_TERRAIN_SWAP, swap);
+            ConditionList const& conditions = sConditionMgr->GetConditionsForNotGroupedEntry(CONDITION_SOURCE_TYPE_TERRAIN_SWAP, swap);
             if (sConditionMgr->IsObjectMeetToConditions(this, conditions))
             {
                 for (uint32 map : sObjectMgr->GetTerrainWorldMaps(swap))
@@ -4028,7 +4028,7 @@ void WorldObject::RebuildWorldMapAreaSwaps()
         {
             // add world map swaps for ANY map
 
-            ConditionList conditions = sConditionMgr->GetConditionsForNotGroupedEntry(CONDITION_SOURCE_TYPE_TERRAIN_SWAP, swap);
+            ConditionList const& conditions = sConditionMgr->GetConditionsForNotGroupedEntry(CONDITION_SOURCE_TYPE_TERRAIN_SWAP, swap);
 
             if (sConditionMgr->IsObjectMeetToConditions(this, conditions))
             {

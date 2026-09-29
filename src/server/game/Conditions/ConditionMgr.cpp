@@ -1071,9 +1071,13 @@ bool ConditionMgr::CanHaveSourceIdSet(ConditionSourceType sourceType) const
     return (sourceType == CONDITION_SOURCE_TYPE_SMART_EVENT);
 }
 
-ConditionList ConditionMgr::GetConditionsForNotGroupedEntry(ConditionSourceType sourceType, uint32 entry)
+// Returned by the lookups below when nothing matches: they hand out references into the stores
+// rather than copies, as some run on every proc and every SmartAI event
+static ConditionList const EmptyConditionList;
+
+ConditionList const& ConditionMgr::GetConditionsForNotGroupedEntry(ConditionSourceType sourceType, uint32 entry)
 {
-    ConditionList spellCond;
+    ConditionList const* spellCond = &EmptyConditionList;
     if (sourceType > CONDITION_SOURCE_TYPE_NONE && sourceType < CONDITION_SOURCE_TYPE_MAX)
     {
         ConditionContainer::const_iterator itr = ConditionStore.find(sourceType);
@@ -1082,129 +1086,129 @@ ConditionList ConditionMgr::GetConditionsForNotGroupedEntry(ConditionSourceType 
             ConditionTypeContainer::const_iterator i = (*itr).second.find(entry);
             if (i != (*itr).second.end())
             {
-                spellCond = (*i).second;
+                spellCond = &(*i).second;
                 TC_LOG_DEBUG("condition", "GetConditionsForNotGroupedEntry: found conditions for type %u and entry %u", uint32(sourceType), entry);
             }
         }
     }
-    return spellCond;
+    return *spellCond;
 }
 
-ConditionList ConditionMgr::GetConditionsForSpellClickEvent(uint32 creatureId, uint32 spellId)
+ConditionList const& ConditionMgr::GetConditionsForSpellClickEvent(uint32 creatureId, uint32 spellId)
 {
-    ConditionList cond;
+    ConditionList const* cond = &EmptyConditionList;
     CreatureSpellConditionContainer::const_iterator itr = SpellClickEventConditionStore.find(creatureId);
     if (itr != SpellClickEventConditionStore.end())
     {
         ConditionTypeContainer::const_iterator i = (*itr).second.find(spellId);
         if (i != (*itr).second.end())
         {
-            cond = (*i).second;
+            cond = &(*i).second;
             TC_LOG_DEBUG("condition", "GetConditionsForSpellClickEvent: found conditions for Vehicle entry %u spell %u", creatureId, spellId);
         }
     }
-    return cond;
+    return *cond;
 }
 
-ConditionList ConditionMgr::GetConditionsForVehicleSpell(uint32 creatureId, uint32 spellId)
+ConditionList const& ConditionMgr::GetConditionsForVehicleSpell(uint32 creatureId, uint32 spellId)
 {
-    ConditionList cond;
+    ConditionList const* cond = &EmptyConditionList;
     CreatureSpellConditionContainer::const_iterator itr = VehicleSpellConditionStore.find(creatureId);
     if (itr != VehicleSpellConditionStore.end())
     {
             ConditionTypeContainer::const_iterator i = (*itr).second.find(spellId);
         if (i != (*itr).second.end())
         {
-            cond = (*i).second;
+            cond = &(*i).second;
             TC_LOG_DEBUG("condition", "GetConditionsForVehicleSpell: found conditions for Vehicle entry %u spell %u", creatureId, spellId);
         }
     }
-    return cond;
+    return *cond;
 }
 
-ConditionList ConditionMgr::GetConditionsForSmartEvent(int64 entryOrGuid, uint32 eventId, uint32 sourceType)
+ConditionList const& ConditionMgr::GetConditionsForSmartEvent(int64 entryOrGuid, uint32 eventId, uint32 sourceType)
 {
-    ConditionList cond;
+    ConditionList const* cond = &EmptyConditionList;
     SmartEventConditionContainer::const_iterator itr = SmartEventConditionStore.find(std::make_pair(entryOrGuid, sourceType));
     if (itr != SmartEventConditionStore.end())
     {
         ConditionTypeContainer::const_iterator i = (*itr).second.find(eventId + 1);
         if (i != (*itr).second.end())
         {
-            cond = (*i).second;
+            cond = &(*i).second;
             TC_LOG_DEBUG("condition", "GetConditionsForSmartEvent: found conditions for Smart Event entry or guid %ld event_id %u", entryOrGuid, eventId);
         }
     }
-    return cond;
+    return *cond;
 }
 
-ConditionList ConditionMgr::GetConditionsForNpcVendorEvent(uint32 creatureId, uint32 itemId)
+ConditionList const& ConditionMgr::GetConditionsForNpcVendorEvent(uint32 creatureId, uint32 itemId)
 {
-    ConditionList cond;
+    ConditionList const* cond = &EmptyConditionList;
     NpcVendorConditionContainer::const_iterator itr = NpcVendorConditionContainerStore.find(creatureId);
     if (itr != NpcVendorConditionContainerStore.end())
     {
         ConditionTypeContainer::const_iterator i = (*itr).second.find(itemId);
         if (i != (*itr).second.end())
         {
-            cond = (*i).second;
+            cond = &(*i).second;
             TC_LOG_DEBUG("condition", "GetConditionsForNpcVendorEvent: found conditions for creature entry %u item %u", creatureId, itemId);
         }
     }
-    return cond;
+    return *cond;
 }
 
-ConditionList ConditionMgr::GetConditionsForPhaseDefinition(uint32 zone, uint32 entry)
+ConditionList const& ConditionMgr::GetConditionsForPhaseDefinition(uint32 zone, uint32 entry)
 {
-    ConditionList cond;
+    ConditionList const* cond = &EmptyConditionList;
     PhaseDefinitionConditionContainer::const_iterator itr = PhaseDefinitionsConditionStore.find(zone);
     if (itr != PhaseDefinitionsConditionStore.end())
     {
         ConditionTypeContainer::const_iterator i = (*itr).second.find(entry);
         if (i != (*itr).second.end())
         {
-            cond = (*i).second;
-            TC_LOG_DEBUG("condition", "GetConditionsForPhaseDefinition: found conditions for zone %u entry %u size %zu", zone, entry, cond.size());
+            cond = &(*i).second;
+            TC_LOG_DEBUG("condition", "GetConditionsForPhaseDefinition: found conditions for zone %u entry %u size %zu", zone, entry, cond->size());
         }
     }
 
-    return cond;
+    return *cond;
 }
 
-ConditionList ConditionMgr::GetConditionsForAreaTriggerAction(uint32 areaTriggerId, uint32 actionId)
+ConditionList const& ConditionMgr::GetConditionsForAreaTriggerAction(uint32 areaTriggerId, uint32 actionId)
 {
-    ConditionList cond;
+    ConditionList const* cond = &EmptyConditionList;
     AreaTriggerConditionContainer::const_iterator itr = AreaTriggerConditionStore.find(areaTriggerId);
     if (itr != AreaTriggerConditionStore.end())
     {
         ConditionTypeContainer::const_iterator i = itr->second.find(actionId);
         if (i != itr->second.end())
         {
-            cond = i->second;
+            cond = &i->second;
             TC_LOG_DEBUG("condition", "GetConditionsForAreaTriggerAction: found conditions for areatrigger id %u entry %u", areaTriggerId, actionId);
         }
     }
 
-    return cond;
+    return *cond;
 }
 
-ConditionList ConditionMgr::GetConditionsForItemLoot(uint32 creatureId, uint32 itemId)
+ConditionList const& ConditionMgr::GetConditionsForItemLoot(uint32 creatureId, uint32 itemId)
 {
-    ConditionList cond;
+    ConditionList const* cond = &EmptyConditionList;
     ItemLootConditionContainer::const_iterator itr = ItemLootConditionStore.find(creatureId);
     if (itr != ItemLootConditionStore.end())
     {
         ConditionTypeContainer::const_iterator i = itr->second.find(itemId);
         if (i != itr->second.end())
         {
-            cond = i->second;
+            cond = &i->second;
             TC_LOG_DEBUG("condition", "GetConditionsForItemLoot: found conditions for creatureId %u itemId %u", creatureId, itemId);
         }
     }
 
     TC_LOG_DEBUG("condition", "GetConditionsForItemLoot: conditions for creatureId %u itemId %u", creatureId, itemId);
 
-    return cond;
+    return *cond;
 }
 
 void ConditionMgr::LoadConditions(bool isReload)
