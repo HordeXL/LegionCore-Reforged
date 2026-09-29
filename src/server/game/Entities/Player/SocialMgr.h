@@ -154,6 +154,7 @@ class TC_GAME_API SocialMgr
         GuidList GetCharFriendsGuids(Player* player, uint32 lfgListActivityID);
         GuidList GetGuildMateGuids(uint32 lfgListActivityID);
         bool HasInFriendsList(Player* player, ObjectGuid guid);
+        std::recursive_mutex& GetLock() { return m_social_lock; }
     private:
         SocialMap m_socialMap;
         std::recursive_mutex m_social_lock;
