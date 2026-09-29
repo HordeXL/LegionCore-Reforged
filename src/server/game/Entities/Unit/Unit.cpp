@@ -11274,6 +11274,11 @@ FactionTemplateEntry const* Unit::getFactionTemplateEntry() const
 
             guid = GetGUID();
         }
+
+        // Every time, not only on the call that logged it: the second call returned no template and
+        // the creature's reaction changed. (The static guid is only there to limit the log.)
+        if (IsCreature())
+            return sFactionTemplateStore.LookupEntry(35);
     }
     return entry;
 }
@@ -15807,8 +15812,7 @@ void Unit::UpdateSpeed(UnitMoveType mtype, bool forced)
 
                         speed *= pOwner->GetSpeedRate(mtype) * base_rate; // pets derive speed from owner when not in combat
                     }
-                    else
-                        speed = 1.f;
+                    // in combat: base run speed with the auras kept (speed = 1 dropped every snare and speed buff)
                 }
                 else
                     speed *= ToCreature()->GetCreatureTemplate()->speed_run;    // at this point, MOVE_WALK is never reached
@@ -22467,7 +22471,7 @@ void Unit::SetControlled(bool apply, UnitState state)
                 break;
             case UNIT_STATE_FLEEING:
                 {
-                    if (HasAuraType(SPELL_AURA_MOD_FEAR))
+                    if (isFeared())
                         return;
 
                     ClearUnitState(state);
@@ -22494,7 +22498,7 @@ void Unit::ApplyControlStatesIfNeeded()
     if (HasUnitState(UNIT_STATE_CONFUSED) || HasAuraType(SPELL_AURA_MOD_CONFUSE))
         SetConfused(true);
 
-    if (HasUnitState(UNIT_STATE_FLEEING) || HasAuraType(SPELL_AURA_MOD_FEAR))
+    if (HasUnitState(UNIT_STATE_FLEEING) || isFeared())
         SetFeared(true);
 }
 
@@ -23523,6 +23527,12 @@ public:
 
         m_owner->m_VisibilityUpdateScheduled = false;
         return true;
+    }
+
+    // killed by CleanupBeforeTeleport: without this the player never schedules another visibility update
+    void Abort(uint64) final
+    {
+        m_owner->m_VisibilityUpdateScheduled = false;
     }
 
     static void UpdateVisibility(Unit* me)
@@ -24741,11 +24751,20 @@ void Unit::StopAttackFaction(uint32 faction_id)
         }
     }
 
+    // AttackStop erases the attacker from this set: start over after each one, as TrinityCore does
     UnitSet* attackers = getAttackers();
-    for (UnitSet::iterator itr = attackers->begin(); itr != attackers->end(); ++itr)
+    for (UnitSet::iterator itr = attackers->begin(); itr != attackers->end();)
     {
         if ((*itr)->getFactionTemplateEntry()->Faction == faction_id)
-            (*itr)->AttackStop();
+        {
+            // an attacker not attacking this unit is not removed by AttackStop: drop it here, or the
+            // restart would find it again forever (as RemoveAllAttackers does)
+            if (!(*itr)->AttackStop())
+                attackers->erase(itr);
+            itr = attackers->begin();
+        }
+        else
+            ++itr;
     }
 
     getHostileRefManager().deleteReferencesForFaction(faction_id);
