@@ -9063,16 +9063,19 @@ void Player::UpdateHonorFields(bool loading /*= false*/)
             {
                 if (m_honorInfo.CurrentHonorAtLevel && m_honorInfo.CurrentHonorAtLevel >= data->Prestige[m_honorInfo.PrestigeLevel])
                 {
-                    while (m_honorInfo.CurrentHonorAtLevel && m_honorInfo.CurrentHonorAtLevel >= data->Prestige[m_honorInfo.PrestigeLevel])
+                    // each level is paid at its own cost: the loop kept charging the first level's
+                    GtHonorLevelEntry const* levelData = data;
+                    while (levelData && m_honorInfo.CurrentHonorAtLevel && m_honorInfo.CurrentHonorAtLevel >= levelData->Prestige[m_honorInfo.PrestigeLevel])
                     {
                         if (m_honorInfo.HonorLevel == m_honorInfo.MaxHonorLevel)
                             break;
 
-                        m_honorInfo.CurrentHonorAtLevel -= data->Prestige[m_honorInfo.PrestigeLevel];
+                        m_honorInfo.CurrentHonorAtLevel -= levelData->Prestige[m_honorInfo.PrestigeLevel];
                         m_honorInfo.IncreaseHonorLevel();
 
-                        if (GtHonorLevelEntry const* data2 = sHonorLevelGameTable.GetRow(m_honorInfo.NextHonorLevel))
-                            m_honorInfo.NextHonorAtLevel = data2->Prestige[m_honorInfo.PrestigeLevel];
+                        levelData = sHonorLevelGameTable.GetRow(m_honorInfo.NextHonorLevel);
+                        if (levelData)
+                            m_honorInfo.NextHonorAtLevel = levelData->Prestige[m_honorInfo.PrestigeLevel];
 
                         UpdateAchievementCriteria(CRITERIA_TYPE_HONOR_LEVEL_UP, m_honorInfo.HonorLevel);
                         if (m_honorInfo.HonorLevel == m_honorInfo.MaxHonorLevel)
@@ -9463,7 +9466,8 @@ void Player::SendPvpRewards()
         if (ChestID)
             rewardsResponse.RandomBGRewards.Item.push_back(ChestID);
 
-        if (!reward->ItemsA.empty())
+        // test the list actually drawn from: a Horde player on a row without Horde items crashed
+        if (!(isAlliance ? reward->ItemsA : reward->ItemsH).empty())
             rewardsResponse.RandomBGRewards.Item.push_back(Trinity::Containers::SelectRandomContainerElement(isAlliance ? reward->ItemsA : reward->ItemsH));
 
         if (Quest const* quest = sQuestDataStore->GetQuestTemplate(questId))
@@ -9502,7 +9506,8 @@ void Player::SendPvpRewards()
         if (ChestID)
             rewardsResponse.RatedBGRewards.Item.push_back(ChestID);
 
-        if (!reward->ItemsA.empty())
+        // test the list actually drawn from: a Horde player on a row without Horde items crashed
+        if (!(isAlliance ? reward->ItemsA : reward->ItemsH).empty())
             rewardsResponse.RatedBGRewards.Item.push_back(Trinity::Containers::SelectRandomContainerElement(isAlliance ? reward->ItemsA : reward->ItemsH));
 
         if (Quest const* quest = sQuestDataStore->GetQuestTemplate(questId))
@@ -9541,7 +9546,8 @@ void Player::SendPvpRewards()
         if (ChestID)
             rewardsResponse.ArenaSkirmishRewards.Item.push_back(ChestID);
 
-        if (!reward->ItemsA.empty())
+        // test the list actually drawn from: a Horde player on a row without Horde items crashed
+        if (!(isAlliance ? reward->ItemsA : reward->ItemsH).empty())
             rewardsResponse.ArenaSkirmishRewards.Item.push_back(Trinity::Containers::SelectRandomContainerElement(isAlliance ? reward->ItemsA : reward->ItemsH));
 
         if (Quest const* quest = sQuestDataStore->GetQuestTemplate(questId))
@@ -9580,7 +9586,8 @@ void Player::SendPvpRewards()
         if (ChestID)
             rewardsResponse.ArenaRewards2v2.Item.push_back(ChestID);
 
-        if (!reward->ItemsA.empty())
+        // test the list actually drawn from: a Horde player on a row without Horde items crashed
+        if (!(isAlliance ? reward->ItemsA : reward->ItemsH).empty())
             rewardsResponse.ArenaRewards2v2.Item.push_back(Trinity::Containers::SelectRandomContainerElement(isAlliance ? reward->ItemsA : reward->ItemsH));
 
         if (Quest const* quest = sQuestDataStore->GetQuestTemplate(questId))
@@ -9619,7 +9626,8 @@ void Player::SendPvpRewards()
         if (ChestID)
             rewardsResponse.ArenaRewards3v3.Item.push_back(ChestID);
 
-        if (!reward->ItemsA.empty())
+        // test the list actually drawn from: a Horde player on a row without Horde items crashed
+        if (!(isAlliance ? reward->ItemsA : reward->ItemsH).empty())
             rewardsResponse.ArenaRewards3v3.Item.push_back(Trinity::Containers::SelectRandomContainerElement(isAlliance ? reward->ItemsA : reward->ItemsH));
 
         if (Quest const* quest = sQuestDataStore->GetQuestTemplate(questId))
@@ -9658,7 +9666,8 @@ void Player::SendPvpRewards()
         if (ChestID)
             rewardsResponse.BrawlRewardsBattleground.Item.push_back(ChestID);
 
-        if (!reward->ItemsA.empty())
+        // test the list actually drawn from: a Horde player on a row without Horde items crashed
+        if (!(isAlliance ? reward->ItemsA : reward->ItemsH).empty())
             rewardsResponse.BrawlRewardsBattleground.Item.push_back(Trinity::Containers::SelectRandomContainerElement(isAlliance ? reward->ItemsA : reward->ItemsH));
 
         if (Quest const* quest = sQuestDataStore->GetQuestTemplate(questId))
@@ -9697,7 +9706,8 @@ void Player::SendPvpRewards()
         if (ChestID)
             rewardsResponse.BrawlRewardsArena.Item.push_back(ChestID);
 
-        if (!reward->ItemsA.empty())
+        // test the list actually drawn from: a Horde player on a row without Horde items crashed
+        if (!(isAlliance ? reward->ItemsA : reward->ItemsH).empty())
             rewardsResponse.BrawlRewardsArena.Item.push_back(Trinity::Containers::SelectRandomContainerElement(isAlliance ? reward->ItemsA : reward->ItemsH));
 
         if (Quest const* quest = sQuestDataStore->GetQuestTemplate(questId))
