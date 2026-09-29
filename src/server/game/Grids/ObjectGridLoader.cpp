@@ -205,7 +205,9 @@ void ObjectGridEvacuator::Visit(GameObjectMapType &m)
 template <typename AnyMapType>
 void ObjectGridUnloader::Visit(AnyMapType &m)
 {
-    for (auto &obj : m)
+    // RemoveFromGrid swaps the object with the last one and pops it: walking m itself skips half of them
+    AnyMapType const objects = m;
+    for (auto obj : objects)
     {
         // if option set then object already saved at this moment
         if (!sWorld->getBoolConfig(CONFIG_SAVE_RESPAWN_TIME_IMMEDIATELY))

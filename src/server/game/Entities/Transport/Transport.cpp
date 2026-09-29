@@ -616,7 +616,9 @@ bool Transport::TeleportTransport(uint32 newMapid, float x, float y, float z, fl
         Relocate(x, y, z, o);
         oldMap->RemoveFromMap<Transport>(this, false);
 
-        for (PassengerSet::iterator itr = _passengers.begin(); itr != _passengers.end(); ++itr)
+        // over a copy: RemovePassenger erases from _passengers, and for a player also the units he controls
+        PassengerSet const passengers = _passengers;
+        for (PassengerSet::const_iterator itr = passengers.begin(); itr != passengers.end(); ++itr)
         {
             WorldObject* obj = *itr;
             if (!obj)

@@ -169,7 +169,8 @@ void Totem::UnSummon(uint32 msTime)
             for (GroupReference* itr = group->GetFirstMember(); itr != nullptr; itr = itr->next())
             {
                 Player* target = itr->getSource();
-                if (target && group->SameSubGroup(owner, target))
+                // same map only, as in TrinityCore: members elsewhere belong to another map's thread
+                if (target && target->IsInMap(owner) && group->SameSubGroup(owner, target))
                     target->RemoveAurasDueToSpell(GetSpell(), GetGUID());
             }
         }

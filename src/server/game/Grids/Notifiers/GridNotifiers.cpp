@@ -120,7 +120,8 @@ void VisibleNotifier::SendToSelf()
 
         if ((*it).IsPlayer())
         {
-            Player* player = ObjectAccessor::FindPlayer(*it);
+            // same map only (as TrinityCore): a player who left for another map is updated by that map's thread
+            Player* player = ObjectAccessor::GetPlayer(i_player, *it);
             if (player && player->IsInWorld()/* && !player->onVisibleUpdate()*/)
                 player->UpdateVisibilityOf(&i_player);
         }
@@ -206,7 +207,8 @@ void VisibleChangesNotifier::Visit(DynamicObjectMapType &m)
         if (!guid.IsPlayer())
             continue;
 
-        auto const caster = obj->GetCaster()->ToPlayer();
+        // by guid on this map: GetCaster may be null, and a conversation keeps a raw pointer to a caster who left
+        auto const caster = ObjectAccessor::GetPlayer(*obj, guid);
         if (caster && caster->m_seer == obj)
             caster->UpdateVisibilityOf(&i_object);
     }
@@ -220,7 +222,8 @@ void VisibleChangesNotifier::Visit(AreaTriggerMapType &m)
         if (!guid.IsPlayer())
             continue;
 
-        auto const caster = obj->GetCaster()->ToPlayer();
+        // by guid on this map: GetCaster may be null, and a conversation keeps a raw pointer to a caster who left
+        auto const caster = ObjectAccessor::GetPlayer(*obj, guid);
         if (caster && caster->m_seer == obj)
             caster->UpdateVisibilityOf(&i_object);
     }
@@ -234,7 +237,8 @@ void VisibleChangesNotifier::Visit(ConversationMapType &m)
         if (!guid.IsPlayer())
             continue;
 
-        auto const caster = obj->GetCaster()->ToPlayer();
+        // by guid on this map: GetCaster may be null, and a conversation keeps a raw pointer to a caster who left
+        auto const caster = ObjectAccessor::GetPlayer(*obj, guid);
         if (caster && caster->m_seer == obj)
             caster->UpdateVisibilityOf(&i_object);
     }
@@ -300,7 +304,7 @@ void AIRelocationNotifier::Visit(EventObjectMapType &m)
 }
 
 MessageDistDeliverer::MessageDistDeliverer(WorldObject* src, WorldPacket const* msg, float dist, bool own_team_only, Player const* skipped, GuidUnorderedSet ignoredSet) :
-    i_source(src), i_message(msg), i_phaseMask(src->GetPhaseMask()), i_distSq(dist * dist), team((own_team_only && src->IsPlayer()) ? src->ToPlayer()->GetTeam() : 0), skipped_receiver(skipped), m_IgnoredGUIDs(ignoredSet)
+    i_source(src), i_message(msg), i_phaseMask(src->GetPhaseMask()), i_distSq(dist * dist), team((own_team_only && src->IsPlayer()) ? src->ToPlayer()->GetTeam() : 0), skipped_receiver(skipped), m_IgnoredGUIDs(std::move(ignoredSet))
 {
 }
 
@@ -360,7 +364,7 @@ void MessageDistDeliverer::Visit(DynamicObjectMapType &m)
         if (target->GetCasterGUID().IsPlayer())
         {
             // Send packet back to the caster if the caster has vision of dynamic object
-            auto const caster = target->GetCaster()->ToPlayer();
+            auto const caster = ObjectAccessor::GetPlayer(*target, target->GetCasterGUID());
             if (caster && caster->m_seer == target)
                 SendPacket(caster);
         }
