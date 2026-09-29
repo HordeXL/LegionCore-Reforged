@@ -34591,7 +34591,7 @@ void Player::RefundItem(Item* item)
     if (!item->IsBag())
     {
         uint32 transmogId = sDB2Manager.GetTransmogId(item->GetEntry(), item->_bonusData.AppearanceModID);
-        if (transmogId && GetCollectionMgr()->HasItemAppearance(transmogId))
+        if (transmogId && GetCollectionMgr()->HasConditionalItemAppearance(transmogId))
             GetCollectionMgr()->RemoveTransmogCondition(transmogId, false);
     }
 

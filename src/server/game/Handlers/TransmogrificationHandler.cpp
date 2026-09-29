@@ -50,7 +50,14 @@ void WorldSession::HandleTransmogrifyItems(WorldPackets::Transmogrification::Tra
             if (!itemModifiedAppearance)
                 return;
 
-            if (player->CanUseItem(sObjectMgr->GetItemTemplate(itemModifiedAppearance->ItemID)) != EQUIP_ERR_OK)
+            ItemTemplate const* appearanceTemplate = sObjectMgr->GetItemTemplate(itemModifiedAppearance->ItemID);
+            if (player->CanUseItem(appearanceTemplate) != EQUIP_ERR_OK)
+                return;
+
+            // as in TrinityCore, only a collected appearance (or a "hide" option): the id comes from
+            // the client, and any appearance the class could wear was accepted
+            if (!player->GetCollectionMgr()->HasItemAppearance(transmogItem.ItemModifiedAppearanceID)
+                && !(appearanceTemplate && appearanceTemplate->GetFlags3() & ITEM_FLAG3_ACTS_AS_TRANSMOG_HIDDEN_VISUAL_OPTION))
                 return;
 
             if (!Item::CanTransmogrifyItemWithItem(itemTransmogrified, itemModifiedAppearance))

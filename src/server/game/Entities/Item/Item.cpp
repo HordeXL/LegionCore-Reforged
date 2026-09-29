@@ -2094,7 +2094,7 @@ void Item::SetNotRefundable(Player* owner, bool changestate /*=true*/, Character
     if (!IsBag())
     {
         uint32 transmogId = sDB2Manager.GetTransmogId(GetEntry(), _bonusData.AppearanceModID);
-        if (transmogId && owner->GetCollectionMgr()->HasItemAppearance(transmogId))
+        if (transmogId && owner->GetCollectionMgr()->HasConditionalItemAppearance(transmogId))
             owner->GetCollectionMgr()->RemoveTransmogCondition(transmogId, trans == nullptr);
     }
 }
@@ -2561,7 +2561,9 @@ bool Item::CanTransmogrifyItemWithItem(Item const* item, ItemModifiedAppearanceE
     if (source->GetClass() != target->GetClass())
         return false;
 
-    if (source->GetFlags3() & ITEM_FLAG2_IGNORE_QUALITY_FOR_ITEM_VISUAL_SOURCE) // Invisible item don`t check
+    // the hidden visual options ("hide helm"...): the test was a Flags2 value read on Flags3, which is
+    // DOESNT_SHOW_UP_IN_TRANSMOG_UNTIL_COLLECTED there, so ordinary items skipped the checks below
+    if (source->GetFlags3() & ITEM_FLAG3_ACTS_AS_TRANSMOG_HIDDEN_VISUAL_OPTION) // Invisible item don`t check
         return true;
 
     if (source->GetInventoryType() == INVTYPE_BAG || source->GetInventoryType() == INVTYPE_RELIC || source->GetInventoryType() == INVTYPE_FINGER || source->GetInventoryType() == INVTYPE_TRINKET || source->GetInventoryType() == INVTYPE_AMMO)

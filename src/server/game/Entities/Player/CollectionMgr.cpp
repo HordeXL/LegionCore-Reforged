@@ -133,7 +133,6 @@ void CollectionMgr::SaveToDB(CharacterDatabaseTransaction& trans)
         }
     }
 
-    _favoriteAppearances.clear();
 
     for (auto const& mount : _mounts)
     {
@@ -634,6 +633,13 @@ void CollectionMgr::AddTransmogSet(uint32 transmogSetId)
 }
 
 bool CollectionMgr::HasItemAppearance(uint32 transmogId) const
+{
+    // was the conditional test below: learned appearances could not be made favourite, and no
+    // transmog set was ever complete
+    return _transmogs.find(transmogId) != _transmogs.end();
+}
+
+bool CollectionMgr::HasConditionalItemAppearance(uint32 transmogId) const
 {
     auto z = _transmogs.find(transmogId);
     if (z != _transmogs.end())

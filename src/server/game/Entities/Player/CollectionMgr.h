@@ -131,6 +131,8 @@ public:
     void RemoveTransmogCondition(uint32 transmogId, bool add = true);
     void AddTransmogSet(uint32 transmogSetId);
     bool HasItemAppearance(uint32 transmogId) const;
+    // still tied to a refundable or tradeable item: undone if that item goes back
+    bool HasConditionalItemAppearance(uint32 transmogId) const;
     TransmogContainer const& GetTransmogs() const { return _transmogs; }
 
     void SetAppearanceIsFavorite(uint32 itemModifiedAppearanceId, bool apply);
