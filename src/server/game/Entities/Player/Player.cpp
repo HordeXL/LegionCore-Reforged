@@ -13561,6 +13561,10 @@ InventoryResult Player::CanStoreItem_InSpecificSlot(uint8 bag, uint8 slot, ItemP
             return EQUIP_ERR_WRONG_BAG_TYPE_3;
     }
 
+    // as in TrinityCore: the reagent bank takes crafting reagents only, once unlocked
+    if (IsReagentBankPos(bag, slot) && (!CanUseReagentBank() || !pProto->IsCraftingReagent()))
+        return EQUIP_ERR_WRONG_BAG_TYPE;
+
     // empty specific slot - check item fit to slot
     if (!pItem2 || swap)
     {

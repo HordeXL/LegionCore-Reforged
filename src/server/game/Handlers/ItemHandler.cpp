@@ -53,6 +53,13 @@ void WorldSession::HandleSplitItemOpcode(WorldPackets::Item::SplitItem& splitIte
         return;
     }
 
+    // the same bank checks as the swaps: a split reached the bank from anywhere
+    if ((_player->IsBankPos(splitItem.FromPackSlot, splitItem.FromSlot) || _player->IsBankPos(splitItem.ToPackSlot, splitItem.ToSlot)) && !CanUseBank())
+        return;
+
+    if ((_player->IsReagentBankPos(splitItem.FromPackSlot, splitItem.FromSlot) || _player->IsReagentBankPos(splitItem.ToPackSlot, splitItem.ToSlot)) && (!_player->CanUseReagentBank() || !CanUseBank()))
+        return;
+
     _player->SplitItem(src, dst, splitItem.Quantity);
 }
 
@@ -82,10 +89,10 @@ void WorldSession::HandleSwapInvItemOpcode(WorldPackets::Item::SwapInvItem& swap
     if (_player->IsBankPos(INVENTORY_SLOT_BAG_0, swapInvItem.Slot2) && !CanUseBank())
         return;
 
-    if (_player->IsReagentBankPos(INVENTORY_SLOT_BAG_0, swapInvItem.Slot1) && !_player->CanUseReagentBank())
+    if (_player->IsReagentBankPos(INVENTORY_SLOT_BAG_0, swapInvItem.Slot1) && (!_player->CanUseReagentBank() || !CanUseBank()))
         return;
 
-    if (_player->IsReagentBankPos(INVENTORY_SLOT_BAG_0, swapInvItem.Slot2) && !_player->CanUseReagentBank())
+    if (_player->IsReagentBankPos(INVENTORY_SLOT_BAG_0, swapInvItem.Slot2) && (!_player->CanUseReagentBank() || !CanUseBank()))
         return;
 
     uint16 src = ((INVENTORY_SLOT_BAG_0 << 8) | swapInvItem.Slot1);
@@ -135,6 +142,10 @@ void WorldSession::HandleSwapItem(WorldPackets::Item::SwapItem& swapItem)
         return;
 
     if (_player->IsBankPos(swapItem.ContainerSlotB, swapItem.SlotB) && !CanUseBank())
+        return;
+
+    // reagent bank slots count as inventory: they were reachable from anywhere, even locked
+    if ((_player->IsReagentBankPos(swapItem.ContainerSlotA, swapItem.SlotA) || _player->IsReagentBankPos(swapItem.ContainerSlotB, swapItem.SlotB)) && (!_player->CanUseReagentBank() || !CanUseBank()))
         return;
 
     _player->SwapItem(src, dst);
