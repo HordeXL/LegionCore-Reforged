@@ -190,6 +190,7 @@ World::~World()
 /// Find a player in a specified zone
 Player* World::FindPlayerInZone(uint32 zone)
 {
+    std::shared_lock<sf::contention_free_shared_mutex< >> sessionsGuard(m_sessionsLock);
     for (SessionMap::const_iterator itr = m_sessions.begin(); itr != m_sessions.end(); ++itr)
     {
         if (!itr->second)
@@ -241,6 +242,7 @@ World* World::instance()
 }/// Find a session by its id
 WorldSessionPtr World::FindSession(uint32 id) const
 {
+    std::shared_lock<sf::contention_free_shared_mutex< >> sessionsGuard(m_sessionsLock);
     SessionMap::const_iterator itr = m_sessions.find(id);
 
     if (itr != m_sessions.end())
@@ -251,6 +253,7 @@ WorldSessionPtr World::FindSession(uint32 id) const
 /// Remove a given session
 bool World::RemoveSession(uint32 id)
 {
+    std::shared_lock<sf::contention_free_shared_mutex< >> sessionsGuard(m_sessionsLock);
     ///- Find the session, kick the user, but we can't delete session at this moment to prevent iterator invalidation
     SessionMap::const_iterator itr = m_sessions.find(id);
 
@@ -311,11 +314,15 @@ void World::AddSession_(WorldSessionPtr s)
                 old->second->KickPlayer();
             }
 
+            std::unique_lock<sf::contention_free_shared_mutex< >> sessionsGuard(m_sessionsLock);
             m_sessions.erase(old);
         }
     }
 
-    m_sessions[s->GetAccountId()] = s;
+    {
+        std::unique_lock<sf::contention_free_shared_mutex< >> sessionsGuard(m_sessionsLock);
+        m_sessions[s->GetAccountId()] = s;
+    }
 
     uint32 Sessions = GetActiveAndQueuedSessionCount();
     uint32 pLimit = GetPlayerAmountLimit();
@@ -2794,6 +2801,7 @@ void World::UpdateGlobalMessage()
 /// Send a packet to all GMs (except self if mentioned)
 void World::SendGlobalGMMessage(WorldPacket const* packet, WorldSession* self, uint32 team)
 {
+    std::shared_lock<sf::contention_free_shared_mutex< >> sessionsGuard(m_sessionsLock);
     for (SessionMap::const_iterator itr = m_sessions.begin(); itr != m_sessions.end(); ++itr)
     {
         // check if session and can receive global GM Messages and its not self
@@ -2869,6 +2877,7 @@ void World::SendWorldText(int32 string_id, ...)
 
     Trinity::WorldWorldTextBuilder wt_builder(string_id, &ap);
     Trinity::LocalizedPacketListDo<Trinity::WorldWorldTextBuilder> wt_do(wt_builder);
+    std::shared_lock<sf::contention_free_shared_mutex< >> sessionsGuard(m_sessionsLock);
     for (SessionMap::const_iterator itr = m_sessions.begin(); itr != m_sessions.end(); ++itr)
     {
         if (!itr->second || !itr->second->GetPlayer() || !itr->second->GetPlayer()->IsInWorld())
@@ -2888,6 +2897,7 @@ void World::SendGMText(int32 string_id, ...)
 
     Trinity::WorldWorldTextBuilder wt_builder(string_id, &ap);
     Trinity::LocalizedPacketListDo<Trinity::WorldWorldTextBuilder> wt_do(wt_builder);
+    std::shared_lock<sf::contention_free_shared_mutex< >> sessionsGuard(m_sessionsLock);
     for (SessionMap::iterator itr = m_sessions.begin(); itr != m_sessions.end(); ++itr)
     {
         if (!itr->second || !itr->second->GetPlayer() || !itr->second->GetPlayer()->IsInWorld())
@@ -2922,6 +2932,7 @@ void World::SendGlobalText(const char* text, WorldSession* self)
 /// Send a packet to all players (or players selected team) in the zone (except self if mentioned)
 bool World::SendZoneMessage(uint32 zone, WorldPacket const* packet, WorldSession* self, uint32 team)
 {
+    std::shared_lock<sf::contention_free_shared_mutex< >> sessionsGuard(m_sessionsLock);
     bool foundPlayerToSend = false;
 
     for (auto itr = m_sessions.cbegin(); itr != m_sessions.cend(); ++itr)
@@ -3391,6 +3402,7 @@ void World::UpdateSessions(uint32 diff)
         WorldSessionPtr pSession = itr->second;
         if (!pSession)
         {
+            std::unique_lock<sf::contention_free_shared_mutex< >> sessionsGuard(m_sessionsLock);
             m_sessions.erase(itr);
             continue;
         }
@@ -3404,6 +3416,7 @@ void World::UpdateSessions(uint32 diff)
                 m_disconnects[accuntId] = GameTime::GetGameTime();
             RemoveQueuedPlayer(pSession);
             pSession->LogoutPlayer(true);
+            std::unique_lock<sf::contention_free_shared_mutex< >> sessionsGuard(m_sessionsLock);
             m_sessions.erase(itr);
         }
     }
@@ -4086,8 +4099,9 @@ void World::UpdateMaxSessionCounters()
     m_maxQueuedSessionCount = std::max(m_maxQueuedSessionCount, uint32(m_QueuedPlayer.size()));
 }
 
-const SessionMap& World::GetAllSessions() const
+SessionMap World::GetAllSessions() const
 {
+    std::shared_lock<sf::contention_free_shared_mutex< >> sessionsGuard(m_sessionsLock);
     return m_sessions;
 }
 

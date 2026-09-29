@@ -37,6 +37,7 @@
 #include <safe_ptr.h>
 #include <atomic>
 #include <queue>
+#include <shared_mutex>
 #include "Util.h"
 
 class Object;
@@ -753,7 +754,7 @@ class TC_GAME_API World
         bool RemoveSession(uint32 id);
         /// Get the number of current active sessions
         void UpdateMaxSessionCounters();
-        const SessionMap& GetAllSessions() const;
+        SessionMap GetAllSessions() const;                  // a copy: map threads read it while the world thread adds and removes sessions
         uint32 GetActiveAndQueuedSessionCount() const;
         uint32 GetActiveSessionCount() const;
         uint32 GetActiveSessionCountDiff() const;
@@ -1013,7 +1014,8 @@ class TC_GAME_API World
         time_t mail_timer_expires;
         time_t blackmarket_timer;
 
-        SessionMap m_sessions;
+        SessionMap m_sessions;                              // written by the world thread only, under m_sessionsLock
+        mutable sf::contention_free_shared_mutex< > m_sessionsLock;
         typedef std::unordered_map<uint32, time_t> DisconnectMap;
         DisconnectMap m_disconnects;
         uint32 m_maxActiveSessionCount;
