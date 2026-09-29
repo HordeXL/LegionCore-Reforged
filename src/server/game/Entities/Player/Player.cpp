@@ -24469,7 +24469,12 @@ void Player::AddLfgCooldown(uint32 dungeonId)
 
 bool Player::IsLfgCooldown(uint32 dungeonId)
 {
-    return m_playerLfgCooldown.find(dungeonId) != m_playerLfgCooldown.end();
+    auto itr = m_playerLfgCooldown.find(dungeonId);
+    if (itr == m_playerLfgCooldown.end())
+        return false;
+
+    // daily cooldowns are only purged by the weekly ResetLootCooldown
+    return !itr->second.respawnTime || time_t(itr->second.respawnTime) > GameTime::GetGameTime();
 }
 
 void Player::_LoadBoundInstances(PreparedQueryResult result)
