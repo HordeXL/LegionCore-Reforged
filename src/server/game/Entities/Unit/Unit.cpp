@@ -16455,6 +16455,9 @@ int32 Unit::ModSpellDuration(SpellInfo const* spellProto, Unit const* target, in
 
         // there are only negative mods currently
         durationMod_always = target->GetTotalAuraModifierByMiscValue(SPELL_AURA_MOD_AURA_DURATION_BY_DISPEL, spellProto->Categories.DispelType);
+        // no not-stacking variant here (aura 246 is not implemented): the mechanic value left from above
+        // was reused, and reduced crowd control a second time
+        durationMod_not_stack = 0;
 
         durationMod = 0;
         if (durationMod_always > durationMod_not_stack)
@@ -16595,15 +16598,8 @@ DiminishingLevels Unit::GetDiminishing(DiminishingGroup group)
 
 uint32 Unit::DiminishingDuration() const
 {
-    uint32 MSTime = GameTime::GetGameTimeMS();
-    if (MSTime > 5000)
-    {
-        uint32 checktime = MSTime / 5000;
-        checktime *= 5000;
-
-        return MSTime - checktime + 15000;
-    }
-    return MSTime + 15000;
+    // flat 18 s since Legion; the old formula drifted between 15 and 20 s with the server clock
+    return 18 * IN_MILLISECONDS;
 }
 
 void Unit::IncrDiminishing(DiminishingGroup group)
