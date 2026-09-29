@@ -398,7 +398,6 @@ void Item::SaveToDB(CharacterDatabaseTransaction& trans)
     auto isInTransaction = bool(trans);
     if (!isInTransaction)
         trans = CharacterDatabase.BeginTransaction();
-    LoginDatabaseTransaction transs = LoginDatabase.BeginTransaction();
 
     ObjectGuid::LowType guid = GetGUIDLow();
     switch (uState)
@@ -646,7 +645,14 @@ void Item::SaveToDB(CharacterDatabaseTransaction& trans)
         case ITEM_REMOVED:
         {
             if (GetTemplate()->GetArtifactID()) // info about art will not delete
-                break;
+            {
+                // the rows stay, but the object goes as for any removed item: breaking out of the
+                // switch left it allocated for good
+                if (!isInTransaction)
+                    CharacterDatabase.CommitTransaction(trans);
+                delete this;
+                return;
+            }
             
             CharacterDatabasePreparedStatement* stmt = CharacterDatabase.GetPreparedStatement(CHAR_DEL_ITEM_INSTANCE);
             stmt->setUInt64(0, guid);
@@ -685,7 +691,6 @@ void Item::SaveToDB(CharacterDatabaseTransaction& trans)
 
             if (!isInTransaction)
                 CharacterDatabase.CommitTransaction(trans);
-            LoginDatabase.CommitTransaction(transs);
 
             delete this;
             return;
@@ -1740,6 +1745,7 @@ bool Item::GemsFitSockets() const
     for (ItemDynamicFieldGems const& gemData : GetGems())
     {
         uint8 SocketColor = GetTemplate()->GetSocketType(gemSlot);
+        ++gemSlot;      // never advanced: every gem was checked against the first socket
         if (!SocketColor) // no socket slot
             continue;
 

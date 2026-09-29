@@ -10503,11 +10503,14 @@ void Player::_ApplyItemMods(Item* item, uint8 slot, bool apply)
     if (!apply)
         _ApplyOrRemoveItemEquipDependentAuras(item->GetGUID(), false);
     else
-        AddDelayedEvent(100, [=, this]() -> void
+    {
+        // the guid, not the item: an item destroyed within these 100 ms was read after being freed
+        ObjectGuid const itemGuid = item->GetGUID();
+        AddDelayedEvent(100, [this, itemGuid]() -> void
         {
-            if (item)
-                _ApplyOrRemoveItemEquipDependentAuras(item->GetGUID(), true);
+            _ApplyOrRemoveItemEquipDependentAuras(itemGuid, true);
         });
+    }
 
     if (apply)
     {
@@ -16644,6 +16647,12 @@ void Player::SplitItem(uint16 src, uint16 dst, uint32 count)
         pSrcItem->SetState(ITEM_CHANGED, this);
         EquipItem(dest, pNewItem, true);
         AutoUnequipOffhandIfNeed();
+    }
+    else
+    {
+        // a destination none of the above takes (a forged packet): the clone was leaked each time
+        delete pNewItem;
+        SendEquipError(EQUIP_ERR_ITEM_NOT_FOUND, pSrcItem);
     }
 }
 
@@ -23117,9 +23126,16 @@ void Player::_LoadInventory(PreparedQueryResult result, PreparedQueryResult arti
                     problematicItems.push_back(item);
                 }
 
-                CharacterDatabasePreparedStatement* stmt = CharacterDatabase.GetPreparedStatement(CHAR_SEL_ITEM_INSTANCE_RELICS);
-                stmt->setUInt64(0, item->GetGUIDLow());
-                if (PreparedQueryResult relics = CharacterDatabase.Query(stmt))
+                // relic talents only exist on artifacts: this synchronous query ran for every item at each login
+                PreparedQueryResult relics;
+                if (item->GetTemplate()->GetArtifactID())
+                {
+                    CharacterDatabasePreparedStatement* stmt = CharacterDatabase.GetPreparedStatement(CHAR_SEL_ITEM_INSTANCE_RELICS);
+                    stmt->setUInt64(0, item->GetGUIDLow());
+                    relics = CharacterDatabase.Query(stmt);
+                }
+
+                if (relics)
                 {
                     auto result = relics->Fetch();
                     for (uint8 i = 0; i < 3; ++i)
@@ -34602,9 +34618,20 @@ void Player::RefundItem(Item* item)
         {
             ItemPosCountVec dest;
             InventoryResult msg = CanStoreNewItem(NULL_BAG, NULL_SLOT, dest, itemid, count);
-            ASSERT(msg == EQUIP_ERR_OK); /// Already checked before
-            Item* it = StoreNewItem(dest, itemid, true);
-            SendNewItem(it, count, true, false, true);
+            // Checked item by item above, but two cost items can each fit alone and not together: the
+            // ASSERT stopped the server. What does not fit now comes by mail.
+            if (msg == EQUIP_ERR_OK)
+            {
+                Item* it = StoreNewItem(dest, itemid, true);
+                SendNewItem(it, count, true, false, true);
+            }
+            else if (Item* mailItem = Item::CreateItem(itemid, count, this))
+            {
+                mailItem->SaveToDB(trans);      // a new item: the mail only stores its guid
+                MailDraft draft("Item refund", "");
+                draft.AddItem(mailItem);
+                draft.SendMailTo(trans, this, MailSender(this, MAIL_STATIONERY_GM), MAIL_CHECK_MASK_COPIED);
+            }
         }
     }
 

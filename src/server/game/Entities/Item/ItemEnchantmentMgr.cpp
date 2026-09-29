@@ -460,7 +460,7 @@ bool CheckStatsSpec(uint32 StatType, uint32 SpecID)
                     return true;
                 break;
             case ITEM_MOD_AGI_STR_INT:
-                if (itemSpec->SecondaryStat == ITEM_SPEC_STAT_STRENGTH)
+                if (itemSpec->SecondaryStat == ITEM_SPEC_STAT_AGILITY)     // strength was tested twice, agility never
                     return true;
                 if (itemSpec->SecondaryStat == ITEM_SPEC_STAT_STRENGTH)
                     return true;
