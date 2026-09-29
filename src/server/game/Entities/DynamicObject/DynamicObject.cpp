@@ -64,7 +64,7 @@ void DynamicObject::BuildValuesUpdate(uint8 updateType, ByteBuffer* data, Player
         {
             UpdateMask::SetUpdateBit(data->contents() + maskPos, index);
 
-            if (index == AREATRIGGER_FIELD_SPELL_XSPELL_VISUAL_ID)
+            if (index == DYNAMICOBJECT_FIELD_SPELL_XSPELL_VISUAL_ID)   // was the area trigger field, past the end of a dynamic object
             {
                 uint32 visualId = GetVisualId();
                 if (auto hostilSpellVisualID = sDB2Manager.GetHostileSpellVisualId(visualId))

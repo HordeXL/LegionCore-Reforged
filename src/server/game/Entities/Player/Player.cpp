@@ -2773,14 +2773,12 @@ void Player::ProcessDelayedOperations()
             uint8 teamID = battle->Teams[PETBATTLE_TEAM_1]->OwnerGuid == GetGUID() ? PETBATTLE_TEAM_1 : PETBATTLE_TEAM_2;
 
             PetBattleRequest request;
-            memcpy((void*)&request, (void*)&battle->PvPMatchMakingRequest, sizeof(PetBattleRequest)); //@TODO check that
-
             auto& matchMakingRequest = battle->PvPMatchMakingRequest;
+            // the centre's Z is already the mean of the two ground positions; the old recomputation (Z passed as Y) corrupted it
+            memcpy((void*)&request, (void*)&battle->PvPMatchMakingRequest, sizeof(PetBattleRequest)); //@TODO check that
 
             if (teamID == PETBATTLE_TEAM_2)
                 std::swap(request.TeamPosition[PETBATTLE_TEAM_1], request.TeamPosition[PETBATTLE_TEAM_2]);
-
-            matchMakingRequest.PetBattleCenterPosition.m_positionZ = GetMap()->GetHeight(matchMakingRequest.PetBattleCenterPosition.GetPositionX(), matchMakingRequest.PetBattleCenterPosition.GetPositionZ(), MAX_HEIGHT);
 
             GetSession()->SendPetBattleFinalizeLocation(&request);
 
@@ -4762,7 +4760,7 @@ bool Player::AddPvPTalent(PvpTalentEntry const* talent, uint8 index)
     if (!spellInfo)
     {
         CharacterDatabasePreparedStatement* stmt = CharacterDatabase.GetPreparedStatement(CHAR_DEL_INVALID_TALENT_PVP);
-        stmt->setUInt32(0, talent->ID);
+        stmt->setUInt32(0, talent->SpellID);     // the column holds the spell, not the talent id
         CharacterDatabase.Execute(stmt);
         return false;
     }
@@ -4770,7 +4768,7 @@ bool Player::AddPvPTalent(PvpTalentEntry const* talent, uint8 index)
     if (!SpellMgr::IsSpellValid(spellInfo, this, false))
     {
         CharacterDatabasePreparedStatement* stmt = CharacterDatabase.GetPreparedStatement(CHAR_DEL_INVALID_TALENT_PVP);
-        stmt->setUInt32(0, talent->ID);
+        stmt->setUInt32(0, talent->SpellID);     // the column holds the spell, not the talent id
         CharacterDatabase.Execute(stmt);
         return false;
     }
@@ -4848,7 +4846,7 @@ bool Player::addSpell(uint32 spellId, bool active, bool learning, bool dependent
                 break;
             case 28677: //Alchemy: Elixir Master
                 removeSpell(28675);
-                removeSpell(28677);
+                removeSpell(28672);     // removed itself instead of Transmutation Master
                 break;
             default:
                 break;
@@ -38985,7 +38983,7 @@ void Player::_SaveKillCreature(CharacterDatabaseTransaction& trans)
             stmt->setUInt64(0, GetGUIDLow());
             stmt->setUInt32(1, iter->second.Entry);
             stmt->setUInt32(2, iter->second.Counter);
-            stmt->setFloat(2, iter->second.Points);
+            stmt->setFloat(3, iter->second.Points);     // was bound to 2 over the count, leaving point unset
             iter->second.NeedUpdate = false;
             iter->second.NeedSave = false;
             trans->Append(stmt);

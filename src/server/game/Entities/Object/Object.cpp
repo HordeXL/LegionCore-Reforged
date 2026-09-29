@@ -1547,8 +1547,8 @@ uint16 Object::GetUInt16Value(uint16 index, uint8 offset) const
 
 ObjectGuid const& Object::GetGuidValue(uint16 index) const
 {
-    // ASSERT(index + 1 < m_valuesCount || PrintIndexError(index, false));
-    if (index + 1 < m_valuesCount || PrintIndexError(index, false))
+    // ASSERT(index + 3 < m_valuesCount || PrintIndexError(index, false));
+    if (index + 3 < m_valuesCount || PrintIndexError(index, false))
         return *reinterpret_cast<ObjectGuid*>(&m_uint32Values[index]);
     return ObjectGuid::Empty;
 }
@@ -1619,7 +1619,8 @@ void WorldObject::SetTratsport(Transport* transport, Unit* owner)
 
     if (owner)
     {
-        float x, y, z, o;
+        float x, y, z;
+        float o = owner->GetOrientation();  // read by CalculatePassengerOffset, which turns it into the transport's frame
         owner->GetClosePoint(x, y, z, DEFAULT_WORLD_OBJECT_SIZE);
         Position pos(x, y, z, owner->GetOrientation());
         transport->CalculatePassengerOffset(x, y, z, &o);
@@ -1685,7 +1686,7 @@ void WorldObject::SetTransport(Transport* t)
 float WorldObject::GetDistanceToZOnfall()
 {
     Position pos = GetFirstCollisionPosition(PET_FOLLOW_DIST, 0.f);
-    auto zNow = pos.m_positionX;
+    auto zNow = pos.m_positionZ;
     if (auto lastUpdateTime = m_movementInfo.fall.lastTimeUpdate)
         zNow = pos.m_positionZ - Movement::computeFallElevation(Movement::MSToSec(GameTime::GetGameTimeMS() - lastUpdateTime), false) - 5.0f;
     return zNow - GetHeight(pos.m_positionX, pos.m_positionY, MAX_HEIGHT, true);
