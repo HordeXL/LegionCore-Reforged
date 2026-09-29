@@ -173,8 +173,10 @@ void WorldSession::HandleVoidStorageTransfer(WorldPackets::VoidStorage::VoidStor
         ++depositCount;
     }
 
-    player->ModifyMoney(-(depositCount * cost));
+    // one fee per item deposited: cost already held the whole batch, so the fee grew with its square
+    player->ModifyMoney(-(int64(depositCount) * VOID_STORAGE_STORE_ITEM));
 
+    bool withdrawFailed = false;
     for (size_t i = 0; i < packet.Withdrawals.size(); ++i)
     {
         uint8 slot = 0;
@@ -189,8 +191,10 @@ void WorldSession::HandleVoidStorageTransfer(WorldPackets::VoidStorage::VoidStor
             InventoryResult msg = player->CanStoreItem(NULL_BAG, NULL_SLOT, dest, item, false);
             if (msg != EQUIP_ERR_OK)
             {
-                SendVoidStorageTransferResult(VOID_TRANSFER_ERROR_INVENTORY_FULL);
-                return;
+                // break, not return: the deposits above are in the transaction and the change packet,
+                // and returning dropped both (the deposited item stayed in the inventory table too)
+                withdrawFailed = true;
+                break;
             }
             item = player->StoreItem(dest, item, true);
         }
@@ -200,8 +204,10 @@ void WorldSession::HandleVoidStorageTransfer(WorldPackets::VoidStorage::VoidStor
             InventoryResult msg = player->CanStoreNewItem(NULL_BAG, NULL_SLOT, dest, itemVS->ItemEntry, 1);
             if (msg != EQUIP_ERR_OK)
             {
-                SendVoidStorageTransferResult(VOID_TRANSFER_ERROR_INVENTORY_FULL);
-                return;
+                // break, not return: the deposits above are in the transaction and the change packet,
+                // and returning dropped both (the deposited item stayed in the inventory table too)
+                withdrawFailed = true;
+                break;
             }
             item = player->StoreNewItem(dest, itemVS->ItemEntry, true, itemVS->ItemRandomPropertyId, GuidSet());
 
@@ -210,7 +216,7 @@ void WorldSession::HandleVoidStorageTransfer(WorldPackets::VoidStorage::VoidStor
             item->SetModifier(ITEM_MODIFIER_UPGRADE_ID, itemVS->ItemUpgradeId);
         }
         if (!item)
-            return;
+            break;
 
         item->SetBinding(true);
 
@@ -222,7 +228,7 @@ void WorldSession::HandleVoidStorageTransfer(WorldPackets::VoidStorage::VoidStor
 
     SendPacket(voidStorageTransferChanges.Write());
 
-    SendVoidStorageTransferResult(VOID_TRANSFER_ERROR_NO_ERROR);
+    SendVoidStorageTransferResult(withdrawFailed ? VOID_TRANSFER_ERROR_INVENTORY_FULL : VOID_TRANSFER_ERROR_NO_ERROR);
     player->SaveInventoryAndGoldToDB(trans);
     CharacterDatabase.CommitTransaction(trans);
 }
@@ -233,7 +239,8 @@ void WorldSession::HandleVoidSwapItem(WorldPackets::VoidStorage::SwapVoidItem& p
     if (!player)
         return;
 
-    if (player->GetNPCIfCanInteractWith(packet.Npc, UNIT_NPC_FLAG_VAULTKEEPER))
+    // was inverted: a swap only went through away from the vault keeper
+    if (!player->GetNPCIfCanInteractWith(packet.Npc, UNIT_NPC_FLAG_VAULTKEEPER))
         return;
 
     if (!player->IsVoidStorageUnlocked())
