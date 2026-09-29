@@ -133,16 +133,22 @@ void CollectionMgr::SaveToDB(CharacterDatabaseTransaction& trans)
         }
     }
 
+    // the saved favourites stay known: clearing them here made any later removal a no-op
 
-    for (auto const& mount : _mounts)
+    for (uint32 spellId : _mountsToSave)
     {
+        auto mount = _mounts.find(spellId);
+        if (mount == _mounts.end())
+            continue;
+
         index = 0;
         stmt = CharacterDatabase.GetPreparedStatement(CHAR_REP_MOUNTS);
         stmt->setUInt32(index++, _owner->GetSession()->GetAccountId());
-        stmt->setUInt32(index++, mount.first);
-        stmt->setUInt16(index++, mount.second);
+        stmt->setUInt32(index++, mount->first);
+        stmt->setUInt16(index++, mount->second);
         trans->Append(stmt);
     }
+    _mountsToSave.clear();
 }
 
 bool CollectionMgr::LoadFromDB(PreparedQueryResult toys, PreparedQueryResult heirlooms, PreparedQueryResult transmogs, PreparedQueryResult mounts, PreparedQueryResult favoriteAppearances)
@@ -289,7 +295,7 @@ void CollectionMgr::ToySetFavorite(uint32 itemId, bool favorite)
     if (itr == _toys.end())
         return;
 
-    itr->second = ToyBoxData(favorite);
+    itr->second = ToyBoxData(favorite, true);     // needSave: toy favourites were never saved
 }
 
 bool CollectionMgr::UpdateAccountHeirlooms(uint32 itemId, uint32 flags)
@@ -763,7 +769,11 @@ void CollectionMgr::LoadAccountMounts(PreparedQueryResult result)
 
 bool CollectionMgr::UpdateAccountMounts(uint32 spellID, MountFlags flags)
 {
-    return _mounts.insert(std::make_pair(spellID, flags)).second;
+    if (!_mounts.insert(std::make_pair(spellID, flags)).second)
+        return false;
+
+    _mountsToSave.insert(spellID);
+    return true;
 }
 
 std::map<uint32, uint32> _mountDefinitions;
@@ -813,6 +823,7 @@ void CollectionMgr::MountSetFavorite(uint32 spellId, bool favorite)
     else
         itr->second = MountFlags(itr->second & ~MOUNT_FLAG_FAVORITE);
 
+    _mountsToSave.insert(spellId);
     SendSingleMountUpdate(*itr);
 }
 
@@ -881,6 +892,7 @@ void CollectionMgr::Clear()
     _saveTransmogs.clear();
     _favoriteAppearances.clear();
     _mounts.clear();
+    _mountsToSave.clear();
 }
 
 uint32 CollectionMgr::GetSize()

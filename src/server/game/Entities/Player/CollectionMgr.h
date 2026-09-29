@@ -161,6 +161,7 @@ private:
     TransmogContainerSave _saveTransmogs;
     std::unordered_map<uint32, FavoriteAppearanceState> _favoriteAppearances;
     MountContainer _mounts;
+    std::set<uint32> _mountsToSave;                    // a REPLACE per known mount on every save otherwise
 };
 
 #endif // CollectionMgr_h__
