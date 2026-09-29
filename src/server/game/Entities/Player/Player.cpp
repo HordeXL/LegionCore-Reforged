@@ -22060,28 +22060,11 @@ bool Player::LoadFromDB(ObjectGuid guid, CharacterDatabaseQueryHolder const& hol
 
     if(m_atLoginFlags & AT_LOGIN_UNLOCK)
     {
-        bool BGdesert = false;
-        bool DungeonDesert = false;
-        bool MalDeRez = false;
-
         RemoveAtLoginFlag(AT_LOGIN_UNLOCK, true);
-        if (HasAura(SPELL_BG_DESERTER)) // deserter
-            BGdesert = true;
-        if (HasAura(71041)) // dungeon deserter
-            DungeonDesert = true;
-        if (HasAura(15007))
-            MalDeRez = true;
-
-        RemoveAllAuras();
         RemoveFromGroup();
 
-        if (BGdesert)
-            AddAura(SPELL_BG_DESERTER, this);
-        if (DungeonDesert)
-            AddAura(71041, this);
-        if (MalDeRez)
-            AddAura(15007, this);
-
+        // the auras are cleared once loaded, after _LoadAuras below: done here, before they were
+        // loaded, it removed nothing and never found the deserter debuffs to keep
         mustResurrectFromUnlock = true;
         RelocateToHomebind();
     }
@@ -22413,6 +22396,27 @@ bool Player::LoadFromDB(ObjectGuid guid, CharacterDatabaseQueryHolder const& hol
 
     _LoadGlyphs(holder.GetPreparedResult(PLAYER_LOGIN_QUERY_LOAD_GLYPHS));
     _LoadAuras(holder.GetPreparedResult(PLAYER_LOGIN_QUERY_LOADAURAS), holder.GetPreparedResult(PLAYER_LOGIN_QUERY_LOADAURAS_EFFECTS), time_diff);
+
+    // unlock (see above): the saved auras go, except the deserter debuffs and resurrection sickness;
+    // passives (racials, talents, mastery) were applied by the spell loading and must stay
+    if (mustResurrectFromUnlock)
+        RemoveAppliedAuras([](AuraApplicationPtr aurApp)
+        {
+            SpellInfo const* spellInfo = aurApp->GetBase()->GetSpellInfo();
+            if (spellInfo->IsPassive())
+                return false;
+
+            switch (spellInfo->Id)
+            {
+                case SPELL_BG_DESERTER:
+                case 71041:                     // Dungeon Deserter
+                case 15007:                     // Resurrection Sickness
+                    return false;
+                default:
+                    return true;
+            }
+        });
+
     _LoadGlyphAuras();
     // add ghost flag (must be after aura load: PLAYER_FLAGS_GHOST set in aura)
     if (HasFlag(PLAYER_FIELD_PLAYER_FLAGS, PLAYER_FLAGS_GHOST))
