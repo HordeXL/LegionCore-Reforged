@@ -177,7 +177,9 @@ void CharmInfo::InitCharmCreateSpells()
     // TODO: remove all spells and passives in instances after 70 lvl - bugged creature spells
     if (Creature* creature = m_unit->ToCreature())
     {
-        if (creature->getLevel() >= 70 && creature->GetMap() && creature->GetMap()->Instanceable() && (!m_unit->GetOwner()->IsPlayer() && !m_unit->HasUnitTypeMask(UNIT_MASK_CONTROLABLE_GUARDIAN)))
+        // a charmed wild creature has no owner
+        Unit* owner = m_unit->GetOwner();
+        if (creature->getLevel() >= 70 && creature->GetMap() && creature->GetMap()->Instanceable() && ((!owner || !owner->IsPlayer()) && !m_unit->HasUnitTypeMask(UNIT_MASK_CONTROLABLE_GUARDIAN)))
         {
             InitEmptyActionBar();
             return;

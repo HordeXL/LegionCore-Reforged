@@ -8688,7 +8688,8 @@ void Player::SendMovieStart(uint32 MovieId)
 bool Player::HasAreaExplored(uint32 AreaID)
 {
     AreaTableEntry const* areaEntry = sDB2Manager.FindAreaEntry(AreaID);
-    if (!areaEntry)
+    // -1 for areas without an exploration bit: 1 << -1 set bit 31 of the first field
+    if (!areaEntry || areaEntry->AreaBit < 0)
         return false;
 
     int offset = areaEntry->AreaBit / 32;
@@ -8724,7 +8725,7 @@ void Player::CheckAreaExploreAndOutdoor()
     if (!areaId)
         return;
 
-    if (!areaEntry)
+    if (!areaEntry || areaEntry->AreaBit < 0)     // no exploration bit for this area
         return;
 
     uint32 offset = areaEntry->AreaBit / 32;
@@ -26152,10 +26153,14 @@ void Player::_SaveSpells(CharacterDatabaseTransaction& trans)
 {
     CharacterDatabasePreparedStatement* stmt = NULL;
 
-    for (PlayerSpellMap::iterator itr = m_spells.begin(); itr != m_spells.end(); ++itr)
+    // erasing a removed spell must hand back the next iterator: the loop used to advance an erased one
+    for (PlayerSpellMap::iterator itr = m_spells.begin(); itr != m_spells.end();)
     {
         if (itr->second.state == PLAYERSPELL_TEMPORARY)
+        {
+            ++itr;
             continue;
+        }
 
         if (itr->second.state == PLAYERSPELL_REMOVED || itr->second.state == PLAYERSPELL_CHANGED)
         {
@@ -26177,9 +26182,12 @@ void Player::_SaveSpells(CharacterDatabaseTransaction& trans)
         }
 
         if (itr->second.state == PLAYERSPELL_REMOVED)
-            m_spells.erase(itr);
+            itr = m_spells.erase(itr);
         else
+        {
             itr->second.state = PLAYERSPELL_UNCHANGED;
+            ++itr;
+        }
     }
 }
 

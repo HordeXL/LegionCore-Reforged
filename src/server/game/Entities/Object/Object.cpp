@@ -1401,7 +1401,10 @@ std::vector<uint32> const& Object::GetDynamicValues(uint16 index) const
 {
     // ASSERT(index < _dynamicValuesCount || PrintIndexError(index, false));
     if (!(index < _dynamicValuesCount || PrintIndexError(index, false)))
-        std::vector<uint32>();
+    {
+        static std::vector<uint32> const empty;
+        return empty;
+    }
     return _dynamicValues[index];
 }
 

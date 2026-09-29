@@ -2080,7 +2080,8 @@ bool Guardian::UpdateStats(Stats stat)
     // Handle Death Knight Glyphs and Talents
     float mod = 0.75f;
 
-    switch (stat)
+    // no owner (gone, or never set): no bonus from it, like the sibling functions
+    switch (owner ? stat : MAX_STATS)
     {
         case STAT_STAMINA:
         {

@@ -183,6 +183,10 @@ std::size_t TaxiPathGraph::GetCompleteNodeRoute(TaxiNodesEntry const* from, Taxi
     else
     {
         shortestPath.clear();
+        // nodes without any path were never added to the graph
+        if (GetVertexIDFromNodeID(from) >= boost::num_vertices(m_graph) || GetVertexIDFromNodeID(to) >= boost::num_vertices(m_graph))
+            return 0;
+
         std::vector<vertex_descriptor> p(boost::num_vertices(m_graph));
 
         boost::dijkstra_shortest_paths(m_graph, GetVertexIDFromNodeID(from),

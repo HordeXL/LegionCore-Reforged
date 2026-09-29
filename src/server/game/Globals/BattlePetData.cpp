@@ -276,7 +276,10 @@ uint16 BattlePetDataStoreMgr::GetRandomBreedID(std::set<uint32> BreedIDs)
     for (auto itr : BreedIDs)
         sum += GetWeightForBreed(itr);
 
-    uint32 r = urand(0, sum);
+    if (!sum)                                   // only breeds without a known weight
+        return *BreedIDs.begin();
+
+    uint32 r = urand(0, sum - 1);
     uint32 current_sum = 0;
 
     for (auto itr : BreedIDs)
@@ -338,5 +341,6 @@ uint8 BattlePetDataStoreMgr::GetRandomQuailty()
 
 std::vector<BattlePetNpcTeamMember> BattlePetDataStoreMgr::GetPetBattleTrainerTeam(uint32 npcID)
 {
-    return _battlePetNpcTeamMembers[npcID];
+    auto itr = _battlePetNpcTeamMembers.find(npcID);
+    return itr != _battlePetNpcTeamMembers.end() ? itr->second : std::vector<BattlePetNpcTeamMember>();
 }

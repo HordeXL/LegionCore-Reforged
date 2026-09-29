@@ -3744,6 +3744,12 @@ void ObjectMgr::LoadPlayerInfo()
             }
 
             uint32 current_level = fields[2].GetUInt8();
+            if (!current_level)
+            {
+                TC_LOG_ERROR("sql.sql", "Wrong level 0 in `player_levelstats` table (race %u, class %u), ignoring.", current_race, current_class);
+                continue;
+            }
+
             if (current_level > MAX_LEVEL)
             {
                 if (current_level > STRONG_MAX_LEVEL)        // hardcoded level maximum
@@ -3967,7 +3973,7 @@ void ObjectMgr::GetPlayerLevelInfo(uint32 race, uint32 class_, uint8 level, Play
         return;
 
     PlayerInfo const* pInfo = _playerInfo[race][class_];
-    if (pInfo->displayId_m == 0 || pInfo->displayId_f == 0)
+    if (!pInfo || !pInfo->levelInfo || pInfo->displayId_m == 0 || pInfo->displayId_f == 0)
         return;
 
     if (level <= MAX_LEVEL)
