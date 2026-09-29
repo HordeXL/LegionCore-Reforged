@@ -875,10 +875,10 @@ uint8 Vehicle::GetAvailableSeatCount() const
  * @param [in] e The VehicleJoinEvent* to remove from pending event store.
  */
 
-void Vehicle::RemovePendingEvent(VehicleJoinEvent* /*e*/)
+void Vehicle::RemovePendingEvent(VehicleJoinEvent* e)
 {
     _lock.lock();
-    _pendingJoinEvents.clear();
+    _pendingJoinEvents.remove(e);
     _lock.unlock();
 }
 
@@ -1026,20 +1026,21 @@ VehicleJoinEvent::~VehicleJoinEvent()
 
 bool VehicleJoinEvent::Execute(uint64, uint32)
 {
+    // every exit returns true: false tells EventProcessor the event rescheduled itself, so it would never be freed
     if (!Passenger->IsInWorld())
-        return false;
+        return true;
     Target = ObjectAccessor::GetUnit(*Passenger, targetGuid);
 
     if (!Target || !Target->IsInWorld())
-        return false;
+        return true;
 
     vehicle = Target->GetVehicleKit();
 
     if (!vehicle)
-        return false;
+        return true;
 
     if (!vehicle->GetRecAura() && !Target->HasAuraTypeWithCaster(SPELL_AURA_CONTROL_VEHICLE, Passenger->GetGUID()))
-        return false;
+        return true;
 
     Player* player = Passenger->ToPlayer();
     vehicle->RemovePendingEventsForSeat(Seat->first);
@@ -1055,7 +1056,7 @@ bool VehicleJoinEvent::Execute(uint64, uint32)
     {
         //ASSERT(vehicle->UsableSeatNum);
         if (!vehicle->UsableSeatNum)
-            return false;
+            return true;
         --(vehicle->UsableSeatNum);
         if (!vehicle->UsableSeatNum)
         {
@@ -1119,7 +1120,7 @@ bool VehicleJoinEvent::Execute(uint64, uint32)
             && !Target->SetCharmedBy(Passenger, CHARM_TYPE_VEHICLE))     // SMSG_CLIENT_CONTROL
         {
             //ASSERT(false);
-            return false;
+            return true;
         }
         // if (Seat->second.SeatInfo->Flags & VEHICLE_SEAT_FLAG_UNK2 && Seat->second.SeatInfo->Flags & VEHICLE_SEAT_FLAG_CAN_CONTROL)
         // {

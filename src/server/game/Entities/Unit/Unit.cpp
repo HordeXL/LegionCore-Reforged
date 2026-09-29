@@ -1158,7 +1158,8 @@ uint32 Unit::DealDamage(Unit* victim, uint32 damage, CleanDamage const* cleanDam
 
     damage /= victim->GetHealthMultiplierForTarget(this);
 
-    if (!victim->IsControlledByPlayer() || victim->IsVehicle())
+    // a player on a multi-seat mount is a vehicle too, but not a creature
+    if (victim->IsCreature() && (!victim->IsControlledByPlayer() || victim->IsVehicle()))
     {
         if (!victim->ToCreature()->hasLootRecipient())
             victim->ToCreature()->SetLootRecipient(this);
