@@ -2067,6 +2067,7 @@ void WorldSession::HandleReorderCharacters(WorldPackets::Character::ReorderChara
         auto stmt = CharacterDatabase.GetPreparedStatement(CHAR_UPD_CHAR_LIST_SLOT);
         stmt->setUInt8(0, reorderInfo.NewPosition);
         stmt->setUInt64(1, reorderInfo.PlayerGUID.GetCounter());
+        stmt->setUInt32(2, GetAccountId());     // the guids come from the client
         trans->Append(stmt);
     }
 

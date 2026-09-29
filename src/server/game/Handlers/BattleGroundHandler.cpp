@@ -254,7 +254,7 @@ static auto Arena1v1CheckTalents = [](Player* player) -> bool // Return false, i
 
 void WorldSession::HandleBattleFieldPort(WorldPackets::Battleground::Port& packet)
 {
-    if (packet.Ticket.Id > PLAYER_MAX_BATTLEGROUND_QUEUES)
+    if (packet.Ticket.Id >= PLAYER_MAX_BATTLEGROUND_QUEUES)   // an index: MAX itself read past the array
         return;
 
     Player* player = GetPlayer();

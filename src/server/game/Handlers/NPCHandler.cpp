@@ -335,6 +335,11 @@ void WorldSession::HandleGossipSelectOption(WorldPackets::NPC::GossipSelectOptio
             TC_LOG_DEBUG("network", "WORLD: HandleGossipSelectOption - GameObject (GUID: %s) not found.", packet.GossipUnit.ToString().c_str());
             return;
         }
+
+        // the reach that opened the gossip (HandleGameObjectUse): scripted options (teleporters,
+        // quest credit) otherwise answered from anywhere on the map
+        if (!player->IsWithinDistInMap(go, go->GetInteractionDistance() + 10.0f))
+            return;
     }
     else
     {

@@ -30769,6 +30769,9 @@ bool Player::InBattlegroundQueue() const
 
 uint8 Player::GetBattlegroundQueueTypeId(uint32 index) const
 {
+    if (index >= PLAYER_MAX_BATTLEGROUND_QUEUES)
+        return 0;
+
     return m_bgBattlegroundQueueID[index].bgQueueTypeId;
 }
 
