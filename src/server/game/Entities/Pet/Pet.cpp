@@ -131,9 +131,10 @@ std::pair<PetStable::PetInfo const*, PetSaveMode> Pet::GetLoadPetInfo(const PetS
             if (stable.ActivePets[*slot])
                 return { &stable.ActivePets[*slot].value(), *slot };
 
+        // StabledPets starts at the first stable slot: indexing it with the slot read past its end
         if (slot >= PET_SAVE_FIRST_STABLE_SLOT && slot < PET_SAVE_LAST_STABLE_SLOT)
-            if (stable.StabledPets[*slot])
-                return { &stable.StabledPets[*slot].value(), *slot };
+            if (stable.StabledPets[*slot - PET_SAVE_FIRST_STABLE_SLOT])
+                return { &stable.StabledPets[*slot - PET_SAVE_FIRST_STABLE_SLOT].value(), *slot };
     }
     else if (petEntry)
     {
@@ -636,8 +637,11 @@ void Pet::setDeathState(DeathState s)                       // overwrite virtual
             //SetFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_STUNNED);
 
             // update health so pet can be resurrected
+            // no current pet yet while a dead pet is being loaded back (revive)
             if (Player* player = Unit::ToPlayer(GetOwner()))
-                player->GetPetStable()->GetCurrentPet()->Health = GetHealth();
+                if (PetStable* stable = player->GetPetStable())
+                    if (PetStable::PetInfo* current = stable->GetCurrentPet())
+                        current->Health = GetHealth();
         }
     }
     else if (getDeathState() == ALIVE)

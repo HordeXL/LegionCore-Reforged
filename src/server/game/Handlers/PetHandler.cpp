@@ -314,8 +314,12 @@ void WorldSession::HandlePetAbandon(WorldPackets::PetPackets::PetAbandon& packet
 
     if (auto pet = ObjectAccessor::GetCreatureOrPetOrVehicle(*_player, packet.Pet))
     {
+        // the guid comes from the client: only the player's own hunter pet can be abandoned
         if (pet->isPet())
         {
+            if (pet->GetOwnerGUID() != _player->GetGUID() || !pet->isHunterPet())
+                return;
+
             _player->RemovePet((Pet*)pet, PET_SAVE_AS_DELETED);
             _player->GetSession()->SendStablePet();
         }
