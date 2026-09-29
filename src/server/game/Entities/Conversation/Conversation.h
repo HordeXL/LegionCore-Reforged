@@ -120,6 +120,7 @@ class TC_GAME_API Conversation : public WorldObject, public GridObject<Conversat
         uint32 _spellId;
         uint32 _duration;
         ObjectGuid casterGUID;
+        uint32 _createdAt = 0;      // clock of a conversation no player started: see Update
 
         std::map<ObjectGuid, uint32> playing;
 };

@@ -85,6 +85,7 @@ bool Conversation::CreateConversation(ObjectGuid::LowType guidlow, uint32 trigge
 
     SetMap(caster->GetMap());
     Relocate(pos);
+    _createdAt = getMSTime();
     if (!IsPositionValid())
     {
         TC_LOG_ERROR("misc", "Conversation (spell %u) not created. Suggested coordinates isn't valid (X: %f Y: %f)", info ? info->Id : 0, GetPositionX(), GetPositionY());
@@ -142,11 +143,16 @@ void Conversation::Update(uint32 p_time)
 
     if (GetDuration())
     {
+        // Only players are recorded when they start seeing it: a conversation cast by a creature never
+        // expired and piled up in its grid. Its clock starts at creation.
+        uint32 startedAt = _createdAt;
         auto data = playing.find(casterGUID);
-        if (data == playing.end())
+        if (data != playing.end())
+            startedAt = data->second;
+        else if (casterGUID.IsPlayer())
             return;
-       
-        uint32 const dur = getMSTime() - data->second;
+
+        uint32 const dur = getMSTime() - startedAt;
         if (dur > GetUInt32Value(CONVERSATION_FIELD_LAST_LINE_END_TIME))
             expired = true;
 
