@@ -6710,27 +6710,19 @@ void Unit::RemoveAreaObject(uint32 spellId, uint32 entry/* = 0*/)
     if (m_AreaObj.empty())
         return;
 
-    for (AreaObjectList::iterator i = m_AreaObj.begin(); i != m_AreaObj.end();)
-    {
-        AreaTrigger* areaObj = *i;
-
+    // over a copy: a trigger already being removed stays in the list after Despawn, and restarting
+    // from the beginning found it again forever
+    AreaObjectList const areaObjects = m_AreaObj;
+    for (AreaTrigger* areaObj : areaObjects)
         if (areaObj->GetSpellId() == spellId || (entry && areaObj->GetRealEntry() == entry))
-        {
             areaObj->Despawn();
-            i = m_AreaObj.begin();
-        }
-        else
-            ++i;
-    }
 }
 
 void Unit::RemoveAllAreaObjects()
 {
-    while (!m_AreaObj.empty())
-    {
-        m_AreaObj.front()->Despawn();
-        // m_AreaObj.pop_front();
-    }
+    AreaObjectList const areaObjects = m_AreaObj;     // same reason as RemoveAreaObject
+    for (AreaTrigger* areaObj : areaObjects)
+        areaObj->Despawn();
 }
 
 void Unit::ReCreateAreaTriggerObjects()

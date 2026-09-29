@@ -371,7 +371,7 @@ class TC_GAME_API AreaTrigger : public WorldObject, public GridObject<AreaTrigge
         AreaTriggerCircle const* GetCircleData() const;
         bool CheckValidateTargets(Unit* unit, AreaTriggerActionMoment actionM);
 
-        AreaTriggerInfo GetAreaTriggerInfo() const;
+        AreaTriggerInfo const& GetAreaTriggerInfo() const;     // by reference: read ~50 times per create block
         void CastAction();
         bool UpdatePosition(ObjectGuid targetGuid);
         void CalculateSplinePosition(Position const& pos, Position const& posMove, Unit* caster);

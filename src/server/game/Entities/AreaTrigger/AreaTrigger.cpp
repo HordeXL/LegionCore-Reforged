@@ -192,6 +192,10 @@ bool AreaTrigger::CreateAreaTrigger(ObjectGuid::LowType guidlow, uint32 triggerE
     // }
 
     SetMap(caster ? caster->GetMap() : map);
+    // a SmartAI source that is a game object passes neither a caster unit nor a map
+    if (!GetMap())
+        return false;
+
     Relocate(pos);
     SetOrientation(pos.GetOrientation());
     if (!IsPositionValid())
@@ -660,7 +664,7 @@ void AreaTrigger::Update(uint32 p_time)
         else
         {
             if (_caster && m_spellInfo && m_spellInfo->HasAttribute(SPELL_ATTR5_HASTE_AFFECT_TICK_AND_CASTTIME))
-                _updateDelay = int32(atInfo.updateDelay * _caster->GetFloatValue(UNIT_FIELD_MOD_SPELL_HASTE));
+                _updateDelay = int32(atInfo.updateDelay * (_caster ? _caster->GetFloatValue(UNIT_FIELD_MOD_SPELL_HASTE) : 1.0f));
             else
                 _updateDelay = atInfo.updateDelay;
             ActionOnUpdate(p_time);
@@ -772,13 +776,13 @@ bool AreaTrigger::_HasActionsWithCharges(AreaTriggerActionMoment action /*= AT_A
         ActionInfo& info = itr.second;
         if (info.action->moment & action)
         {
-            if (info.action->auraCaster > 0 && !_caster->HasAura(info.action->auraCaster))
+            if (info.action->auraCaster > 0 && (!_caster || !_caster->HasAura(info.action->auraCaster)))
                 continue;
-            if (info.action->auraCaster < 0 && _caster->HasAura(abs(info.action->auraCaster)))
+            if (info.action->auraCaster < 0 && _caster && _caster->HasAura(abs(info.action->auraCaster)))
                 continue;
-            if (info.action->hasspell > 0 && !_caster->HasSpell(info.action->hasspell))
+            if (info.action->hasspell > 0 && (!_caster || !_caster->HasSpell(info.action->hasspell)))
                 continue;
-            if (info.action->hasspell < 0 && _caster->HasSpell(abs(info.action->hasspell)))
+            if (info.action->hasspell < 0 && _caster && _caster->HasSpell(abs(info.action->hasspell)))
                 continue;
 
             if (info.charges || !info.action->maxCharges)
@@ -863,7 +867,7 @@ void AreaTrigger::DoAction(Unit* unit, ActionInfo& action)
             return;
 
     if (action.action->targetFlags & AT_TARGET_FLAG_TARGET_IS_SUMMONER)
-        if (Unit* summoner = _caster->GetAnyOwner())
+        if (Unit* summoner = _caster ? _caster->GetAnyOwner() : nullptr)
             if (unit->GetGUID() != summoner->GetGUID())
                 return;
 
@@ -894,14 +898,14 @@ void AreaTrigger::DoAction(Unit* unit, ActionInfo& action)
     if (action.action->hasAura3 < 0 && unit->HasAura(abs(action.action->hasAura3)))
         return;
 
-    if (action.action->auraCaster > 0 && !_caster->HasAura(action.action->auraCaster))
+    if (action.action->auraCaster > 0 && (!_caster || !_caster->HasAura(action.action->auraCaster)))
         return;
-    if (action.action->auraCaster < 0 && _caster->HasAura(abs(action.action->auraCaster)))
+    if (action.action->auraCaster < 0 && _caster && _caster->HasAura(abs(action.action->auraCaster)))
         return;
 
-    if (action.action->hasspell > 0 && !_caster->HasSpell(action.action->hasspell))
+    if (action.action->hasspell > 0 && (!_caster || !_caster->HasSpell(action.action->hasspell)))
         return;
-    if (action.action->hasspell < 0 && _caster->HasSpell(abs(action.action->hasspell)))
+    if (action.action->hasspell < 0 && _caster && _caster->HasSpell(abs(action.action->hasspell)))
         return;
 
     if (action.action->minDistance && GetDistance(unit) > action.action->minDistance)
@@ -1130,7 +1134,7 @@ void AreaTrigger::DoAction(Unit* unit, ActionInfo& action)
         }
         case AT_ACTION_TYPE_SET_AURA_CUSTOM_ADD: // 11
         {
-            if (Aura* aura = _caster->GetAura(action.action->spellId))
+            if (Aura* aura = _caster ? _caster->GetAura(action.action->spellId) : nullptr)
             {
                 aura->ModCustomData(1);
                 aura->RecalculateAmountOfEffects(true);
@@ -1139,7 +1143,7 @@ void AreaTrigger::DoAction(Unit* unit, ActionInfo& action)
         }
         case AT_ACTION_TYPE_SET_AURA_CUSTOM_REMOVE: // 12
         {
-            if (Aura* aura = _caster->GetAura(action.action->spellId))
+            if (Aura* aura = _caster ? _caster->GetAura(action.action->spellId) : nullptr)
             {
                 aura->ModCustomData(-1);
                 aura->RecalculateAmountOfEffects(true);
@@ -1178,6 +1182,10 @@ void AreaTrigger::DoAction(Unit* unit, ActionInfo& action)
         }
         case AT_ACTION_TYPE_RE_PATCH: // 16
         {
+            // empty for triggers that do not move, a single point for circles
+            if (_spline.VerticesPoints.size() < 2)
+                break;
+
             _spline.VerticesPoints[0] = G3D::Vector3(GetPositionX(), GetPositionY(), GetPositionZ());
             _spline.VerticesPoints[1] = G3D::Vector3(GetPositionX(), GetPositionY(), GetPositionZ());
             _reachedDestination = true;
@@ -1243,7 +1251,7 @@ void AreaTrigger::DoAction(Unit* unit, ActionInfo& action)
         case AT_ACTION_TYPE_CASTER_GUID_REMOVE_AURA: // 20
         {
             if (_caster)
-                unit->RemoveAura(action.action->spellId, _caster->GetGUID());
+                unit->RemoveAura(action.action->spellId, GetCasterGUID());
             break;
         }
         default:
@@ -1253,7 +1261,7 @@ void AreaTrigger::DoAction(Unit* unit, ActionInfo& action)
     if (CallScriptAreaTriggerCast)
     {
         if (_caster)
-            if (auto creature = _caster->ToCreature())
+            if (auto creature = _caster ? _caster->ToCreature() : nullptr)
                 if (creature->IsAIEnabled)
                     creature->AI()->OnAreaTriggerCast(_caster, unit, action.action->spellId, GetSpellId());
     }
@@ -1295,7 +1303,7 @@ void AreaTrigger::DoAction(Unit* unit, ActionInfo& action)
         sequence.TriggerGUID = GetGUID();
         sequence.SequenceAnimationID = atInfo.sequenceTemplate.animationid1;
         sequence.SequenceEntered = atInfo.sequenceTemplate.entered1;
-        _caster->SendMessageToSet(sequence.Write(), true);
+        SendMessageToSet(sequence.Write(), true);
     }
 }
 
@@ -1318,7 +1326,7 @@ void AreaTrigger::DoActionLeave(ActionInfo& action)
     {
         case AT_ACTION_TYPE_REMOVE_AURA:
         {
-            if (action.action->targetFlags & AT_TARGET_FLAG_TARGET_IS_CASTER)
+            if (_caster && action.action->targetFlags & AT_TARGET_FLAG_TARGET_IS_CASTER)
                 _caster->RemoveAura(action.action->spellId);       //only one aura should be removed.
             break;
         }
@@ -1333,7 +1341,7 @@ void AreaTrigger::DoActionLeave(ActionInfo& action)
         case AT_ACTION_TYPE_REMOVE_STACK:
         {
             if (action.action->targetFlags & AT_TARGET_FLAG_TARGET_IS_CASTER)
-                if (Aura* aura = _caster->GetAura(action.action->spellId))
+                if (Aura* aura = _caster ? _caster->GetAura(action.action->spellId) : nullptr)
                     aura->ModStackAmount(-1);
             break;
         }
@@ -1373,7 +1381,7 @@ void AreaTrigger::DoActionLeave(ActionInfo& action)
         }
         case AT_ACTION_TYPE_SET_AURA_CUSTOM_ADD: // 11
         {
-            if (Aura* aura = _caster->GetAura(action.action->spellId))
+            if (Aura* aura = _caster ? _caster->GetAura(action.action->spellId) : nullptr)
             {
                 aura->ModCustomData(1);
                 aura->RecalculateAmountOfEffects(true);
@@ -1382,7 +1390,7 @@ void AreaTrigger::DoActionLeave(ActionInfo& action)
         }
         case AT_ACTION_TYPE_SET_AURA_CUSTOM_REMOVE: // 12
         {
-            if (Aura* aura = _caster->GetAura(action.action->spellId))
+            if (Aura* aura = _caster ? _caster->GetAura(action.action->spellId) : nullptr)
             {
                 aura->ModCustomData(-1);
                 aura->RecalculateAmountOfEffects(true);
@@ -1437,7 +1445,7 @@ void AreaTrigger::Remove(bool duration)
 
         if (_caster)
         {
-            if (auto creature = _caster->ToCreature())
+            if (auto creature = _caster ? _caster->ToCreature() : nullptr)
                 if (creature->IsAIEnabled)
                     creature->AI()->OnAreaTriggerDespawn(GetSpellId(), GetPosition(), duration);
         }
@@ -1453,7 +1461,9 @@ void AreaTrigger::Remove(bool duration)
 
 void AreaTrigger::Despawn()
 {
-    if (_on_remove)
+    // _on_unload too: a Despawn nested in Remove (an aura script removing the area objects of its
+    // caster) cleared the affected list that Remove was still walking
+    if (_on_remove || _on_unload)
         return;
     _on_remove = true;
 
@@ -1662,6 +1672,9 @@ void AreaTrigger::UpdateSplinePosition(uint32 diff)
 
     if (atInfo.isCircle && !atInfo.circleTemplate.CanLoop)
     {
+        if (!_caster)                           // relative to the caster
+            return;
+
         Relocate(_spline.VerticesPoints[0].x + _caster->GetPositionX(), _spline.VerticesPoints[0].y + _caster->GetPositionY(), _spline.VerticesPoints[0].z + _caster->GetPositionZ());
         return;
     }
@@ -1692,8 +1705,11 @@ void AreaTrigger::UpdateSplinePosition(uint32 diff)
     Movement::Location loc = movespline->ComputePosition();
     if (atInfo.circleTemplate.HasTarget)
     {
-        if (_caster->GetGUID() == targetGuid || !targetGuid)
-            Relocate(loc.x + _caster->GetPositionX(), loc.y + _caster->GetPositionY(), loc.z + _caster->GetPositionZ(), loc.orientation);
+        if (!targetGuid || (_caster && _caster->GetGUID() == targetGuid))
+        {
+            if (_caster)                        // relative to the caster
+                Relocate(loc.x + _caster->GetPositionX(), loc.y + _caster->GetPositionY(), loc.z + _caster->GetPositionZ(), loc.orientation);
+        }
         else if (Unit* target = ObjectAccessor::GetUnit(*this, targetGuid))
             Relocate(loc.x + target->GetPositionX(), loc.y + target->GetPositionY(), loc.z + target->GetPositionZ(), loc.orientation);
     }
@@ -1774,14 +1790,14 @@ bool AreaTrigger::IsInHeight(Unit* unit)
     if (!_height)
         return true;
 
-    return unit->GetPositionZ() - GetPositionZ() <= atInfo.Polygon.Height;
+    return unit->GetPositionZ() - GetPositionZ() <= _height;     // the height computed above, box offset included
 }
 
 bool AreaTrigger::IsInBox(Unit* unit)
 {
     float x_source = unit->GetPositionX() - GetPositionX(); //Point X on polygon
     float y_source = unit->GetPositionY() - GetPositionY(); //Point Y on polygon
-    float z_source = unit->GetPositionY() - GetPositionY(); //Point Z on polygon
+    float z_source = unit->GetPositionZ() - GetPositionZ(); //Point Z on polygon (was the Y delta)
 
     return atInfo.box.contains({ x_source, y_source, z_source });
 }
@@ -1867,14 +1883,14 @@ float AreaTrigger::CalculateRadiusPolygon()
     float distance = 0.0f;
     for (auto const& v : atInfo.Polygon.Vertices)
     {
-        float distsq = fabs(v.Pos.m_positionX) > fabs(v.Pos.m_positionY) ? fabs(v.Pos.m_positionX) : fabs(v.Pos.m_positionY);
+        float distsq = std::sqrt(v.Pos.m_positionX * v.Pos.m_positionX + v.Pos.m_positionY * v.Pos.m_positionY);    // true distance: max(|x|,|y|) missed the corners
         if (distsq > distance)
             distance = distsq;
     }
 
     for (auto const& v : atInfo.Polygon.VerticesTarget)
     {
-        float distsq = fabs(v.Pos.m_positionX) > fabs(v.Pos.m_positionY) ? fabs(v.Pos.m_positionX) : fabs(v.Pos.m_positionY);
+        float distsq = std::sqrt(v.Pos.m_positionX * v.Pos.m_positionX + v.Pos.m_positionY * v.Pos.m_positionY);    // true distance: max(|x|,|y|) missed the corners
         if (distsq > distance)
             distance = distsq;
     }
@@ -2100,7 +2116,7 @@ bool AreaTrigger::CheckValidateTargets(Unit* unit, AreaTriggerActionMoment /*act
             }
 
         if (action.action->targetFlags & AT_TARGET_FLAG_TARGET_IS_SUMMONER)
-            if (Unit* summoner = _caster->GetAnyOwner())
+            if (Unit* summoner = _caster ? _caster->GetAnyOwner() : nullptr)
                 if (unit->GetGUID() != summoner->GetGUID())
                 {
                     // TC_LOG_DEBUG("entities.areatrigger", "CheckValidateTargets AT_TARGET_FLAG_TARGET_IS_SUMMONER unit %s", unit->GetGUID().ToString().c_str());
@@ -2140,12 +2156,12 @@ bool AreaTrigger::CheckValidateTargets(Unit* unit, AreaTriggerActionMoment /*act
             continue;
         }
 
-        if (action.action->hasspell > 0 && !_caster->HasSpell(action.action->hasspell))
+        if (action.action->hasspell > 0 && (!_caster || !_caster->HasSpell(action.action->hasspell)))
         {
             // TC_LOG_DEBUG("entities.areatrigger", "CheckValidateTargets hasspell > 0 unit %s", unit->GetGUID().ToString().c_str());
             continue;
         }
-        if (action.action->hasspell < 0 && _caster->HasSpell(abs(action.action->hasspell)))
+        if (action.action->hasspell < 0 && _caster && _caster->HasSpell(abs(action.action->hasspell)))
         {
             // TC_LOG_DEBUG("entities.areatrigger", "CheckValidateTargets hasspell < 0 unit %s", unit->GetGUID().ToString().c_str());
             continue;
@@ -2160,7 +2176,7 @@ bool AreaTrigger::CheckValidateTargets(Unit* unit, AreaTriggerActionMoment /*act
     return false;
 }
 
-AreaTriggerInfo AreaTrigger::GetAreaTriggerInfo() const
+AreaTriggerInfo const& AreaTrigger::GetAreaTriggerInfo() const
 {
     return atInfo;
 }
@@ -2217,7 +2233,7 @@ void AreaTrigger::SendReShape(Position const* pos)
     rePath.TriggerGUID = GetGUID();
     rePath.Spline.emplace();
     rePath.Spline = _splineTemp;
-    _caster->SendMessageToSet(rePath.Write(), true);
+    SendMessageToSet(rePath.Write(), true);
 
     Relocate(pos);
 }
@@ -2297,7 +2313,7 @@ void AreaTrigger::UpdateSequence(uint32 p_time)
                     sequence.TriggerGUID = GetGUID();
                     sequence.SequenceAnimationID = atInfo.sequenceTemplate.animationid;
                     sequence.SequenceEntered = atInfo.sequenceTemplate.entered;
-                    _caster->SendMessageToSet(sequence.Write(), true);
+                    SendMessageToSet(sequence.Write(), true);
                     if (atInfo.sequenceTemplate.animationid == atInfo.sequenceTemplate.animationid1) // Skip first step
                     {
                         _sequenceStep++;
@@ -2316,7 +2332,7 @@ void AreaTrigger::UpdateSequence(uint32 p_time)
                     sequence.TriggerGUID = GetGUID();
                     sequence.SequenceAnimationID = atInfo.sequenceTemplate.animationid1;
                     sequence.SequenceEntered = atInfo.sequenceTemplate.entered1;
-                    _caster->SendMessageToSet(sequence.Write(), true);
+                    SendMessageToSet(sequence.Write(), true);
                 }
                 break;
             }
@@ -2336,7 +2352,7 @@ void AreaTrigger::UpdateSequence(uint32 p_time)
                     sequence.TriggerGUID = GetGUID();
                     sequence.SequenceAnimationID = atInfo.sequenceTemplate.animationid2;
                     sequence.SequenceEntered = atInfo.sequenceTemplate.entered2;
-                    _caster->SendMessageToSet(sequence.Write(), true);
+                    SendMessageToSet(sequence.Write(), true);
                 }
                 break;
             }
@@ -2660,7 +2676,7 @@ void AreaTrigger::CalculateSplinePosition(Position const& pos, Position const& p
                     float angleToMove = GetRelativeAngle(&posMove);
                     if ((pos - posMove).length() > (atInfo.Param ? atInfo.Param : 2.0f))
                     {
-                        for (uint8 count = 1; count < ((pos - posMove).length() / (atInfo.Param ? atInfo.Param : 2.0f)); count++)
+                        for (uint32 count = 1; count < ((pos - posMove).length() / (atInfo.Param ? atInfo.Param : 2.0f)); count++)
                         {
                             Position midPos;
                             SimplePosXYRelocationByAngle(midPos, (count * (atInfo.Param ? atInfo.Param : 2.0f) * 1.0f), angleToMove);
@@ -2674,7 +2690,7 @@ void AreaTrigger::CalculateSplinePosition(Position const& pos, Position const& p
                 {
                     if (_range > (atInfo.Param ? atInfo.Param : 2.0f))
                     {
-                        for (uint8 count = 1; count < (_range / (atInfo.Param ? atInfo.Param : 2.0f)); count++)
+                        for (uint32 count = 1; count < (_range / (atInfo.Param ? atInfo.Param : 2.0f)); count++)
                         {
                             Position midPos;
                             SimplePosXYRelocationByAngle(midPos, (count * (atInfo.Param ? atInfo.Param : 2.0f) * 1.0f), atInfo.AngleToCaster);
@@ -2733,6 +2749,9 @@ void AreaTrigger::ReCalculateSplinePosition(bool setReach /*= false*/)
         case AT_MOVE_TYPE_RE_PATH_TO_CASTER:
         case AT_MOVE_TYPE_RE_PATH_TO_TARGET:
         {
+            if (!_caster)       // a path back to a caster that does not exist
+                break;
+
             if ((*this - *_caster).length() < 3.0f)
             {
                 if (GetDuration() > 100)
