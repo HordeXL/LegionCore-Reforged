@@ -2122,8 +2122,7 @@ void Unit::CalculateSpellDamageTaken(SpellNonMeleeDamage* damageInfo, float dama
     if (IsDamageReducedByArmor(damageSchoolMask, spellInfo, effectMask))
         damage = CalcArmorReducedDamage(damageInfo->attacker, victim, damage, spellInfo);
 
-    if (Player* spellModOwner = victim->GetSpellModOwner())
-        damage -= CalculatePct(damage, (spellModOwner->GetFloatValue(PLAYER_FIELD_VERSATILITY) + spellModOwner->GetFloatValue(PLAYER_FIELD_VERSATILITY_BONUS)) / 2.f);
+    // versatility is taken off in SpellDamageBonusTaken / MeleeDamageBonusTaken, which every spell damage goes through first
 
     int32 sourceDamage = damage;
 
@@ -2553,6 +2552,8 @@ void Unit::DealMeleeDamage(CalcDamageInfo* damageInfo, bool durabilityLoss)
 
             uint32 absorb = 0, resist = 0;
             victim->CalcAbsorbResist(this, SpellSchoolMask(i_spellProto->GetMisc(m_spawnMode)->MiscData.SchoolMask), SPELL_DIRECT_DAMAGE, damage, &absorb, &resist, i_spellProto);
+            // the shields were consumed but the damage dealt in full
+            damage = damage > absorb + resist ? damage - (absorb + resist) : 0;
             victim->DealDamageMods(this, damage, nullptr);
 
             WorldPackets::CombatLog::SpellDamageShield damageShield;
@@ -8796,11 +8797,12 @@ bool Unit::HandleDummyAuraProc(Unit* victim, DamageInfo* dmgInfoProc, AuraEffect
                         if (bp0 > maxAbsorb)
                             bp0 = maxAbsorb;
 
-                        pet->AddDelayedEvent(10, [basepoints0, triggered_spell_id, pet]() -> void
+                        float const cappedAbsorb = bp0;     // the capped value, not the raw one
+                        pet->AddDelayedEvent(10, [cappedAbsorb, triggered_spell_id, pet]() -> void
                         {
                             if (!pet)
                                 return;
-                            pet->CastCustomSpell(pet, triggered_spell_id, &basepoints0, nullptr, nullptr, true);
+                            pet->CastCustomSpell(pet, triggered_spell_id, &cappedAbsorb, nullptr, nullptr, true);
                         });
                         hasabsorb = 0;
                     }
@@ -13512,7 +13514,7 @@ bool Unit::isSpellCrit(Unit* victim, SpellInfo const* spellProto, SpellSchoolMas
                             case 222026: // Frost Strike
                                 if (AuraEffect const* aurEff = GetAuraEffect(204132, EFFECT_1)) // Tundra Stalker (Honor Talent)
                                     if (victim->HasAuraWithMechanic(1 << MECHANIC_ROOT))
-                                        critChance += aurEff->GetAmount();
+                                        crit_chance += aurEff->GetAmount();
                                 break;
                             default:
                                 break;
