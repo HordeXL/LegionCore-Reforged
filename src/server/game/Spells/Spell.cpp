@@ -1039,6 +1039,11 @@ void Spell::SelectImplicitAreaTargets(SpellEffIndex effIndex, SpellImplicitTarge
     float radius = effect->CalcRadius(m_caster) * m_spellValue->RadiusMod;
     if (radius <= 0)
     {
+        // An area trigger is created once, at the destination, and never uses these targets: with the
+        // radius widened below, casting Arcane Orb (153626) engaged every enemy within sight in combat.
+        if (effect->Effect == SPELL_EFFECT_CREATE_AREATRIGGER)
+            return;
+
         if (m_caster->InInstance())
             radius = 5000.0f;
         else
