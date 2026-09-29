@@ -76,6 +76,9 @@ struct map_info
 };
 
 std::map<uint32, map_info> map_ids;
+// -m <id>[:<directory>]: only these maps. The directory is needed for a map that Map.db2 does not
+// list, such as one only added by a hotfix.
+std::map<uint32, std::string> onlyMaps;
 std::unordered_set<uint32> maps_that_are_parents;
 boost::filesystem::path input_path;
 bool preciseVectorData = false;
@@ -308,6 +311,9 @@ void ParsMapFiles()
 
         for (auto& [mapId, info] : map_ids)
         {
+            if (!onlyMaps.empty() && !onlyMaps.count(mapId))
+                continue;
+
             if (!getWDT(mapId))
                 continue;
 
@@ -483,6 +489,12 @@ bool processArgv(int argc, char ** argv)
         {
             preciseVectorData = true;
         }
+        else if (strcmp("-m", argv[i]) == 0 && (i + 1) < argc)
+        {
+            std::string const value = argv[++i];
+            std::size_t const colon = value.find(':');
+            onlyMaps[uint32(atoi(value.substr(0, colon).c_str()))] = colon == std::string::npos ? "" : value.substr(colon + 1);
+        }
         else
         {
             result = false;
@@ -496,6 +508,7 @@ bool processArgv(int argc, char ** argv)
         printf("   -s : (default) small size (data size optimization), ~500MB less vmap data.\n");
         printf("   -l : large size, ~500MB more vmap data. (might contain more details)\n");
         printf("   -d <path>: Path to the vector data source folder.\n");
+        printf("   -m <id>[:<directory>]: only this map, repeatable (directory needed when Map.db2 lacks the map).\n");
         printf("   -? : This message.\n");
     }
 
@@ -622,8 +635,10 @@ int main(int argc, char ** argv)
         return 1;
     }
 
-    // Extract models, listed in GameObjectDisplayInfo.dbc
-    ExtractGameobjectModels();
+    // Extract models, listed in GameObjectDisplayInfo.dbc. Not for a map-only run: the file they
+    // produce lists the models of the whole client and must not be replaced by a partial one.
+    if (onlyMaps.empty())
+        ExtractGameobjectModels();
 
     //xxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
     //map.dbc
@@ -671,6 +686,33 @@ int main(int argc, char ** argv)
                 strcpy(id.name, itr->second.name);
                 id.parent_id = itr->second.parent_id;
             }
+        }
+
+        for (auto const& [id, directory] : onlyMaps)
+        {
+            auto itr = map_ids.find(id);
+            if (directory.empty())
+            {
+                if (itr == map_ids.end())
+                {
+                    printf("Fatal error: map %u is not in Map.db2, give its directory: -m %u:<directory>\n", id, id);
+                    system("pause");
+                    exit(1);
+                }
+                continue;
+            }
+
+            if (directory.size() >= sizeof(map_info::name))
+            {
+                printf("Fatal error: Map name too long!\n");
+                system("pause");
+                exit(1);
+            }
+
+            map_info& m = map_ids[id];
+            if (itr == map_ids.end())
+                m.parent_id = -1;
+            strcpy(m.name, directory.c_str());
         }
 
         printf("Done! (" SZFMTD " maps loaded)\n", map_ids.size());

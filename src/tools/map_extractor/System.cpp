@@ -37,7 +37,9 @@
 #include <unordered_map>
 #include <atomic>
 #include <cstdlib>
+#include <algorithm>
 #include <cstring>
+#include <map>
 #include <mutex>
 #include <thread>
 #include <vector>
@@ -67,6 +69,10 @@ struct LiquidTypeEntry
 };
 
 std::vector<map_id> map_ids;
+// -m <id>[:<directory>]: only these maps. The directory is needed for a map that Map.db2 does not
+// list, such as one only added by a hotfix.
+std::map<uint32, std::string> CONF_only_maps;
+bool CONF_extract_set = false;
 std::unordered_map<uint32, LiquidMaterialEntry> LiquidMaterials;
 std::unordered_map<uint32, LiquidObjectEntry> LiquidObjects;
 std::unordered_map<uint32, LiquidTypeEntry> LiquidTypes;
@@ -156,6 +162,7 @@ void Usage(char const* prg)
         "-e extract only MAP(1)/DBC(2)/Camera(4)/gt(8) - standard: all(15)\n"\
         "-f height stored as int (less map size but lost some accuracy) 1 by default\n"\
         "-l dbc locale\n"\
+        "-m extract only this map, repeatable: -m <id>[:<directory>] (directory needed when Map.db2 lacks the map)\n"\
         "Example: %s -f 0 -i \"c:\\games\\game\"\n", prg, prg);
     exit(1);
 }
@@ -197,6 +204,7 @@ void HandleArgs(int argc, char* arg[])
                 if (c + 1 < argc)                            // all ok
                 {
                     CONF_extract = atoi(arg[c++ + 1]);
+                    CONF_extract_set = true;
                     if (!(CONF_extract > 0 && CONF_extract <= EXTRACT_ALL))
                         Usage(arg[0]);
                 }
@@ -210,6 +218,16 @@ void HandleArgs(int argc, char* arg[])
                         if (!strcmp(arg[c + 1], localeNames[i]))
                             CONF_Locale = 1 << i;
                     ++c;
+                }
+                else
+                    Usage(arg[0]);
+                break;
+            case 'm':
+                if (c + 1 < argc && strlen(arg[c + 1]))
+                {
+                    std::string const value = arg[c++ + 1];
+                    std::size_t const colon = value.find(':');
+                    CONF_only_maps[uint32(atoi(value.substr(0, colon).c_str()))] = colon == std::string::npos ? "" : value.substr(colon + 1);
                 }
                 else
                     Usage(arg[0]);
@@ -266,6 +284,35 @@ void ReadMapDBC()
             strcpy(id.name, map_ids[itr->second].name);
             map_ids.push_back(id);
         }
+    }
+
+    if (!CONF_only_maps.empty())
+    {
+        std::vector<map_id> selected;
+        for (auto const& [id, directory] : CONF_only_maps)
+        {
+            map_id entry{};
+            entry.id = id;
+            auto itr = std::find_if(map_ids.begin(), map_ids.end(), [mapId = id](map_id const& m) { return m.id == mapId; });
+            if (!directory.empty())
+            {
+                if (directory.size() >= sizeof(entry.name))
+                {
+                    printf("Fatal error: Map name too long!\n");
+                    exit(1);
+                }
+                strcpy(entry.name, directory.c_str());
+            }
+            else if (itr != map_ids.end())
+                strcpy(entry.name, itr->name);
+            else
+            {
+                printf("Fatal error: map %u is not in Map.db2, give its directory: -m %u:<directory>\n", id, id);
+                exit(1);
+            }
+            selected.push_back(entry);
+        }
+        map_ids = std::move(selected);
     }
 
     printf("Done! (" SZFMTD " maps loaded)\n", map_ids.size());
@@ -1457,6 +1504,10 @@ int main(int argc, char * arg[])
     output_path = boost::filesystem::current_path() / "ClientData";
 
     HandleArgs(argc, arg);
+
+    // A map-only run does not rewrite the dbc, camera and gt files of the whole client
+    if (!CONF_only_maps.empty() && !CONF_extract_set)
+        CONF_extract = EXTRACT_MAP;
 
     boost::filesystem::create_directories(output_path);
 
