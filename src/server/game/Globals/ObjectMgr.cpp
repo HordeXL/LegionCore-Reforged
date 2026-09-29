@@ -5120,7 +5120,8 @@ void ObjectMgr::SetHighestGuids()
         ObjectAccessor::SetGuidSize(HighGuid::Conversation, (*result)[0].GetUInt64() + 1);
     }
 
-    result = CharacterDatabase.Query("SELECT MAX(setguid) FROM character_equipmentsets");
+    // sets and transmog outfits draw from this one counter, as in TrinityCore: start past both tables
+    result = CharacterDatabase.Query("SELECT GREATEST(COALESCE((SELECT MAX(setguid) FROM character_equipmentsets), 0), COALESCE((SELECT MAX(setguid) FROM character_transmog_outfits), 0))");
     if (result)
         _equipmentSetGuid = (*result)[0].GetUInt64()+1;
 

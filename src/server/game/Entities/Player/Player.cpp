@@ -33629,25 +33629,23 @@ void Player::SendEquipmentSetList()
 
 void Player::SetEquipmentSet(EquipmentSetInfo::EquipmentSetData const& newEqSet)
 {
+    // As in TrinityCore. The guid comes from the client: an unknown one used to create an entry,
+    // which a later delete turned into a DELETE of another player's set; and new sets all sat
+    // under key 0, so a second one created in the same session replaced the first.
     if (newEqSet.Guid != 0)
     {
-        EquipmentSetInfo& eqSlot = _equipmentSets[newEqSet.Guid];
-        EquipmentSetUpdateState oldState = eqSlot.State;
-        eqSlot.Data = newEqSet;
-        EquipmentSetContainer::const_iterator itr = _equipmentSets.find(newEqSet.SetID);
+        EquipmentSetContainer::const_iterator itr = _equipmentSets.find(newEqSet.Guid);
         if (itr == _equipmentSets.end() || itr->second.Data.Guid != newEqSet.Guid)
-        {
-            eqSlot.State = EQUIPMENT_SET_CHANGED;
             return;
-        }
     }
 
-    EquipmentSetInfo& eqSlot = _equipmentSets[newEqSet.Guid];
+    uint64 const setGuid = newEqSet.Guid != 0 ? newEqSet.Guid : sObjectMgr->GenerateEquipmentSetGuid();
+    EquipmentSetInfo& eqSlot = _equipmentSets[setGuid];
     EquipmentSetUpdateState oldState = eqSlot.State;
     eqSlot.Data = newEqSet;
     if (eqSlot.Data.Guid == 0)
     {
-        eqSlot.Data.Guid = sObjectMgr->GenerateEquipmentSetGuid();
+        eqSlot.Data.Guid = setGuid;
 
         WorldPackets::EquipmentSet::EquipmentSetID data;
         data.GUID = eqSlot.Data.Guid;
