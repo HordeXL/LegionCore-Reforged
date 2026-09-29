@@ -22,6 +22,7 @@
 #include "Common.h"
 #include "SharedDefines.h"
 #include <safe_ptr.h>
+#include <mutex>
 
 #define max_ge_check_delay DAY  // 1 day in seconds
 
@@ -187,7 +188,13 @@ private:
     GameEventWorldStateMap mGameEventWorldState;
     std::vector<std::list<std::pair<uint32, uint32>>> mGameEventWorldQuest;
 
+    // instance copies of event spawns are registered by their map's thread
+    std::mutex _eventSpawnsLock;
+    ObjectGuidList TakeEventSpawns(GameEventObjectGuidMap& spawns, uint32 eventId);
+
 public:
+    void AddEventSpawn(uint32 eventId, ObjectGuid const& guid, bool isCreature);
+
     GameEventGuidMap  mGameEventCreatureGuids;
     GameEventObjectGuidMap  mGameEventCreatureSpawns;
     GameEventGuidMap  mGameEventGameobjectGuids;

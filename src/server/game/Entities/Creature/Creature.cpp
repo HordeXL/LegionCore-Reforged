@@ -2359,13 +2359,15 @@ bool Creature::LoadCreatureFromDB(ObjectGuid::LowType guid, Map* map, bool addTo
     if (addToMap && !GetMap()->AddToMap(this))
         return false;
 
-    GetMap()->AddBattlePet(this);
+    // AddToMap registers it too; a creature added later by its map's thread must not touch the map here
+    if (addToMap)
+        GetMap()->AddBattlePet(this);
 
     volatile uint32 npcEntry = GetEntry();
     volatile uint32 npcGuidLow = GetGUIDLow();
 
     if (data->gameEvent && m_DBTableGuid != guid)
-        sGameEventMgr->mGameEventCreatureSpawns[data->gameEvent].push_back(GetGUID());
+        sGameEventMgr->AddEventSpawn(data->gameEvent, GetGUID(), true);
 
     return true;
 }

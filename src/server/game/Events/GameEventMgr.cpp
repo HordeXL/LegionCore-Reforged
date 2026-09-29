@@ -1360,8 +1360,12 @@ void GameEventMgr::GameEventSpawn(int16 event_id)
             {
                 auto* creature = new Creature;
                 // TC_LOG_DEBUG("gameevent", "Spawning creature %u", *itr);
-                if (!creature->LoadCreatureFromDB(itr, map))
+                // Added by the map's own thread, like the game objects below: this runs on the world
+                // thread, and adding to a map while its thread updates it corrupts the grid.
+                if (!creature->LoadCreatureFromDB(itr, map, false))
                     delete creature;
+                else
+                    map->AddToMapWait(creature);
             }
         }
     }
@@ -1426,6 +1430,25 @@ void GameEventMgr::GameEventSpawn(int16 event_id)
         sPoolMgr->SpawnPool(pool);
 }
 
+void GameEventMgr::AddEventSpawn(uint32 eventId, ObjectGuid const& guid, bool isCreature)
+{
+    std::lock_guard<std::mutex> guard(_eventSpawnsLock);
+    (isCreature ? mGameEventCreatureSpawns : mGameEventGameobjectSpawns)[eventId].push_back(guid);
+}
+
+GameEventMgr::ObjectGuidList GameEventMgr::TakeEventSpawns(GameEventObjectGuidMap& spawns, uint32 eventId)
+{
+    ObjectGuidList taken;
+    std::lock_guard<std::mutex> guard(_eventSpawnsLock);
+    auto itr = spawns.find(eventId);
+    if (itr != spawns.end())
+    {
+        taken.swap(itr->second);
+        spawns.erase(itr);
+    }
+    return taken;
+}
+
 void GameEventMgr::GameEventUnspawn(int16 event_id)
 {
     int32 internal_event_id = mGameEvent.size() + event_id - 1;
@@ -1462,13 +1485,12 @@ void GameEventMgr::GameEventUnspawn(int16 event_id)
 
     if (event_id > 0)
     {
-        for (auto& itr : mGameEventCreatureSpawns[event_id])
+        for (auto& itr : TakeEventSpawns(mGameEventCreatureSpawns, event_id))
         {
             // Remove the creature from world
             if (Creature* creature = ObjectAccessor::GetObjectInWorld(itr, static_cast<Creature*>(nullptr)))
                 creature->AddDelayedEvent(10, [creature]() -> void {if (creature) creature->AddObjectToRemoveList(); });
         }
-        mGameEventCreatureSpawns[event_id].clear();
     }
 
     if (internal_event_id < 0 || internal_event_id >= int32(mGameEventGameobjectGuids.size()))
@@ -1501,13 +1523,12 @@ void GameEventMgr::GameEventUnspawn(int16 event_id)
 
     if (event_id > 0)
     {
-        for (auto& itr : mGameEventGameobjectSpawns[event_id])
+        for (auto& itr : TakeEventSpawns(mGameEventGameobjectSpawns, event_id))
         {
             // Remove the gameobject from world
             if (GameObject* pGameobject = ObjectAccessor::GetObjectInWorld(itr, static_cast<GameObject*>(nullptr)))
                 pGameobject->AddDelayedEvent(10, [pGameobject]() -> void {if (pGameobject) pGameobject->AddObjectToRemoveList(); });
         }
-        mGameEventGameobjectSpawns[event_id].clear();
     }
 
     if (internal_event_id < 0 || internal_event_id >= int32(mGameEventPoolIds.size()))

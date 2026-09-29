@@ -1041,7 +1041,7 @@ bool GameObject::LoadGameObjectFromDB(ObjectGuid::LowType guid, Map* map, bool a
         return false;
 
     if (data->gameEvent && m_DBTableGuid != guid)
-        sGameEventMgr->mGameEventGameobjectSpawns[data->gameEvent].push_back(GetGUID());
+        sGameEventMgr->AddEventSpawn(data->gameEvent, GetGUID(), false);
 
     return true;
 }
