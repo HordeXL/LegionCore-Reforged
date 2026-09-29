@@ -302,7 +302,7 @@ void Trinity::WorldObjectListSearcher<Check>::Visit(PlayerMapType &m)
         return;
 
     for (auto &player : m)
-        if (i_check(player))
+        if (player->InSamePhase(i_phaseMask) && i_check(player))
             i_objects.push_back(player);
 }
 
@@ -313,7 +313,7 @@ void Trinity::WorldObjectListSearcher<Check>::Visit(CreatureMapType &m)
         return;
 
     for (auto &creature : m)
-        if (i_check(creature))
+        if (creature->InSamePhase(i_phaseMask) && i_check(creature))
             i_objects.push_back(creature);
 }
 
@@ -324,7 +324,7 @@ void Trinity::WorldObjectListSearcher<Check>::Visit(CorpseMapType &m)
         return;
 
     for (auto &corpse : m)
-        if (i_check(corpse))
+        if (corpse->InSamePhase(i_phaseMask) && i_check(corpse))
             i_objects.push_back(corpse);
 }
 
@@ -335,7 +335,7 @@ void Trinity::WorldObjectListSearcher<Check>::Visit(GameObjectMapType &m)
         return;
 
     for (auto &obj : m)
-        if (i_check(obj))
+        if (obj->InSamePhase(i_phaseMask) && i_check(obj))
             i_objects.push_back(obj);
 }
 
@@ -346,7 +346,7 @@ void Trinity::WorldObjectListSearcher<Check>::Visit(DynamicObjectMapType &m)
         return;
 
     for (auto &obj : m)
-        if (i_check(obj))
+        if (obj->InSamePhase(i_phaseMask) && i_check(obj))
             i_objects.push_back(obj);
 }
 
@@ -357,7 +357,7 @@ void Trinity::WorldObjectListSearcher<Check>::Visit(AreaTriggerMapType &m)
         return;
 
     for (auto &trigger : m)
-        if (i_check(trigger))
+        if (trigger->InSamePhase(i_phaseMask) && i_check(trigger))
             i_objects.push_back(trigger);
 }
 
@@ -368,7 +368,7 @@ void Trinity::WorldObjectListSearcher<Check>::Visit(ConversationMapType &m)
         return;
 
     for (auto &conver : m)
-        if (i_check(conver))
+        if (conver->InSamePhase(i_phaseMask) && i_check(conver))
             i_objects.push_back(conver);
 }
 
@@ -379,7 +379,7 @@ void Trinity::WorldObjectListSearcher<Check>::Visit(EventObjectMapType &m)
         return;
 
     for (auto &event : m)
-        if (i_check(event))
+        if (event->InSamePhase(i_phaseMask) && i_check(event))
             i_objects.push_back(event);
 }
 
