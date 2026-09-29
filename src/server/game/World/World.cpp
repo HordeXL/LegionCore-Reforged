@@ -360,7 +360,10 @@ void World::ProcessLinkInstanceSocket(std::pair<std::weak_ptr<WorldSocket>, uint
     if (std::shared_ptr<WorldSocket> sock = linkInfo.first.lock())
     {
         if (!sock->IsOpen())
+        {
+            TC_LOG_ERROR("network", "World::ProcessLinkInstanceSocket: instance socket closed before it could be linked");
             return;
+        }
 
         WorldSession::ConnectToKey key;
         key.Raw = linkInfo.second;
@@ -372,6 +375,7 @@ void World::ProcessLinkInstanceSocket(std::pair<std::weak_ptr<WorldSocket>, uint
             sock->DelayedCloseSocket();
             if (session)
                 session->SetforceExit();
+            TC_LOG_ERROR("network", "World::ProcessLinkInstanceSocket: no session or connect key mismatch for account %u", uint32(key.Fields.AccountId));
             return;
         }
 
