@@ -2911,8 +2911,9 @@ void Unit::CalcAbsorbResist(Unit* victim, SpellSchoolMask schoolMask, DamageEffe
             damageInfo.damage = splitted;
             DealDamageMods(caster, damageInfo.damage, &damageInfo.absorb);
 
-            uint32 m_procVictim = PROC_FLAG_DONE_MELEE_AUTO_ATTACK | PROC_FLAG_DONE_MAINHAND_ATTACK;
-            uint32 m_procAttacker = PROC_FLAG_TAKEN_MELEE_AUTO_ATTACK;
+            // this (the attacker) did the hit, the split caster takes it: these two were swapped
+            uint32 m_procAttacker = PROC_FLAG_DONE_MELEE_AUTO_ATTACK | PROC_FLAG_DONE_MAINHAND_ATTACK;
+            uint32 m_procVictim = PROC_FLAG_TAKEN_MELEE_AUTO_ATTACK;
             if(spellInfo)
             {
                 switch (spellInfo->Categories.DefenseType)
@@ -2929,8 +2930,9 @@ void Unit::CalcAbsorbResist(Unit* victim, SpellSchoolMask schoolMask, DamageEffe
                         m_procVictim   = PROC_FLAG_TAKEN_SPELL_MAGIC_DMG_CLASS_NEG;
                         break;
                     case SPELL_DAMAGE_CLASS_NONE:
+                        m_procAttacker = PROC_FLAG_DONE_SPELL_NONE_DMG_CLASS_NEG;
                         m_procVictim   = PROC_FLAG_TAKEN_SPELL_NONE_DMG_CLASS_NEG;
-                    break;
+                        break;
                     case SPELL_DAMAGE_CLASS_RANGED:
                         m_procAttacker = PROC_FLAG_DONE_SPELL_RANGED_DMG_CLASS;
                         m_procVictim   = PROC_FLAG_TAKEN_SPELL_RANGED_DMG_CLASS;
@@ -18456,10 +18458,12 @@ void Unit::ProcDamageAndSpellFor(bool isVictim, Unit* target, uint32 procFlag, u
                 i->aura->DropCharge();
             }
             
+            // break, not return: the proc depth taken above must be given back below, or the unit
+            // stops updating and never procs again
             if(isReflect) // reflect take only one aura
-                return;
+                break;
             if(isModifier && (procExtra & PROC_EX_ON_CAST)) // same proc use charge on cast can take only one aura
-                return;
+                break;
         }
     }
 
@@ -22118,6 +22122,10 @@ void Unit::Kill(Unit* victim, bool durabilityLoss, SpellInfo const* spellProto)
                 for (auto const& _guid : *creature->GetSaveThreatList())
                 {
                     if (GetGUID() == _guid)
+                        continue;
+
+                    // the owner of a killing pet or totem gets its KILL proc below
+                    if ((isPet() || isTotem()) && GetOwnerGUID() == _guid)
                         continue;
 
                     tempList.push_back(_guid);
