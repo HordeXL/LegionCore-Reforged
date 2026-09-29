@@ -5508,7 +5508,15 @@ uint32 Unit::RemoveAurasWithInterruptFlags(InterruptFlags flag, uint32 spellID, 
     {
         if (spell->getState() == SPELL_STATE_CASTING && (spell->GetSpellInfo()->ChannelInterruptFlags[AuraInterruptFlagIndex<InterruptFlags>::value] & flag) && spell->m_spellInfo->Id != except && spell->m_spellInfo->CanInterrupt(spellID, flag, this) &&
             !(flag & AURA_INTERRUPT_FLAG_MOVE && GetForceGUID()) && ((flag & SpellAuraInterruptFlags(AURA_INTERRUPT_FLAG_MOVING)) == 0 || !HasAuraCastWhileWalking(spell->m_spellInfo)))
-            InterruptNonMeleeSpells(false, spellID);
+        {
+            // InterruptNonMeleeSpells takes spellID as a filter: damage from a spell or a DoT never broke the channel (bandages).
+            // Only for damage: the cast flags must keep going through the CanInterruptChannel exemptions.
+            bool const byDamage = AuraInterruptFlagIndex<InterruptFlags>::value == 0 && (uint32(flag) & (AURA_INTERRUPT_FLAG_TAKE_DAMAGE | AURA_INTERRUPT_FLAG_DIRECT_DAMAGE));
+            if (spellID && byDamage)
+                InterruptSpell(CURRENT_CHANNELED_SPELL, false, true);
+            else
+                InterruptNonMeleeSpells(false, spellID);
+        }
     }
 
     UpdateInterruptMask();
