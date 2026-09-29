@@ -3290,6 +3290,10 @@ void Item::InitArtifactPowers(uint8 artifactId)
         if (power->Flags & ARTIFACT_POWER_FLAG_RELIC_TALENT)
             artifactPowers.push_back(power);
 
+    // A second call (Create, then LoadArtifactData when an artifact with saved data is obtained again)
+    // appended every power once more: start from an empty list.
+    ClearDynamicValue(ITEM_DYNAMIC_FIELD_ARTIFACT_POWERS);
+    m_artifactPowerCount = 0;
     m_artifactPowerIdToIndex.assign(sArtifactPowerStore.GetNumRows() + 1, -1);
     for (ArtifactPowerEntry const* artifactPower : artifactPowers)
     {
@@ -3333,8 +3337,11 @@ void Item::ActivateFishArtifact(uint8 /*artifactId*/)
 
 void Item::InitArtifactsTier(uint8 artifactId)
 {
+    // adds the tier 2 powers to those already there: resetting the index table here lost the tier 1
+    // and relic powers until relog
     std::vector<ArtifactPowerEntry const*> artifactPowers = sDB2Manager.GetArtifactPowers(artifactId);
-    m_artifactPowerIdToIndex.assign(sArtifactPowerStore.GetNumRows() + 1, -1);
+    if (m_artifactPowerIdToIndex.empty())
+        m_artifactPowerIdToIndex.assign(sArtifactPowerStore.GetNumRows() + 1, -1);
     for (ArtifactPowerEntry const* artifactPower : artifactPowers)
     {
         if (m_artifactPowerIdToIndex[artifactPower->ID] != -1)

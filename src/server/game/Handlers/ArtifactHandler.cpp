@@ -142,6 +142,11 @@ void WorldSession::HandleArtifactAddRelicTalent(WorldPackets::Artifact::Artifact
     if (!artifact)
         return;
 
+    // Relic sockets are slots 2 to 4 and relic talents indices 0 to 5; both come from the client,
+    // and GetGem asserts on a bad slot
+    if (packet.SlotIndex < 2 || packet.SlotIndex >= 2 + MAX_GEM_SOCKETS || packet.TalentIndex > 5)
+        return;
+
     auto relicks = artifact->GetArtifactSockets();
     if (relicks.find(packet.SlotIndex) == relicks.end()) // can it?
         return;
@@ -152,7 +157,16 @@ void WorldSession::HandleArtifactAddRelicTalent(WorldPackets::Artifact::Artifact
             return;
     }
 
-    if ((1 << packet.TalentIndex) & relicks[packet.SlotIndex].firstTier)
+    uint32 const chosen = relicks[packet.SlotIndex].firstTier;
+    if ((1 << packet.TalentIndex) & chosen)
+        return;
+
+    // Netherlight Crucible: one pick among 1-2, then one among 3-5; a forged packet unlocked them all
+    uint32 const secondTierMask = (1 << 1) | (1 << 2);
+    uint32 const thirdTierMask = (1 << 3) | (1 << 4) | (1 << 5);
+    if ((1 << packet.TalentIndex) & secondTierMask && chosen & secondTierMask)
+        return;
+    if ((1 << packet.TalentIndex) & thirdTierMask && (chosen & thirdTierMask || !(chosen & secondTierMask)))
         return;
 
     uint32 reqLevel = 0;
@@ -188,7 +202,10 @@ void WorldSession::HandleArtifactAttuneSocketedRelic(WorldPackets::Artifact::Art
         return;
 
     Item* artifact = _player->GetItemByGuid(packet.ArtifactGUID);
-    if (!artifact)
+    if (!artifact || !artifact->GetTemplate()->GetArtifactID())
+        return;
+
+    if (packet.RelicSlotIndex < 2 || packet.RelicSlotIndex >= 2 + MAX_GEM_SOCKETS)
         return;
 
     if (auto gem = artifact->GetGem(packet.RelicSlotIndex - 2))
