@@ -2081,7 +2081,7 @@ void Spell::SearchChainTargets(std::list<WorldObject*>& targets, uint32 chainTar
     if (Player* modOwner = m_caster->GetSpellModOwner())
         modOwner->ApplySpellMod(m_spellInfo->Id, SPELLMOD_JUMP_DISTANCE, jumpRadius);
 
-    // chain lightning/heal spells and similar - allow to jump at larger distance and go out of los
+    // chain lightning/heal spells and similar - no frontal arc for the jumps
     bool isBouncingFar = (m_spellInfo->HasAttribute(SPELL_ATTR4_AREA_TARGET_CHAIN) || m_spellInfo->Categories.DefenseType == SPELL_DAMAGE_CLASS_NONE || 
                           m_spellInfo->Categories.DefenseType == SPELL_DAMAGE_CLASS_MAGIC || m_spellInfo->Categories.DefenseType == SPELL_DAMAGE_CLASS_MELEE);
 
@@ -2126,7 +2126,7 @@ void Spell::SearchChainTargets(std::list<WorldObject*>& targets, uint32 chainTar
                 if (Unit* unitTarget = tempTarget->ToUnit())
                 {
                     uint32 deficit = unitTarget->GetMaxHealth(m_caster) - unitTarget->GetHealth(m_caster);
-                    if ((deficit > maxHPDeficit || !foundItr) && nextTarget->IsWithinDist(unitTarget, jumpRadius) && nextTarget->IsWithinLOSInMap(unitTarget))
+                    if ((deficit > maxHPDeficit || !foundItr) && nextTarget->IsWithinDist(unitTarget, jumpRadius) && nextTarget->IsWithinLOSInMap(unitTarget, VMAP::ModelIgnoreFlags::M2))
                     {
                         foundItr = unitTarget;
                         maxHPDeficit = deficit;
@@ -2140,11 +2140,13 @@ void Spell::SearchChainTargets(std::list<WorldObject*>& targets, uint32 chainTar
             {
                 if (!foundItr)
                 {
-                    // isBouncingFar allow hit not in los target & IsWithinDist already checked at SearchAreaTargets
-                    if (isBouncingFar || target->IsWithinLOSInMap(tempTarget))
+                    // Each jump needs a line of sight from the unit it leaves, as in TrinityCore. The first
+                    // candidate used to skip it for nearly every spell, and the others were tested from the
+                    // first target of the chain, so chains bounced through walls.
+                    if (nextTarget->IsWithinLOSInMap(tempTarget, VMAP::ModelIgnoreFlags::M2))
                         foundItr = tempTarget;
                 }
-                else if (target->GetDistanceOrder(tempTarget, foundItr) && target->IsWithinLOSInMap(tempTarget))
+                else if (nextTarget->GetDistanceOrder(tempTarget, foundItr) && nextTarget->IsWithinLOSInMap(tempTarget, VMAP::ModelIgnoreFlags::M2))
                     foundItr = tempTarget;
             }
         }

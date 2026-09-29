@@ -3014,7 +3014,11 @@ void Unit::AttackerStateUpdate(Unit* victim, WeaponAttackType attType, bool extr
     if (!victim->IsAlive())
         return;
 
-    if (!IsAIEnabled || !GetMap()->Instanceable())
+    // Bosses keep hitting without a line of sight check in instances: a big model can put its eyes in
+    // the ceiling of a low room and stop meleeing its tank. Everything else respects walls, as in the open world.
+    bool const bossInInstance = IsAIEnabled && GetMap()->Instanceable() && IsCreature()
+        && (ToCreature()->IsDungeonBoss() || ToCreature()->isWorldBoss());
+    if (!bossInInstance)
         if ((attType == BASE_ATTACK || attType == OFF_ATTACK) && !IsWithinLOSInMap(victim))
             return;
 
