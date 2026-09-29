@@ -9779,7 +9779,8 @@ void Player::ModifyCurrency(uint32 id, int32 count, bool sendInChat/* = false*/,
     if (id == CURRENCY_TYPE_HONOR_POINTS && getLevel() < MAX_LEVEL)
         return;
 
-    if (!ignoreMultipliers)
+    // gains only: the aura scaled the costs paid in this currency too
+    if (!ignoreMultipliers && count > 0)
         count *= GetTotalAuraMultiplierByMiscValue(SPELL_AURA_MOD_CURRENCY_GAIN, id);
 
     if (id == 1508 || id == 1533)
@@ -9874,10 +9875,10 @@ void Player::ModifyCurrency(uint32 id, int32 count, bool sendInChat/* = false*/,
     {
         newWeekCount = int32(currency->MaxEarnablePerWeek);
         // weekCap - oldWeekCount always >= 0 as we set limit before!
-        if(newTotalCount > int32(oldTotalCount))
-            newTotalCount = oldTotalCount;
-        else
-            newTotalCount = oldTotalCount + (currency->MaxEarnablePerWeek - oldWeekCount);
+        // As in TrinityCore: a gain crossing the cap keeps what fits. The removed test was always true
+        // for a gain, so crossing the cap gave nothing at all.
+        // a cap lowered below what was already earned this week must not turn the gain into a loss
+        newTotalCount = oldTotalCount + (oldWeekCount < currency->MaxEarnablePerWeek ? currency->MaxEarnablePerWeek - oldWeekCount : 0);
     }
 
     // if we get more then totalCap set to maximum;
@@ -28465,8 +28466,10 @@ bool Player::BuyItemFromVendorSlot(ObjectGuid vendorguid, uint32 vendorslot, uin
                 return false;
             }
 
-            // Second field in dbc is season count except two strange rows
-            if (i == 1 && iece->ID != 2999)
+            // Same rule as the deduction (TakeExtendedCost): a season requirement is a threshold on the
+            // season total, anything else is paid from the wallet. Testing slot 1 on the season total
+            // let a wallet currency in that slot be bought with an empty wallet.
+            if (iece->IsSeasonCurrencyRequirement(i))
             {
                 if (static_cast<uint32>(iece->CurrencyCount[i]) > GetCurrencyOnSeason(iece->CurrencyID[i]))
                 {
