@@ -18,6 +18,7 @@
 #ifndef GarrisonMgr_h__
 #define GarrisonMgr_h__
 
+#include <atomic>
 #include "DB2Stores.h"
 
 struct randShipment
@@ -215,9 +216,10 @@ private:
     std::set<GarrAbilityEntry const*> _garrisonFollowerRandomTraits;
     std::unordered_map<uint32 /*ContainerID*/, randShipment> _randShipment;
     
-    uint64 _followerDbIdGenerator = UI64LIT(1);
-    uint64 _missionDbIdGenerator = UI64LIT(1);
-    uint64 _shipmentDbIdGenerator = UI64LIT(1);
+    // atomic: every class hall map draws ids from its own thread, and a shared id overwrote rows
+    std::atomic<uint64> _followerDbIdGenerator{ UI64LIT(1) };
+    std::atomic<uint64> _missionDbIdGenerator{ UI64LIT(1) };
+    std::atomic<uint64> _shipmentDbIdGenerator{ UI64LIT(1) };
 
     GarrMissionRewardByMissionIDContainer _garrMissionRewardByMissionID;
     GarrMissionRewardByMissionIDContainer _garrMissionOwermaxRewardByMissionID;

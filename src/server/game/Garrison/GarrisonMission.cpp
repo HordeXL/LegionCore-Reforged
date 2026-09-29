@@ -1,4 +1,5 @@
 
+#include <set>
 #include "GarrisonMission.h"
 #include "Garrison.h"
 #include "GarrisonMgr.h"
@@ -61,10 +62,13 @@ void Mission::Start(Player* owner, std::vector<uint64> const &followers)
         return;
     }
 
+    // Every follower is checked before any is assigned: a later one failing (or a repeated id) left
+    // the first ones stuck on a mission that never started.
+    std::set<uint64> checkedFollowers;
     for (auto f : followers)
     {
         auto follower = garrison->GetFollower(f);
-        if (!follower)
+        if (!follower || follower->DbState == DB_STATE_REMOVED || !checkedFollowers.insert(f).second)
         {
             missionStartFailed(GARRISON_ERROR_INVALID_FOLLOWER);
             return;
@@ -100,7 +104,11 @@ void Mission::Start(Player* owner, std::vector<uint64> const &followers)
             missionStartFailed(GARRISON_ERROR_FOLLOWER_INACTIVE);
             return;
         }
+    }
 
+    for (auto f : followers)
+    {
+        auto follower = garrison->GetFollower(f);
         follower->DbState = DB_STATE_CHANGED;
         follower->PacketInfo.CurrentMissionID = PacketInfo.RecID;
         CurrentFollowerDBIDs.push_back(f);
@@ -151,6 +159,10 @@ void Mission::Complete(Player* owner)
     }
     else
         PacketInfo.State = MISSION_STATE_COMPLETED;
+
+    // never saved before: a relog brought the mission back in progress, to be completed again
+    if (DbState != DB_STATE_NEW)
+        DbState = DB_STATE_CHANGED;
 
     WorldPackets::Garrison::GarrisonCompleteMissionResultNew completeMissionResult;
     completeMissionResult.Result = GARRISON_SUCCESS;
@@ -216,7 +228,9 @@ void Mission::Complete(Player* owner)
 
     for (auto followerID : CurrentFollowerDBIDs)
     {
-        if (auto follower = garrison->GetFollower(followerID))
+        // a troop removed above: GiveXP would mark it changed again and bring it back after relog
+        auto follower = garrison->GetFollower(followerID);
+        if (follower && follower->DbState != DB_STATE_REMOVED)
         {
             WorldPackets::Garrison::GarrisonFollowerChangedXP data;
             data.TotalXp = missionEntry->BaseFollowerXP;
@@ -253,6 +267,8 @@ void Mission::BonusRoll(Player* owner)
         return;
 
     PacketInfo.State = PacketInfo.State == MISSION_STATE_WAITING_BONUS ? MISSION_STATE_COMPLETED : MISSION_STATE_COMPLETED_OWERMAX;
+    if (DbState != DB_STATE_NEW)
+        DbState = DB_STATE_CHANGED;
 
     WorldPackets::Garrison::GarrisonMissionBonusRollResult res;
     res.MissionData = PacketInfo;
@@ -264,50 +280,14 @@ void Mission::BonusRoll(Player* owner)
     for (auto f : CurrentFollowerDBIDs)
     {
         auto follower = garrison->GetFollower(f);
-        if (!follower)
+        if (!follower || follower->DbState == DB_STATE_REMOVED)
             continue;
 
         follower->DbState = DB_STATE_CHANGED;
         follower->PacketInfo.CurrentMissionID = 0;
 
-        auto followerEntry = sGarrFollowerStore.LookupEntry(follower->PacketInfo.GarrFollowerID);
-        if (followerEntry->Vitality)
-        {
-            if (follower->PacketInfo.Vitality > 0)
-                follower->PacketInfo.Vitality -= 1;
-
-            //remove.
-            if (follower->PacketInfo.Vitality <= 0)
-            {
-                ASSERT(followerEntry->Vitality < 5);
-                garrison->DecrementTroopCount(followerEntry->Vitality);
-
-                //! unlock 
-                for (auto& v : garrison->GetFollowers(GARRISON_TYPE_CLASS_ORDER))
-                {
-                    if (v.second.PacketInfo.FollowerStatus & GarrisonConst::GarrisonFollowerFlags::FOLLOWER_STATUS_INACTIVE)
-                    {
-                        v.second.PacketInfo.FollowerStatus = v.second.PacketInfo.FollowerStatus & ~GarrisonConst::GarrisonFollowerFlags::FOLLOWER_STATUS_INACTIVE;
-                        v.second.DbState = DB_STATE_CHANGED;
-
-                        WorldPackets::Garrison::GarrisonFollowerChangedAbilities followers;
-                        followers.Follower = v.second.PacketInfo;
-                        owner->SendDirectMessage(followers.Write());
-                        break;
-                    }
-                }
-
-                WorldPackets::Garrison::GarrisonRemoveFollowerResult removeFollowerResult;
-                removeFollowerResult.FollowerDBID = follower->PacketInfo.DbID;
-                removeFollowerResult.GarrTypeID = followerEntry->GarrTypeID;
-                removeFollowerResult.Result = 3;
-                removeFollowerResult.Destroyed = 0;
-                owner->SendDirectMessage(removeFollowerResult.Write());
-
-                follower->DbState = DB_STATE_REMOVED;
-            }
-        }
-
+        // Complete already took the troop's vitality for this mission, and removed a troop left at 0:
+        // taking it here again cost two per success and brought dead troops back as changed
         if (!missionRewardEntry || follower->PacketInfo.FollowerStatus & GarrisonConst::GarrisonFollowerFlags::FOLLOWER_STATUS_NO_XP_GAIN)
             continue;
 

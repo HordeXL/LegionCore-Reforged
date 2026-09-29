@@ -16,6 +16,7 @@
  */
 
 #include "Garrison.h"
+#include "Mail.h"
 #include "Creature.h"
 #include "GameObject.h"
 #include "GarrisonMgr.h"
@@ -530,7 +531,7 @@ void Garrison::SaveToDB(CharacterDatabaseTransaction const& trans)
 
             stmt = CharacterDatabase.GetPreparedStatement(CHAR_DEL_CHARACTER_GARRISON_BUILDINGS_BY_PLOT);
             stmt->setUInt64(0, _owner->GetGUIDLow());
-            stmt->setUInt32(1, plot.BuildingInfo.PacketInfo->GarrPlotInstanceID);
+            stmt->setUInt32(1, p.first);    // the plot id: PacketInfo was reset with the building (comment above)
             trans->Append(stmt);
             continue;
         }
@@ -1502,10 +1503,11 @@ void Garrison::CheckBasicRequirements()
                 AddFollower(589);
             break;
         case CLASS_SHAMAN:
+            // their own champions: 616 and 589 are the warlock's, refused with an invalid class error
             if (!_followerIds[GARRISON_TYPE_CLASS_ORDER].count(608))
-                AddFollower(616);
+                AddFollower(608);
             if (!_followerIds[GARRISON_TYPE_CLASS_ORDER].count(609))
-                AddFollower(589);
+                AddFollower(609);
             break;
         case CLASS_DEATH_KNIGHT:
             if (!_followerIds[GARRISON_TYPE_CLASS_ORDER].count(584))
@@ -1797,6 +1799,8 @@ void Garrison::ChangeFollowerVitality(SpellInfo const* spellInfo, uint32 followe
     auto addedVitality = spellInfo->Effects[0]->BasePoints;
     follower->PacketInfo.Vitality += addedVitality;
     follower->db_state_ability = DB_STATE_NEW;
+    if (follower->DbState != DB_STATE_NEW)      // the vitality itself was never saved
+        follower->DbState = DB_STATE_CHANGED;
 
     WorldPackets::Garrison::GarrisonFollowerChangedDurability packet;
     packet.Follower = follower->PacketInfo;
@@ -2760,7 +2764,8 @@ void Garrison::StartClassHallUpgrade(uint32 tallentID)
 {
     WorldPackets::Garrison::GarrisonUpgradeResult result;
 
-    if (!canStartUpgrade() || talentResearchTimer > 0)
+    // the timer holds the end of the research in progress: never reset, it blocked any second one for the session
+    if (!canStartUpgrade() || talentResearchTimer > uint32(GameTime::GetGameTime()))
     {
         result.Result = GARRISON_ERROR_ALREADY_RESEARCHING_TALENT;
         _owner->SendDirectMessage(result.Write());
@@ -3252,11 +3257,15 @@ void Garrison::CompleteShipments(GameObject *go)
             if (Item* pItem = _owner->StoreNewItem(dest, item.item.ItemID, true, item.item.RandomPropertiesID, GuidSet(), item.item.ItemBonus.BonusListIDs, item.item.ItemBonus.Context))
                 _owner->SendNewItem(pItem, item.count, false, false, true);
         }
-        else
+        else if (Item* pItem = Item::CreateItem(item.item.ItemID, item.count, _owner))
         {
-            //send by mail.
-            //! ToDo
-            //Item* pItem = Item::CreateItem(item.item.ItemID, item.count, _owner);
+            // bags full: by mail, as the shipments are freed below whatever happens (they were lost)
+            CharacterDatabaseTransaction trans = CharacterDatabase.BeginTransaction();
+            pItem->SaveToDB(trans);             // a new item: the mail only stores its guid
+            MailDraft draft("Work order", "");
+            draft.AddItem(pItem);
+            draft.SendMailTo(trans, _owner, MailSender(_owner, MAIL_STATIONERY_GM), MAIL_CHECK_MASK_COPIED);
+            CharacterDatabase.CommitTransaction(trans);
         }
     }
 

@@ -82,7 +82,7 @@ void getRandSpecialEntry(uint32 buildingTypeID, uint32 lvl, uint32 &entry)
     switch (buildingTypeID)
     {
     case GARR_BTYPE_WORKSHOP:
-        entry = workshop[urand(0, lvl > 1 ? 10 : 4)];
+        entry = workshop[urand(0, lvl > 1 ? 9 : 4)];     // 10 entries: urand includes its upper bound
         break;
     default:
         break;

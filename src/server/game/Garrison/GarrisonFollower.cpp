@@ -192,6 +192,7 @@ uint32 Follower::GiveXP(uint32 xp)
             PacketInfo.Vitality = 1;
 
         DbState = DB_STATE_CHANGED;
+        db_state_ability = DB_STATE_NEW;    // the abilities rolled for the new quality were never saved
     }
 
     return xp + GiveXP(xp - XPToMax);
