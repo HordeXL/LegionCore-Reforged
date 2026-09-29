@@ -484,7 +484,8 @@ Creature::~Creature()
     objectCountInWorld[uint8(HighGuid::Creature)]--;
     if (m_creatureInfo)
         creatureCountInWorld[m_creatureInfo->Entry]--;
-    creatureCountInArea[m_areaId]--;
+    if (m_areaId < 10000)     // size of creatureCountInArea
+        creatureCountInArea[m_areaId]--;
 }
 
 // Broken Shore rares leave once their time is out, as on retail; their pool then brings another one out
@@ -1026,8 +1027,13 @@ void Creature::Update(uint32 diff)
             }
             if (m_areaId != newarea)
             {
+                // the per-area counter follows the creature (it was only ever set at creation)
+                if (m_areaId < 10000)
+                    creatureCountInArea[m_areaId]--;
+                m_oldAreaId = m_areaId;     // was assigned after the overwrite
                 m_areaId = newarea;
-                m_oldAreaId = m_areaId;
+                if (m_areaId < 10000)
+                    creatureCountInArea[m_areaId]++;
             }
             m_zoneUpdateTimer = ZONE_UPDATE_INTERVAL;
         }
@@ -1488,7 +1494,8 @@ bool Creature::Create(ObjectGuid::LowType guidlow, Map* map, uint32 phaseMask, u
     }
 
     creatureCountInWorld[entry]++;
-    creatureCountInArea[m_areaId]++;
+    if (m_areaId < 10000)
+        creatureCountInArea[m_areaId]++;
 
     return true;
 }
@@ -1771,8 +1778,8 @@ void Creature::SaveToDB(uint32 mapid, uint64 spawnMask, uint32 phaseMask)
     CreatureTemplate const* cinfo = GetCreatureTemplate();
     if (cinfo)
     {
-        if (displayId == sObjectMgr->GetCreatureDisplay(cinfo->Modelid[0]) || sObjectMgr->GetCreatureDisplay(displayId == cinfo->Modelid[1]) ||
-            displayId == sObjectMgr->GetCreatureDisplay(cinfo->Modelid[2]) || sObjectMgr->GetCreatureDisplay(displayId == cinfo->Modelid[3]))
+        if (displayId == sObjectMgr->GetCreatureDisplay(cinfo->Modelid[0]) || displayId == sObjectMgr->GetCreatureDisplay(cinfo->Modelid[1]) ||
+            displayId == sObjectMgr->GetCreatureDisplay(cinfo->Modelid[2]) || displayId == sObjectMgr->GetCreatureDisplay(cinfo->Modelid[3]))
             displayId = 0;
 
         if (npcflag == cinfo->npcflag)
