@@ -493,7 +493,7 @@ static void ScheduleRareDeparture(Creature* creature)
 {
     if (creature->GetMapId() == 1220 && creature->IsAlive())
         if (uint32 timeLeft = sContributionMgr.GetRareTimeLeft(creature->GetEntry()))
-            creature->DespawnOrUnsummon(timeLeft);
+            creature->ForcedDespawn(timeLeft);  // not DespawnOrUnsummon: it flags the creature as despawning at once, and a despawning creature never fights
 }
 
 void Creature::AddToWorld()
