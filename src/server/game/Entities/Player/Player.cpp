@@ -26359,7 +26359,6 @@ void Player::ResetInstances(uint8 method, bool isRaid, bool isLegacy)
 
     // we assume that when the difficulty changes, all instances that can be reset will be
     Difficulty diff = GetDungeonDifficultyID();
-    uint8 boundType = sObjectMgr->GetboundTypeFromDifficulty(diff);
     if (isRaid)
     {
         if (!isLegacy)
@@ -26367,6 +26366,8 @@ void Player::ResetInstances(uint8 method, bool isRaid, bool isLegacy)
         else
             diff = GetLegacyRaidDifficultyID();
     }
+    // after the raid switch: it was taken from the dungeon difficulty, so raid resets searched the wrong bucket
+    uint8 boundType = sObjectMgr->GetboundTypeFromDifficulty(diff);
 
     for (BoundInstancesMap::iterator itr = m_boundInstances[boundType].begin(); itr != m_boundInstances[boundType].end();)
     {

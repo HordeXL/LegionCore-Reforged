@@ -2268,7 +2268,6 @@ void Group::ResetInstances(uint8 method, bool isRaid, bool isLegacy, Player* Sen
 
     // we assume that when the difficulty changes, all instances that can be reset will be
     Difficulty diff = GetDungeonDifficultyID();
-    uint8 boundType = sObjectMgr->GetboundTypeFromDifficulty(diff);
     if (isRaid)
     {
         if (!isLegacy)
@@ -2276,6 +2275,8 @@ void Group::ResetInstances(uint8 method, bool isRaid, bool isLegacy, Player* Sen
         else
             diff = GetLegacyRaidDifficultyID();
     }
+    // after the raid switch, as in Player::ResetInstances
+    uint8 boundType = sObjectMgr->GetboundTypeFromDifficulty(diff);
 
     std::lock_guard<std::recursive_mutex> _lock(m_bound_lock);
     for (auto itr = m_boundInstances[boundType].begin(); itr != m_boundInstances[boundType].end();)
