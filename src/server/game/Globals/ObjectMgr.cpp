@@ -5630,7 +5630,9 @@ void ObjectMgr::LoadExplorationBaseXP()
 
 uint32 ObjectMgr::GetBaseXP(uint8 level)
 {
-    return _baseXPTable[level] ? _baseXPTable[level] : 0;
+    // operator[] would insert into the table shared by every map thread
+    auto itr = _baseXPTable.find(level);
+    return itr != _baseXPTable.end() ? itr->second : 0;
 }
 
 uint32 ObjectMgr::GetXPForLevel(uint8 level) const

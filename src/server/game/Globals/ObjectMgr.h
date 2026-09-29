@@ -906,14 +906,14 @@ class TC_GAME_API ObjectMgr
         uint32 GetCreatureDisplay(int32 modelid) const;
 
     private:
-        // first free id for selected id type
-        uint32 _auctionId;
-        uint64 _equipmentSetGuid;
-        uint32 _itemTextId;
-        uint32 _mailId;
-        uint32 _hiPetNumber;
-        ObjectGuid::LowType _voidItemId;
-        uint64 _reportComplaintID;
+        // first free id for selected id type; atomic, as the map threads draw them at the same time
+        std::atomic<uint32> _auctionId;
+        std::atomic<uint64> _equipmentSetGuid;
+        std::atomic<uint32> _itemTextId;
+        std::atomic<uint32> _mailId;
+        std::atomic<uint32> _hiPetNumber;
+        std::atomic<ObjectGuid::LowType> _voidItemId;
+        std::atomic<uint64> _reportComplaintID;
 
         // first free low guid for selected guid type
         ObjectGuidGenerator<HighGuid::Player> _playerGuidGenerator;
