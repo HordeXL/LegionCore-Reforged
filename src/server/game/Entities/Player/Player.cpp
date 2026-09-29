@@ -3668,8 +3668,12 @@ void Player::RemoveFromGroup(Group* group, ObjectGuid guid, RemoveMethod method 
             {
                 if (guid == group->m_challengeOwner && !_challenge->_complete && _challenge->_run)
                 {
+                    // the kicker may be on another map: the owner's item and key change on the owner's own thread
                     if (Player* keyOwner = ObjectAccessor::FindPlayer(guid))
-                        keyOwner->ChallengeKeyCharded(keyOwner->GetItemByEntry(138019, true), keyOwner->m_challengeKeyInfo.Level, false);
+                        keyOwner->AddDelayedEvent(1, [keyOwner]() -> void
+                        {
+                            keyOwner->ChallengeKeyCharded(keyOwner->GetItemByEntry(138019, true), keyOwner->m_challengeKeyInfo.Level, false);
+                        });
                     else
                         CharacterDatabase.PQuery("UPDATE challenge_key SET KeyIsCharded = 0, InstanceID = 0 WHERE guid = %u", guid.GetGUIDLow());
                 }
