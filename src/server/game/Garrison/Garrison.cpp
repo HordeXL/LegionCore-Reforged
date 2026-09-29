@@ -1137,11 +1137,15 @@ void Garrison::UnlearnBlueprint(uint32 garrBuildingId)
 void Garrison::Swap(uint32 plot1, uint32 plot2)
 {
     uint32 BuildingId1 = 0, BuildingId2 = 0;
+    // both plot ids come straight from the client packet
     Plot* p1 = GetPlot(plot1);
+    Plot* p2 = GetPlot(plot2);
+    if (!p1 || !p2 || plot1 == plot2)
+        return;
+
     if (p1->BuildingInfo.PacketInfo)
         BuildingId1 = p1->BuildingInfo.PacketInfo->GarrBuildingID;
 
-    Plot* p2 = GetPlot(plot2);
     if (p2->BuildingInfo.PacketInfo)
         BuildingId2 = p2->BuildingInfo.PacketInfo->GarrBuildingID;
 
@@ -2906,6 +2910,8 @@ void Garrison::OnGossipSelect(WorldObject* source)
 
     //! GarrShipment should have garrType.
     auto site = _siteLevel[data->cEntry->GarrTypeID];
+    if (!site)
+        return;
 
     if (uint32 questID = getQuestIdReqForShipment(site->GarrSiteID, data->cEntry->GarrBuildingType))
         if (_owner->GetQuestStatus(questID) == QUEST_STATUS_NONE)
@@ -2923,11 +2929,19 @@ void Garrison::OnGossipSelect(WorldObject* source)
 void Garrison::SendShipmentInfo(ObjectGuid const& guid)
 {
     GarrShipment const* shipment = sGarrisonMgr.GetGarrShipment(guid.GetEntry(), SHIPMENT_GET_BY_NPC, _owner->getClass());
+    if (!shipment)      // an order NPC of another class: the lookup is by class
+    {
+        WorldPackets::Garrison::GetShipmentInfoResponse failed;
+        failed.Success = false;
+        _owner->SendDirectMessage(failed.Write());
+        return;
+    }
+
     const Plot* plot = GetPlotWithBuildingType(shipment->cEntry->GarrBuildingType);
 
     auto site = _siteLevel[shipment->cEntry->GarrTypeID];
 
-    uint32 questID = getQuestIdReqForShipment(site->GarrSiteID, shipment->cEntry->GarrBuildingType);
+    uint32 questID = site ? getQuestIdReqForShipment(site->GarrSiteID, shipment->cEntry->GarrBuildingType) : 0;
     uint32 shipmentID = sGarrisonMgr.GetShipmentID(shipment);
 
     if (!shipmentID)
@@ -2944,8 +2958,8 @@ void Garrison::SendShipmentInfo(ObjectGuid const& guid)
         sh = shipment->selectShipment(_owner);
 
     auto shipmentEntry = sCharShipmentStore.LookupEntry(sh);
-    if (shipmentEntry)
-        shipmentResponse.Success = _owner->CheckShipment(shipmentEntry);
+    if (shipmentEntry)      // on top of the checks above, not instead: it cleared a missing plot, dereferenced below
+        shipmentResponse.Success = shipmentResponse.Success && _owner->CheckShipment(shipmentEntry);
 
     if (shipmentResponse.Success)
     {
@@ -2972,6 +2986,8 @@ void Garrison::CreateShipment(ObjectGuid const& guid, uint32 count)
         return;
 
     auto site = _siteLevel[shipment->cEntry->GarrTypeID];
+    if (!site)
+        return;
 
     const Plot* plot = GetPlotWithBuildingType(shipment->cEntry->GarrBuildingType);
     if (!plot && shipment->cEntry->GarrTypeID == GARRISON_TYPE_GARRISON)
@@ -3004,6 +3020,9 @@ void Garrison::CreateShipment(ObjectGuid const& guid, uint32 count)
     auto t_shipments = _shipments[idxShipment(shipment->cEntry)];
     if (t_shipments.size() >= max)
         return;
+
+    // the count comes from the client: one cast per order, and no more orders than free places
+    count = std::min<uint32>(count, max - uint32(t_shipments.size()));
 
     uint32 spellCast = 0;
     for (uint32 i = 0; i < count; ++i)

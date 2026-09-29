@@ -298,6 +298,11 @@ void WorldSession::HandleGarrisonSetFollowerInactive(WorldPackets::Garrison::Gar
                 if (!(follower->PacketInfo.FollowerStatus & GarrisonConst::GarrisonFollowerFlags::FOLLOWER_STATUS_INACTIVE))
                     return;
 
+                // troops are inactive when over their cap: paying must not lift the cap
+                if (GarrFollowerEntry const* followerEntry = sGarrFollowerStore.LookupEntry(follower->PacketInfo.GarrFollowerID))
+                    if (followerEntry->Vitality)
+                        return;
+
                 follower->PacketInfo.FollowerStatus &= ~GarrisonConst::GarrisonFollowerFlags::FOLLOWER_STATUS_INACTIVE;
 
                 WorldPackets::Garrison::GarrisonFollowerChangeStatus packetStatus;
