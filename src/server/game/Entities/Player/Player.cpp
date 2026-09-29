@@ -6731,9 +6731,9 @@ void Player::DeleteFromDB(ObjectGuid playerguid, uint32 accountId, bool updateRe
             stmt->setUInt64(0, guid);
             trans->Append(stmt);
 
-            stmt = CharacterDatabase.GetPreparedStatement(CHAR_DEL_ITEM_INSTANCE_GEMS_BY_OWNER);
-            stmt->setUInt64(0, guid);
-            trans->Append(stmt);
+            // not the gems of items listed at the auction house: their buyer gets them (see below)
+            trans->PAppend("DELETE t FROM item_instance_gems t JOIN item_instance ii ON t.itemGuid = ii.guid WHERE ii.owner_guid = " UI64FMTD
+                " AND ii.guid NOT IN (SELECT itemguid FROM auctionhouse)", guid);
 
             stmt = CharacterDatabase.GetPreparedStatement(CHAR_DEL_CHAR_REPUTATION);
             stmt->setUInt64(0, guid);
@@ -6751,9 +6751,25 @@ void Player::DeleteFromDB(ObjectGuid playerguid, uint32 accountId, bool updateRe
             stmt->setUInt64(0, guid);
             trans->Append(stmt);
 
-            stmt = CharacterDatabase.GetPreparedStatement(CHAR_DEL_ITEM_INSTANCE);
+            // The items went through CHAR_DEL_ITEM_INSTANCE, whose key is an item guid: it erased
+            // whichever item carried the character's number and left the character's own items.
+            // The tables that join on item_instance go first. Items listed at the auction house keep
+            // their seller as owner until sold, and must survive for their buyer.
+            for (char const* itemTable : { "item_instance_transmog", "item_instance_artifact", "item_instance_artifact_powers", "item_instance_modifiers" })
+                trans->PAppend("DELETE t FROM %s t JOIN item_instance ii ON t.itemGuid = ii.guid WHERE ii.owner_guid = " UI64FMTD
+                    " AND ii.guid NOT IN (SELECT itemguid FROM auctionhouse)", itemTable, guid);
+            trans->PAppend("DELETE FROM item_instance_relics WHERE char_guid = " UI64FMTD " AND itemGuid NOT IN (SELECT itemguid FROM auctionhouse)", guid);
+
+            stmt = CharacterDatabase.GetPreparedStatement(CHAR_DEL_ITEM_INSTANCE_BY_OWNER);
             stmt->setUInt64(0, guid);
             trans->Append(stmt);
+
+            // tables no statement above cleans: a later character reusing this guid would inherit them
+            for (char const* table : { "character_currency", "character_pvp_talent", "character_queststatus_weekly",
+                "character_queststatus_seasonal", "character_queststatus_world", "character_archaeology",
+                "character_cuf_profiles", "character_transmog_outfits" })
+                trans->PAppend("DELETE FROM %s WHERE guid = " UI64FMTD, table, guid);
+            trans->PAppend("DELETE FROM character_void_storage WHERE playerGuid = " UI64FMTD, guid);
 
             stmt = CharacterDatabase.GetPreparedStatement(CHAR_DEL_CHAR_SOCIAL_BY_FRIEND);
             stmt->setUInt64(0, guid);
