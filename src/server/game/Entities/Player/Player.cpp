@@ -20428,7 +20428,12 @@ bool Player::IsQuestBitFlaged(uint32 questBit) const
     if (!questBit)
         return false;
 
-    return HasFlag(PLAYER_FIELD_QUEST_COMPLETED + (questBit - 1) / 31, 1 << ((questBit - 1) % 31));
+    // same layout as SetQuestCompletedBit: 32 bits per field (it read /31 and %31)
+    uint32 const fieldOffset = (questBit - 1) >> 5;
+    if (fieldOffset >= QUESTS_COMPLETED_BITS_SIZE)
+        return false;
+
+    return HasFlag(PLAYER_FIELD_QUEST_COMPLETED + fieldOffset, 1 << ((questBit - 1) & 31));
 }
 
 void Player::AreaExploredOrEventHappens(uint32 questId)
@@ -21166,19 +21171,16 @@ void Player::SetQuestObjectiveData(Quest const* quest, QuestObjective const* obj
         if (log_slot < MAX_QUEST_LOG_SIZE)
         {
             SetQuestSlotCounter(log_slot, obj->StorageIndex, status->ObjectiveData[obj->StorageIndex]);
-            if (obj->IsStoringFlag())
-            {
-                if (data)
-                    SetQuestSlotState(log_slot, QUEST_STATUS_COMPLETE);
-                else
-                    RemoveQuestSlotState(log_slot, QUEST_STATUS_COMPLETE);
-            }
+            // only the objective's own bit (set below), as TrinityCore: QUEST_STATUS_COMPLETE showed the whole
+            // quest done with objectives still open
+            if (obj->IsStoringFlag() && !data)
+                RemoveQuestSlotState(log_slot, 256 << obj->StorageIndex);
         }
 
         //if (log_slot < MAX_QUEST_LOG_SIZE && obj->StorageIndex >= 0 /*&& (obj->Flags & QUEST_OBJECTIVE_FLAG_SEQUENCED) == 0*/ && obj->Type != QUEST_OBJECTIVE_COMPLETE_CRITERIA_TREE)
         //    SetQuestSlotCounter(log_slot, obj->StorageIndex, status->ObjectiveData[obj->StorageIndex]);
 
-        if (log_slot < MAX_QUEST_LOG_SIZE && obj->IsStoringFlag())
+        if (log_slot < MAX_QUEST_LOG_SIZE && obj->IsStoringFlag() && data)
         {
             SetSpecialCriteriaComplete(log_slot, obj->StorageIndex);
             if (!isLoad)
@@ -30625,6 +30627,9 @@ void Player::SetDailyQuestStatus(uint32 quest_id)
             if (m_dailyquests.find(quest_id) == m_dailyquests.end())
             {
                 m_dailyquests.insert(quest_id);
+                // as at login, and as in TrinityCore: DailyReset only clears the completed bit of the
+                // quests listed there, so the dailies of the current session stayed hidden after it
+                AddDynamicValue(PLAYER_DYNAMIC_FIELD_DAILY_QUESTS_COMPLETED, quest_id);
                 m_lastDailyQuestTime = GameTime::GetGameTime();              // last daily quest time
                 m_DailyQuestChanged = true;
             }

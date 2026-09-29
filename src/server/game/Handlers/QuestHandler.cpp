@@ -459,7 +459,9 @@ void WorldSession::HandleQuestGiverChooseReward(WorldPackets::Quest::QuestGiverC
             return;
 
     }
-    if ((!_player->CanSeeStartQuest(quest) && _player->GetQuestStatus(packet.QuestID) == QUEST_STATUS_NONE && !quest->IsAutoComplete()) ||
+    // As in TrinityCore: an auto-complete quest skipped the whole first test, so a forged reward packet
+    // claimed one meant for another class, race or level, or whose previous quest was not done
+    if ((!_player->CanSeeStartQuest(quest) && _player->GetQuestStatus(packet.QuestID) == QUEST_STATUS_NONE) ||
         (_player->GetQuestStatus(packet.QuestID) != QUEST_STATUS_COMPLETE && !quest->IsAutoComplete()))
         return;
 
