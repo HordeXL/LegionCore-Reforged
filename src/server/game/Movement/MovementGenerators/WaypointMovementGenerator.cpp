@@ -204,7 +204,18 @@ bool WaypointMovementGenerator<Creature>::StartMove(Creature& creature)
 
     //! Do not use formationDest here, MoveTo requires transport offsets due to DisableTransportPathTransformations() call
     //! but formationDest contains global coordinates
-    init.MoveTo(waypoint.x + _randomMoveX, waypoint.y + _randomMoveY, waypoint.z);
+    float const x = waypoint.x + _randomMoveX;
+    float const y = waypoint.y + _randomMoveY;
+    float const z = waypoint.z;
+
+    // Waypoints were recorded close enough for a straight line to follow the ground, and pathing
+    // all of them would touch thousands of patrols. Only a leg whose straight line runs into a wall,
+    // a rock or a fence is pathed. Transports, flyers, take-offs and landings keep the straight line.
+    bool const pathed = !transportPath && !creature.CanFly() && !creature.IsFlying()
+        && waypoint.move_type != WAYPOINT_MOVE_TYPE_LAND && waypoint.move_type != WAYPOINT_MOVE_TYPE_TAKEOFF
+        && !creature.GetMap()->isInLineOfSight(creature.GetPositionX(), creature.GetPositionY(), creature.GetPositionZ() + 1.0f,
+            x, y, z + 1.0f, creature.GetPhases(), VMAP::ModelIgnoreFlags::Nothing);
+    init.MoveTo(x, y, z, pathed, pathed);
 
     //! Accepts angles such as 0.00001 and -0.00001, 0 must be ignored, default value in waypoint table
     if (waypoint.orientation && waypoint.delay)
@@ -231,7 +242,9 @@ bool WaypointMovementGenerator<Creature>::StartMove(Creature& creature)
             break;
     }
 
-    init.SetSmooth();
+    // A smoothed curve would cut the corners of the path it has to follow
+    if (!pathed)
+        init.SetSmooth();
     init.Launch();
 
     //Call for creature group update

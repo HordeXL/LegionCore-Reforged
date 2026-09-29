@@ -736,14 +736,29 @@ void PathGenerator::NormalizePath()
     // above the navmesh Z.  Fix: if a path point is below the source's current Z, raise
     // the query to sourceZ+5 so the downward ray starts above the actual surface.
     // UpdateAllowedPositionZ then clamps back down to the real floor height.
+    // Only from a GO surface: done for every path, it pulled flyers up instead of down and
+    // put the points of a cellar or a lower floor onto the floor above.
+    bool const onGameObject = IsStartOnGameObject();
     float const sourceZ = _source->GetPositionZ();
     for (uint32 i = 0; i < _pathPoints.size(); ++i)
     {
         float& z = _pathPoints[i].z;
-        if (z < sourceZ)
+        if (onGameObject && z < sourceZ)
             z = sourceZ + 5.0f;
         _source->UpdateAllowedPositionZ(_pathPoints[i].x, _pathPoints[i].y, z);
     }
+}
+
+bool PathGenerator::IsStartOnGameObject() const
+{
+    Unit const* unit = _source->ToUnit();
+    if (!unit || unit->CanFly() || _source->GetTransport() || !_source->GetMap())
+        return false;
+
+    // Map::GetHeight only reports the GO when it is the highest floor found under the point
+    DynamicTreeCallback floor;
+    _source->GetMap()->GetHeight(_source->GetPhases(), _source->GetPositionX(), _source->GetPositionY(), _source->GetPositionZ(), true, 10.0f, &floor);
+    return floor.go != nullptr;
 }
 
 void PathGenerator::BuildShortcut()
