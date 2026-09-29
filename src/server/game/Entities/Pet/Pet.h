@@ -117,7 +117,7 @@ class TC_GAME_API Pet : public Guardian
 
         void ProhibitSpellSchool(SpellSchoolMask idSchoolMask, uint32 unTimeMs) override;
 
-        void _LoadSpellCooldowns();
+        void _LoadSpellCooldowns(PreparedQueryResult result);
         void _SaveSpellCooldowns(CharacterDatabaseTransaction& trans);
         void _LoadAuras(PreparedQueryResult auraResult, PreparedQueryResult effectResult, uint32 timediff);
         void _SaveAuras(CharacterDatabaseTransaction& trans);

@@ -416,8 +416,8 @@ bool Pet::LoadPetFromDB(Player* owner, uint32 petEntry, uint32 petnumber, bool c
         if (!isTemporarySummon)
         {
             _LoadSpells(holder.GetPreparedResult(PetLoadQueryHolder::SPELLS));
-            // TODO: cooldowns, charges
-            // _LoadSpellCooldowns();
+            // TODO: charges
+            _LoadSpellCooldowns(holder.GetPreparedResult(PetLoadQueryHolder::COOLDOWNS));   // saved, never read back: dismiss and recall reset them
             LearnPetPassives();
             InitLevelupSpellsForLevel();
             if (GetMap()->IsBattleArena())
@@ -490,6 +490,25 @@ void Pet::SavePetToDB(PetSaveMode mode)
     if (!GetEntry())
         return;
 
+    // Specialization and auras only arrive with the asynchronous load: saving before (a mount or a
+    // teleport right after calling the pet) wrote spec 0 and wiped every saved aura for good.
+    // A deletion still goes through.
+    if (m_loading && mode != PET_SAVE_AS_DELETED)
+    {
+        // the slot must still follow a dismiss or a stable move made during the load (full saves write it the same way)
+        if (mode != PET_SAVE_AS_CURRENT && m_charmInfo && GetOwnerGUID().IsPlayer())
+            if (Player* owner = Unit::ToPlayer(GetOwner()))
+                if (PetStable* stable = owner->GetPetStable())
+                {
+                    CharacterDatabasePreparedStatement* stmt = CharacterDatabase.GetPreparedStatement(CHAR_UPD_CHAR_PET_SLOT_BY_ID);
+                    stmt->setInt16(0, stable->GetCurrentActivePetIndex().value_or(PET_SAVE_NOT_IN_SLOT));
+                    stmt->setUInt64(1, owner->GetGUID().GetCounter());
+                    stmt->setUInt32(2, m_charmInfo->GetPetNumber());
+                    CharacterDatabase.Execute(stmt);
+                }
+        return;
+    }
+
     // save only fully controlled creature
     if (!isControlled())
         return;
@@ -519,12 +538,14 @@ void Pet::SavePetToDB(PetSaveMode mode)
     // save auras before possibly removing them
     _SaveAuras(trans);
 
+    bool const savedAsCurrent = mode == PET_SAVE_AS_CURRENT;
     if (mode == PET_SAVE_AS_CURRENT)
         if (Optional<uint32> activeSlot = owner->GetPetStable()->GetCurrentActivePetIndex())
             mode = PetSaveMode(*activeSlot);
 
-    // stable and not in slot saves
-    if (mode < PET_SAVE_FIRST_ACTIVE_SLOT || mode >= PET_SAVE_LAST_ACTIVE_SLOT)
+    // stable and not in slot saves; a pet saved as current stays out (warlock, death knight and mage
+    // pets have no slot, and lost every aura at each autosave)
+    if (!savedAsCurrent && (mode < PET_SAVE_FIRST_ACTIVE_SLOT || mode >= PET_SAVE_LAST_ACTIVE_SLOT))
         RemoveAllAuras();
 
     _SaveSpells(trans);
@@ -610,6 +631,11 @@ void Pet::DeleteFromDB(uint32 guidlow)
     trans->Append(stmt);
 
     stmt = CharacterDatabase.GetPreparedStatement(CHAR_DEL_CHAR_PET_AURA_BY_ID);
+    stmt->setUInt32(0, guidlow);
+    trans->Append(stmt);
+
+    // their effects too: every abandoned pet left its rows behind
+    stmt = CharacterDatabase.GetPreparedStatement(CHAR_DEL_PET_AURAS_EFFECTS);
     stmt->setUInt32(0, guidlow);
     trans->Append(stmt);
 
@@ -1133,14 +1159,10 @@ uint32 Pet::GetCurrentFoodBenefitLevel(uint32 itemlevel)
     //food too low level
 }
 
-void Pet::_LoadSpellCooldowns()
+void Pet::_LoadSpellCooldowns(PreparedQueryResult result)
 {
     m_CreatureSpellCooldowns.clear();
     m_CreatureCategoryCooldowns.clear();
-
-    CharacterDatabasePreparedStatement* stmt = CharacterDatabase.GetPreparedStatement(CHAR_SEL_PET_SPELL_COOLDOWN);
-    stmt->setUInt32(0, m_charmInfo->GetPetNumber());
-    PreparedQueryResult result = CharacterDatabase.Query(stmt);
 
     if (result)
     {
@@ -1175,7 +1197,7 @@ void Pet::_LoadSpellCooldowns()
         }
         while (result->NextRow());
 
-        auto owner = GetOwner()->ToPlayer();
+        Player* owner = Unit::ToPlayer(GetOwner());
         if (!m_CreatureSpellCooldowns.empty() && owner)
             owner->SendDirectMessage(cooldowns.Write());
     }
