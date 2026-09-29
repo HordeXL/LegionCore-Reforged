@@ -4538,7 +4538,7 @@ void Unit::_AddAura(UnitAura* aura, Unit* caster)
                 ++itr;
         }
     }
-    if (aura->IsMultiSingleTarget())
+    if (caster && aura->IsMultiSingleTarget())     // the caster may be gone (loaded or stolen auras)
     {
         if (caster->GetMultiSingleTargetAuras().size() >= aura->GetMultiSingleTargetCount())
             if (Aura* auraGB = caster->GetMultiSingleTargetAuras().front())
@@ -4843,11 +4843,13 @@ void Unit::_RegisterAuraEffect(AuraEffect* aurEff, bool apply)
 // All aura base removes should go threw this function!
 void Unit::RemoveOwnedAura(AuraMap::iterator &i, AuraRemoveMode removeMode)
 {
-    m_aura_is_lock = true;
-    m_aura_lock.lock();
+    // checked before taking the lock: returning with it held left the aura lock taken for good
     Aura* aura = i->second;
     if(aura->IsRemoved()) // Allready run remove aura
         return;
+
+    m_aura_is_lock = true;
+    m_aura_lock.lock();
 
     // if unit currently update aura list then make safe update iterator shift to next
     if (m_auraUpdateIterator == i)
@@ -5111,11 +5113,14 @@ void Unit::RemoveOwnedAuras(std::function<bool(Aura const*)> const& check)
 
 void Unit::RemoveOwnedAuras(uint32 spellId, std::function<bool(Aura const*)> const& check)
 {
+    // RemoveOwnedAura hands the iterator back at begin(): restart at this spell, or the check ran on
+    // every aura of a lower id too
     for (AuraMap::iterator iter = m_ownedAuras.lower_bound(spellId); iter != m_ownedAuras.upper_bound(spellId);)
     {
         if (check(iter->second))
         {
             RemoveOwnedAura(iter);
+            iter = m_ownedAuras.lower_bound(spellId);
             continue;
         }
         ++iter;
@@ -5142,6 +5147,7 @@ void Unit::RemoveAppliedAuras(uint32 spellId, std::function<bool(AuraApplication
         if (check(iter->second))
         {
             RemoveAura(iter, removeMode);
+            iter = m_appliedAuras.lower_bound(spellId);     // same reason as RemoveOwnedAuras
             continue;
         }
         ++iter;
@@ -5320,7 +5326,8 @@ void Unit::RemoveAurasByType(AuraType auraType, ObjectGuid casterGUID, Aura* exc
         {
             uint32 removedAuras = m_removedAurasCount;
             RemoveAura(aurApp);
-            if (m_removedAurasCount > removedAuras + 1)
+            // iter may point to another effect of the same aura, just erased with it
+            if (m_removedAurasCount > removedAuras)
                 iter = m_modAuras[auraType].begin();
         }
     }
@@ -5339,7 +5346,8 @@ void Unit::RemoveAurasByType(AuraType auraType, std::function<bool(AuraApplicati
         {
             uint32 removedAuras = m_removedAurasCount;
             RemoveAura(aurApp);
-            if (m_removedAurasCount > removedAuras + 1)
+            // iter may point to another effect of the same aura, just erased with it
+            if (m_removedAurasCount > removedAuras)
                 iter = m_modAuras[auraType].begin();
         }
     }
@@ -16941,7 +16949,8 @@ void Unit::SetHealth(uint64 val, uint32 spellId)
 
     if (val != oldHealth && IsAlive() && !spellId) // For use this option need alive, if not maybe crashed server when target die
     {
-        AuraEffectList const& mTotalAuraList = GetAuraEffectsByType(SPELL_AURA_PROC_ON_HP_BELOW);
+        // copy: the triggered spells may add or remove auras of this type; removed auras are freed later, so the pointers stay valid
+        AuraEffectList const mTotalAuraList = GetAuraEffectsByType(SPELL_AURA_PROC_ON_HP_BELOW);
         for (AuraEffectList::const_iterator i = mTotalAuraList.begin(); i != mTotalAuraList.end(); ++i)
         {
             AuraEffect* eff = (*i);
