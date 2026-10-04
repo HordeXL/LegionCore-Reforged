@@ -864,6 +864,9 @@ class TC_GAME_API Creature : public Unit, public GridObject<Creature>, public Ma
         float m_groundCacheHeight;
         uint32 m_groundCacheTime;
 
+        // Flight granted to a db spawn placed in the air with a flying anim tier, see LoadCreatureFromDB.
+        Optional<CreatureMovementData> m_airSpawnMovement;
+
         uint32 m_respawnCombatDelay;
 
         CreatureLevelStatContainer m_levelStat;

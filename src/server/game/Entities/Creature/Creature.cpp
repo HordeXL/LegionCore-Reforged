@@ -2311,6 +2311,20 @@ bool Creature::LoadCreatureFromDB(ObjectGuid::LowType guid, Map* map, bool addTo
     if (!Create(guid, map, data->phaseMask, data->id, 0, team, data->posX, data->posY, data->posZ, data->orientation, data))
         return false;
 
+    // Thousands of creatures placed in the air have no flight movement in the db (none of the TDBs has it
+    // either), and the client lets anything without disabled gravity fall. A flying anim tier together with
+    // a spawn point clear of the ground (vmaps included, so floors and platforms count as ground) stands in for it.
+    m_airSpawnMovement.reset();
+    if (!GetMovementTemplate().IsFlightAllowed())
+        if (CreatureAddon const* addon = GetCreatureAddon())
+            if (AnimTier((addon->bytes1 >> 24) & 0xFF) == AnimTier::Fly
+                && data->posZ - map->GetHeight(GetPhases(), data->posX, data->posY, data->posZ) > 2.5f)
+            {
+                m_airSpawnMovement = GetMovementTemplate();
+                m_airSpawnMovement->Flight = CreatureFlightMovementType::DisableGravity;
+                UpdateMovementFlags();      // Create() already ran it without the flight, before the first visibility update
+            }
+
     //We should set first home position, because then AI calls home movement
     SetHomePosition(data->posX, data->posY, data->posZ, data->orientation);
 
@@ -3582,6 +3596,9 @@ CreatureMovementData const& Creature::GetMovementTemplate() const
 {
     if (CreatureMovementData const* movementOverride = sObjectMgr->GetCreatureMovementOverride(m_DBTableGuid))
         return *movementOverride;
+
+    if (m_airSpawnMovement)
+        return *m_airSpawnMovement;
 
     return GetCreatureTemplate()->Movement;
 }
