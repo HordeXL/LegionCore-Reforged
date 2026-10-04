@@ -3877,9 +3877,9 @@ bool WorldObject::InSamePhaseId(std::set<uint32> const& phase, bool otherUsePlay
     if (otherUsePlayerPhasingRules && m_phaseId.empty())
         return true;
 
-    // Phase-neutral object (no PhaseId set) is visible/collideable to all entities.
-    // Without this, creatures with phases {X} vs GO with phases {} → false at line below.
-    if (m_phaseId.empty())
+    // A phase-neutral gameobject stays visible/collideable for phased creatures (scenario doors). Gameobjects only:
+    // applied to creatures, a neutral one could attack a phased one that could not see it back.
+    if (m_phaseId.empty() && IsGameObject())
         return true;
 
     //! speed up case. should be done in any way.
@@ -3906,7 +3906,7 @@ std::set<uint32> const& WorldObject::GetPhases() const
 
 bool WorldObject::InSamePhaseId(WorldObject const* obj) const
 {
-    return obj->IgnorePhaseId() || InSamePhaseId(obj->GetPhases(), obj->IsPlayer() || obj->IsUnitOwnedByPlayer());
+    return obj->IgnorePhaseId() || (obj->IsGameObject() && obj->GetPhases().empty()) || InSamePhaseId(obj->GetPhases(), obj->IsPlayer() || obj->IsUnitOwnedByPlayer());
 }
 
 bool WorldObject::InSamePhase(WorldObject const* obj) const
