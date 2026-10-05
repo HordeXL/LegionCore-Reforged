@@ -26,6 +26,7 @@
 #include "StartProcess.h"
 #include "UpdateFetcher.h"
 #include <boost/filesystem/operations.hpp>
+#include <algorithm>
 #include <fstream>
 #include <iostream>
 
@@ -104,10 +105,12 @@ std::string DBUpdater<WorldDatabaseConnection>::GetTableName()
     return "World";
 }
 
+// The world and hotfixes bases are shipped in the repository, cut in parts small enough to import in one go
 template<>
 std::string DBUpdater<WorldDatabaseConnection>::GetBaseFile()
 {
-    return GitRevision::GetFullDatabase();
+    return BuiltInConfig::GetSourceDirectory() +
+        "/sql/base/world";
 }
 
 template<>
@@ -115,12 +118,6 @@ bool DBUpdater<WorldDatabaseConnection>::IsEnabled(uint32 const updateMask)
 {
     // This way silences warnings under msvc
     return (updateMask & DatabaseLoader::DATABASE_WORLD) ? true : false;
-}
-
-template<>
-BaseLocation DBUpdater<WorldDatabaseConnection>::GetBaseLocationType()
-{
-    return LOCATION_DOWNLOAD;
 }
 
 // Character Database
@@ -166,7 +163,8 @@ std::string DBUpdater<HotfixDatabaseConnection>::GetTableName()
 template<>
 std::string DBUpdater<HotfixDatabaseConnection>::GetBaseFile()
 {
-    return GitRevision::GetHotfixesDatabase();
+    return BuiltInConfig::GetSourceDirectory() +
+        "/sql/base/hotfixes";
 }
 
 template<>
@@ -174,12 +172,6 @@ bool DBUpdater<HotfixDatabaseConnection>::IsEnabled(uint32 const updateMask)
 {
     // This way silences warnings under msvc
     return (updateMask & DatabaseLoader::DATABASE_HOTFIX) ? true : false;
-}
-
-template<>
-BaseLocation DBUpdater<HotfixDatabaseConnection>::GetBaseLocationType()
-{
-    return LOCATION_DOWNLOAD;
 }
 
 // All
@@ -324,15 +316,37 @@ bool DBUpdater<T>::Populate(DatabaseWorkerPool<T>& pool)
         return false;
     }
 
-    // Update database
-    TC_LOG_INFO("sql.updates", ">> Applying \'%s\'...", base.generic_string().c_str());
-    try
+    // A base can be a folder of parts, applied in the order of their names
+    std::vector<Path> files;
+    if (is_directory(base))
     {
-        ApplyFile(pool, base);
+        for (boost::filesystem::directory_iterator itr(base), end; itr != end; ++itr)
+            if (is_regular_file(itr->path()) && itr->path().extension() == ".sql")
+                files.push_back(itr->path());
+        std::sort(files.begin(), files.end());
     }
-    catch (UpdateException&)
+    else
+        files.push_back(base);
+
+    if (files.empty())
     {
+        TC_LOG_ERROR("sql.updates", ">> Base folder \"%s\" holds no .sql file. Try fixing it by cloning the source again.",
+            base.generic_string().c_str());
         return false;
+    }
+
+    // Update database
+    for (Path const& file : files)
+    {
+        TC_LOG_INFO("sql.updates", ">> Applying \'%s\'...", file.generic_string().c_str());
+        try
+        {
+            ApplyFile(pool, file);
+        }
+        catch (UpdateException&)
+        {
+            return false;
+        }
     }
 
     TC_LOG_INFO("sql.updates", ">> Done!");
