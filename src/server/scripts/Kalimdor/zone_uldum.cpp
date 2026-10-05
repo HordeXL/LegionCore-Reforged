@@ -6,6 +6,10 @@
  * pygmies who sell everyone to the Neferset, and the player wakes up caged in the Lost City of the Tol'vir.
  * Handing the quest in, Adarrah picks the lock, the cage opens and a jailer comes in; once it is dead, Prince
  * Nadun calls the player over.
+ *
+ * Traitors! (27922): hiding behind the Neferset Frond, the screen fades to black while Siamat rewards the traitors,
+ * then the secret is uncovered. Blizzard later remade this as a scene (4.0 [UTR] Uldum Traitors, package 2381), absent
+ * from the 7.3.5 client: a fade to black stands in for it.
  */
 
 #include "ScriptMgr.h"
@@ -39,6 +43,13 @@ enum UldumIntro
     SAY_ADARRAH_LOCK_PICK           = 0,        // Adarrah (cage): "Crap! That was my last lock pick!"
     SAY_NADUN_CAPTORS               = 0,        // Prince Nadun: "Our captors have allied with Deathwing, $r."
     SAY_NADUN_NO_MERCY              = 1,        //               "No mercy remains in them. Make your peace."
+};
+
+enum LostCityBetrayal
+{
+    QUEST_TRAITORS                  = 27922,
+    NPC_SIAMAT_TERRACE              = 47285,
+    NPC_BETRAYAL_CREDIT             = 47466,
 };
 
 Position const CagePlayerPos  = { -10994.9f, -1256.07f, 13.24f, 4.5f };
@@ -241,8 +252,39 @@ public:
     }
 };
 
+// 206579 - Neferset Frond (Traitors!)
+class go_uldum_neferset_frond : public GameObjectScript
+{
+public:
+    go_uldum_neferset_frond() : GameObjectScript("go_uldum_neferset_frond") { }
+
+    bool OnGossipHello(Player* player, GameObject* /*go*/) override
+    {
+        if (player->GetQuestStatus(QUEST_TRAITORS) != QUEST_STATUS_INCOMPLETE)
+            return true;
+
+        player->AddAura(SPELL_FADE_TO_BLACK, player);   // 8 s
+        // Siamat's own SmartAI says both lines once its data 0 is set to 1.
+        if (Creature* siamat = player->FindNearestCreature(NPC_SIAMAT_TERRACE, 80.0f))
+            if (siamat->AI())
+                siamat->AI()->SetData(0, 1);
+
+        ObjectGuid const playerGuid = player->GetGUID();
+        player->AddDelayedEvent(9000, [playerGuid]() -> void
+        {
+            if (Player* player = ObjectAccessor::FindPlayer(playerGuid))
+            {
+                player->RemoveAurasDueToSpell(SPELL_FADE_TO_BLACK);
+                player->KilledMonsterCredit(NPC_BETRAYAL_CREDIT);
+            }
+        });
+        return true;
+    }
+};
+
 void AddSC_uldum()
 {
+    new go_uldum_neferset_frond();
     new spell_uldum_initialize_intro();
     new npc_uldum_adarrah_cage();
     new npc_uldum_neferset_jailer();
