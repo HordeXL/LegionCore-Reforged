@@ -61,7 +61,8 @@ struct PacketHeader
     uint32 Size;
     uint16 Command;
 
-    bool IsValidSize() { return Size < 0x10000; }
+    // 256 KB, as in later TrinityCore: past ~5,700 hotfixes the client's CMSG_HOTFIX_REQUEST outgrows 64 KB
+    bool IsValidSize() { return Size < 0x40000; }
     bool IsValidOpcode() { return Command < NUM_OPCODE_HANDLERS; }
 };
 
