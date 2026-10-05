@@ -328,6 +328,7 @@ struct CompletedAchievementData
     uint64 first_guid;
     bool changed;
     bool isAccountAchievement;
+    bool onAccount;     // account_achievement already holds the first character that earned it
 };
 
 typedef std::unordered_map<uint32, CriteriaProgress> CriteriaProgressMap;

@@ -496,7 +496,7 @@ void AchievementCriteriaDataSet::SetCriteriaId(uint32 id)
     criteria_id = id;
 }
 
-CompletedAchievementData::CompletedAchievementData() : date(0), first_guid(0), changed(false), isAccountAchievement(false)
+CompletedAchievementData::CompletedAchievementData() : date(0), first_guid(0), changed(false), isAccountAchievement(false), onAccount(false)
 {
 }
 
@@ -563,6 +563,30 @@ template<>
 void AchievementMgr<Scenario>::RemoveCriteriaProgress(const CriteriaTree* /*criteriaTree*/)
 {
     // FIXME
+}
+
+// Puts every criteria under the tree back to 0 and tells the client, without touching the other trees (a failed
+// scenario step is replayed while the steps already done are kept)
+template<class T>
+{
+    if (!tree)
+        return;
+
+    AchievementGlobalMgr::WalkCriteriaTree(tree, [this](CriteriaTree const* node)
+    {
+        if (!node->Criteria || node->ID >= _criteriaProgressArr.size())
+            return;
+
+        CriteriaProgress* progress = _criteriaProgressArr[node->ID];
+        if (!progress || !progress->Counter)
+            return;
+
+        progress->Counter = 0;
+        progress->completed = false;
+        progress->changed = true;
+        progress->date = GameTime::GetGameTime();
+        SendCriteriaUpdate(progress, 0, false);
+    });
 }
 
 template<>
@@ -707,16 +731,21 @@ void AchievementMgr<Player>::SaveToDB(CharacterDatabaseTransaction& trans)
             else
                 ssCharIns << ',';
 
-            if (!need_execute_acc)
+            // the account row keeps the first character that earned it: another character earning it again only
+            // gets its own row
+            if (!ca->onAccount)
             {
-                ssAccIns << "REPLACE INTO account_achievement (account, first_guid, achievement, date) VALUES ";
-                need_execute_acc = true;
-            }
-            else
-                ssAccIns << ',';
+                if (!need_execute_acc)
+                {
+                    ssAccIns << "REPLACE INTO account_achievement (account, first_guid, achievement, date) VALUES ";
+                    need_execute_acc = true;
+                }
+                else
+                    ssAccIns << ',';
 
-            // new/changed record data
-            ssAccIns << '(' << GetOwner()->GetSession()->GetAccountId() << ',' << ca->first_guid << ',' << _completedAchievement.first << ',' << ca->date << ')';
+                ssAccIns << '(' << GetOwner()->GetSession()->GetAccountId() << ',' << ca->first_guid << ',' << _completedAchievement.first << ',' << ca->date << ')';
+                ca->onAccount = true;
+            }
             ssCharIns << '(' << GetOwner()->GetGUIDLow() << ',' << _completedAchievement.first << ',' << ca->date << ')';
 
             /// mark as saved in db
@@ -921,6 +950,7 @@ void AchievementMgr<Player>::LoadFromDB(PreparedQueryResult achievementResult, P
             ca.changed = false;
             ca.first_guid = first_guid;
             ca.isAccountAchievement = achievement->Flags & ACHIEVEMENT_FLAG_ACCOUNT;
+            ca.onAccount = true;
             _completedAchievementsArr[achievementid] = &ca;
 
             _achievementPoints += achievement->Points;
@@ -2600,6 +2630,8 @@ void AchievementMgr<T>::CompletedAchievement(AchievementEntry const* achievement
     auto const& ownerSession = GetOwner()->GetSession();
 
     CompletedAchievementData* ca = nullptr;
+    // another character of the account already earned it: its points are already counted
+    bool const alreadyOnAccount = HasAccountAchieved(achievement->ID);
     {
         std::lock_guard<std::recursive_mutex> guard(i_completedAchievementsLock);
 
@@ -2613,6 +2645,7 @@ void AchievementMgr<T>::CompletedAchievement(AchievementEntry const* achievement
         ca = &_completedAchievements[achievement->ID];
         ca->date = GameTime::GetGameTime();
         ca->first_guid = GetOwner()->GetGUIDLow();
+        ca->isAccountAchievement = achievement->Flags & ACHIEVEMENT_FLAG_ACCOUNT;
         ca->changed = true;
         _completedAchievementsArr[achievement->ID] = ca;
     }
@@ -2624,19 +2657,23 @@ void AchievementMgr<T>::CompletedAchievement(AchievementEntry const* achievement
     if (!(achievement->Flags & ACHIEVEMENT_FLAG_REALM_FIRST_KILL))
         sAchievementMgr->SetRealmCompleted(achievement);
 
-    _achievementPoints += achievement->Points;
-    if (achievement->Category == 15117) // BattlePet category
-        _achievementBattlePetPoints += achievement->Points;
+    if (!alreadyOnAccount)
+    {
+        _achievementPoints += achievement->Points;
+        if (achievement->Category == 15117) // BattlePet category
+            _achievementBattlePetPoints += achievement->Points;
+    }
 
-    player->AddDelayedEvent(100, [player, achievement]() -> void 
+    player->AddDelayedEvent(100, [player, achievement, alreadyOnAccount]() -> void
     {
         if (!player)
             return;
-        if (achievement->Category == 15117) // BattlePet category
+        if (!alreadyOnAccount && achievement->Category == 15117) // BattlePet category
             player->UpdateAchievementCriteria(CRITERIA_TYPE_BATTLEPET_ACHIEVEMENT_POINTS, achievement->Points, 0, 0, nullptr, player);
 
-        player->UpdateAchievementCriteria(CRITERIA_TYPE_COMPLETE_ACHIEVEMENT, 0, 0, 0, nullptr, player); 
-        player->UpdateAchievementCriteria(CRITERIA_TYPE_EARN_ACHIEVEMENT_POINTS, achievement->Points, 0, 0, nullptr, player);
+        player->UpdateAchievementCriteria(CRITERIA_TYPE_COMPLETE_ACHIEVEMENT, 0, 0, 0, nullptr, player);
+        if (!alreadyOnAccount)
+            player->UpdateAchievementCriteria(CRITERIA_TYPE_EARN_ACHIEVEMENT_POINTS, achievement->Points, 0, 0, nullptr, player);
     });
 
     switch (achievement->ID)
@@ -2801,11 +2838,9 @@ void AchievementMgr<T>::SendAllAchievementData(Player* /*receiver*/)
             WorldPackets::Achievement::EarnedAchievement earned;
             earned.Id = itr->first;
             earned.Date = itr->second.date;
-            //if (!(achievement->Flags & ACHIEVEMENT_FLAG_ACCOUNT))
-            {
-                earned.Owner = GetOwner()->GetGUID();
-                earned.VirtualRealmAddress = earned.NativeRealmAddress = GetVirtualRealmAddress();
-            }
+            // the character that earned it: the client shows "Earned by" when it is another character of the account
+            earned.Owner = itr->second.first_guid ? ObjectGuid::Create<HighGuid::Player>(itr->second.first_guid) : GetOwner()->GetGUID();
+            earned.VirtualRealmAddress = earned.NativeRealmAddress = GetVirtualRealmAddress();
             achievementData.Earned.push_back(earned);
         }
     }
@@ -2921,11 +2956,8 @@ void AchievementMgr<Player>::SendAchievementInfo(Player* receiver, uint32 /*achi
             WorldPackets::Achievement::EarnedAchievement earned;
             earned.Id = _completedAchievement.first;
             earned.Date = _completedAchievement.second.date;
-            //if (!(achievement->Flags & ACHIEVEMENT_FLAG_ACCOUNT))
-            {
-                earned.Owner = GetOwner()->GetGUID();
-                earned.VirtualRealmAddress = earned.NativeRealmAddress = GetVirtualRealmAddress();
-            }
+            earned.Owner = _completedAchievement.second.first_guid ? ObjectGuid::Create<HighGuid::Player>(_completedAchievement.second.first_guid) : GetOwner()->GetGUID();
+            earned.VirtualRealmAddress = earned.NativeRealmAddress = GetVirtualRealmAddress();
             packet.Data.Earned.push_back(earned);
         }
     }
