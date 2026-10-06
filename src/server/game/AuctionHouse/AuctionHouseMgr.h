@@ -21,6 +21,7 @@
 
 #include "Common.h"
 #include "DatabaseEnvFwd.h"
+#include <mutex>
 
 class Item;
 class Player;
@@ -209,7 +210,14 @@ class TC_GAME_API AuctionHouseMgr
 
         void Update();
 
+        // Auctions, their items and the replication throttles. Auction handlers run in their map threads, Update and
+        // the login inventory check (GetAItem) in the world thread. Taken first or alone, never under another lock;
+        // under it only the acting player's own state, mails (delivered in the receiver's thread), the database
+        // queue and session sends are reached.
+        std::recursive_mutex& GetLock() { return _lock; }
+
     private:
+        std::recursive_mutex _lock;
 
         AuctionHouseObject mHordeAuctions;
         AuctionHouseObject mAllianceAuctions;

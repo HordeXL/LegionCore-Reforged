@@ -142,6 +142,9 @@ void WorldSession::HandleAuctionSellItem(WorldPackets::AuctionHouse::AuctionSell
     if (GetPlayer()->HasUnitState(UNIT_STATE_DIED))
         GetPlayer()->RemoveAurasByType(SPELL_AURA_FEIGN_DEATH);
 
+    // auction handlers run in map threads and the expiry in the world thread: one auction lock for the whole operation
+    std::lock_guard<std::recursive_mutex> auctionGuard(sAuctionMgr->GetLock());
+
     uint32 finalCount = 0;
     uint32 itemEntry = 0;
 
@@ -390,6 +393,8 @@ void WorldSession::HandleAuctionPlaceBid(WorldPackets::AuctionHouse::AuctionPlac
     if (player->HasUnitState(UNIT_STATE_DIED))
         player->RemoveAurasByType(SPELL_AURA_FEIGN_DEATH);
 
+    std::lock_guard<std::recursive_mutex> auctionGuard(sAuctionMgr->GetLock());
+
     AuctionHouseObject* auctionHouse = sAuctionMgr->GetAuctionsMap(creature->getFaction());
     AuctionEntry* auction = auctionHouse->GetAuction(packet.AuctionItemID);
 
@@ -467,8 +472,9 @@ void WorldSession::HandleAuctionPlaceBid(WorldPackets::AuctionHouse::AuctionPlac
         SendAuctionCommandResult(auction, AUCTION_PLACE_BID, ERR_AUCTION_OK);
 
         // the seller learns of the new bid when online, as on retail
-        if (Player* owner = ObjectAccessor::FindPlayer(auction->Owner))
-            owner->GetSession()->SendAuctionOwnerBidNotification(auction, sAuctionMgr->GetAItem(auction->itemGUIDLow));
+        // he may stand on another map: notified under the accessor lock
+        Item const* auctionItem = sAuctionMgr->GetAItem(auction->itemGUIDLow);
+        ObjectAccessor::WithPlayer(auction->Owner, [auction, auctionItem](Player* owner) { owner->GetSession()->SendAuctionOwnerBidNotification(auction, auctionItem); });
     }
     else
     {
@@ -515,6 +521,8 @@ void WorldSession::HandleAuctionRemoveItem(WorldPackets::AuctionHouse::AuctionRe
 
     if (player->HasUnitState(UNIT_STATE_DIED))
         player->RemoveAurasByType(SPELL_AURA_FEIGN_DEATH);
+
+    std::lock_guard<std::recursive_mutex> auctionGuard(sAuctionMgr->GetLock());
 
     AuctionHouseObject* auctionHouse = sAuctionMgr->GetAuctionsMap(creature->getFaction());
     AuctionEntry* auction = auctionHouse->GetAuction(packet.AuctionItemID);
@@ -585,7 +593,10 @@ void WorldSession::HandleAuctionListBidderItems(WorldPackets::AuctionHouse::Auct
     AuctionHouseObject* auctionHouse = sAuctionMgr->GetAuctionsMap(creature->getFaction());
 
     WorldPackets::AuctionHouse::AuctionListBidderItemsResult result;
-    auctionHouse->BuildListBidderItems(result, player, result.TotalCount);
+    {
+        std::lock_guard<std::recursive_mutex> auctionGuard(sAuctionMgr->GetLock());
+        auctionHouse->BuildListBidderItems(result, player, result.TotalCount);
+    }
     result.DesiredDelay = 300;
     SendPacket(result.Write());
 }
@@ -607,7 +618,10 @@ void WorldSession::HandleAuctionListOwnerItems(WorldPackets::AuctionHouse::Aucti
     AuctionHouseObject* auctionHouse = sAuctionMgr->GetAuctionsMap(creature->getFaction());
 
     WorldPackets::AuctionHouse::AuctionListOwnerItemsResult result;
-    auctionHouse->BuildListOwnerItems(result, player, result.TotalCount);
+    {
+        std::lock_guard<std::recursive_mutex> auctionGuard(sAuctionMgr->GetLock());
+        auctionHouse->BuildListOwnerItems(result, player, result.TotalCount);
+    }
     result.DesiredDelay = 300;
     SendPacket(result.Write());
 }
@@ -661,7 +675,10 @@ void WorldSession::HandleAuctionListItems(WorldPackets::AuctionHouse::AuctionLis
         }
     }
 
-    sAuctionMgr->GetAuctionsMap(creature->getFaction())->BuildListAuctionItems(result, _player, wsearchedname, packet.Offset, packet.MinLevel, packet.MaxLevel, packet.OnlyUsable, filters, packet.Quality);
+    {
+        std::lock_guard<std::recursive_mutex> auctionGuard(sAuctionMgr->GetLock());
+        sAuctionMgr->GetAuctionsMap(creature->getFaction())->BuildListAuctionItems(result, _player, wsearchedname, packet.Offset, packet.MinLevel, packet.MaxLevel, packet.OnlyUsable, filters, packet.Quality);
+    }
 
     result.DesiredDelay = 300;
     result.OnlyUsable = packet.OnlyUsable;
@@ -703,7 +720,10 @@ void WorldSession::HandleReplicateItems(WorldPackets::AuctionHouse::AuctionRepli
         GetPlayer()->RemoveAurasByType(SPELL_AURA_FEIGN_DEATH);
 
     WorldPackets::AuctionHouse::AuctionReplicateResponse response;
-    sAuctionMgr->GetAuctionsMap(creature->getFaction())->BuildReplicate(response, GetPlayer(), packet.ChangeNumberGlobal, packet.ChangeNumberCursor, packet.ChangeNumberTombstone, packet.Count);
+    {
+        std::lock_guard<std::recursive_mutex> auctionGuard(sAuctionMgr->GetLock());
+        sAuctionMgr->GetAuctionsMap(creature->getFaction())->BuildReplicate(response, GetPlayer(), packet.ChangeNumberGlobal, packet.ChangeNumberCursor, packet.ChangeNumberTombstone, packet.Count);
+    }
     response.DesiredDelay = 300 * 5;
     response.Result = 0;
     SendPacket(response.Write());

@@ -81,6 +81,7 @@ AuctionHouseObject* AuctionHouseMgr::GetAuctionsMapByHouseId(uint8 auctionHouseI
 
 Item* AuctionHouseMgr::GetAItem(ObjectGuid::LowType const& id)
 {
+    std::lock_guard<std::recursive_mutex> guard(_lock);
     return Trinity::Containers::MapGetValuePtr(mAitems, id);
 }
 
@@ -112,19 +113,33 @@ void AuctionHouseMgr::SendAuctionWonMail(AuctionEntry* auction, CharacterDatabas
     if (!pItem)
         return;
 
-    Player* bidder = ObjectAccessor::FindPlayer(auction->Bidder);
+    // The winner may stand on another map (or the world thread runs this): read under the accessor lock
+    struct
+    {
+        uint32 AccountId = 0;
+        uint32 Security = 0;
+        std::string Name;
+        LocaleConstant Locale = DEFAULT_LOCALE;
+    } winner;
+    bool const bidderOnline = ObjectAccessor::WithPlayer(auction->Bidder, [&winner](Player* bidder)
+    {
+        winner.AccountId = bidder->GetSession()->GetAccountId();
+        winner.Security = bidder->GetSession()->GetSecurity();
+        winner.Name = bidder->GetName();
+        winner.Locale = bidder->GetSession()->GetSessionDbLocaleIndex();
+    });
     // needed for an offline winner too, not only for the gm log: without it the item is deleted
-    uint32 bidder_accId = bidder ? bidder->GetSession()->GetAccountId() : ObjectMgr::GetPlayerAccountIdByGUID(auction->Bidder);
+    uint32 bidder_accId = bidderOnline ? winner.AccountId : ObjectMgr::GetPlayerAccountIdByGUID(auction->Bidder);
     // data for gm.log
     if (sWorld->getBoolConfig(CONFIG_GM_LOG_TRADE))
     {
         uint32 bidder_security = 0;
         std::string bidder_name;
-        if (bidder)
+        if (bidderOnline)
         {
-            bidder_accId = bidder->GetSession()->GetAccountId();
-            bidder_security = bidder->GetSession()->GetSecurity();
-            bidder_name = bidder->GetName();
+            bidder_accId = winner.AccountId;
+            bidder_security = winner.Security;
+            bidder_name = winner.Name;
         }
         else
         {
@@ -146,18 +161,18 @@ void AuctionHouseMgr::SendAuctionWonMail(AuctionEntry* auction, CharacterDatabas
             uint32 owner_accid = ObjectMgr::GetPlayerAccountIdByGUID(auction->Owner);
 
             sLog->outCommand(bidder_accId, "GM %s (Account: %u) won item in auction: %s (Entry: %u Count: %u) and pay money: %u. Original owner %s (Account: %u)",
-                bidder_name.c_str(), bidder_accId, pItem->GetTemplate()->GetName()->Str[bidder ? bidder->GetSession()->GetSessionDbLocaleIndex() : DEFAULT_LOCALE], pItem->GetEntry(), pItem->GetCount(), auction->bid, owner_name.c_str(), owner_accid);
+                bidder_name.c_str(), bidder_accId, pItem->GetTemplate()->GetName()->Str[winner.Locale], pItem->GetEntry(), pItem->GetCount(), auction->bid, owner_name.c_str(), owner_accid);
         }
     }
 
     if(auction->bid >= sWorld->getIntConfig(CONFIG_LOG_GOLD_FROM))
     {
         TC_LOG_DEBUG("auctionHouse", "AuctionHouse: GUID %u won item in auction: %s (Entry: %u Count: %u) and pay money: " UI64FMTD ". Original ownerGuid %u",
-            auction->Bidder.GetGUIDLow(), pItem->GetTemplate()->GetName()->Str[bidder ? bidder->GetSession()->GetSessionDbLocaleIndex() : DEFAULT_LOCALE], pItem->GetEntry(), pItem->GetCount(), auction->bid, auction->Owner.GetGUIDLow());
+            auction->Bidder.GetGUIDLow(), pItem->GetTemplate()->GetName()->Str[winner.Locale], pItem->GetEntry(), pItem->GetCount(), auction->bid, auction->Owner.GetGUIDLow());
     }
 
     // receiver exist
-    if (bidder || bidder_accId)
+    if (bidderOnline || bidder_accId)
     {
         // set owner to bidder (to prevent delete item with sender char deleting)
         // owner in `data` will set at mail receive and item extracting
@@ -166,16 +181,15 @@ void AuctionHouseMgr::SendAuctionWonMail(AuctionEntry* auction, CharacterDatabas
         stmt->setUInt64(1, pItem->GetGUID().GetCounter());
         trans->Append(stmt);
 
-        if (bidder)
-        {
-            bidder->GetSession()->SendAuctionWonNotification(auction, pItem);
-            // FIXME: for offline player need also
-            bidder->UpdateAchievementCriteria(CRITERIA_TYPE_WON_AUCTIONS, 1);
-        }
+        ObjectAccessor::WithPlayer(auction->Bidder, [auction, pItem](Player* bidder) { bidder->GetSession()->SendAuctionWonNotification(auction, pItem); });
+        // FIXME: for offline player need also
+        ObjectAccessor::PostToPlayer(auction->Bidder, [](Player* bidder) -> void { bidder->UpdateAchievementCriteria(CRITERIA_TYPE_WON_AUCTIONS, 1); });
 
+        // The mail owns the item from now on and may free it in the receiver's thread: unlist it first
+        RemoveAItem(auction->itemGUIDLow);
         MailDraft(auction->BuildAuctionMailSubject(AUCTION_WON), AuctionEntry::BuildAuctionMailBody(auction->Owner.GetCounter(), auction->bid, auction->buyout, 0, 0))
             .AddItem(pItem)
-            .SendMailTo(trans, MailReceiver(bidder, auction->Bidder.GetCounter()), auction, MAIL_CHECK_MASK_COPIED);
+            .SendMailTo(trans, MailReceiver(nullptr, auction->Bidder.GetCounter()), auction, MAIL_CHECK_MASK_COPIED);
     }
     else
     {
@@ -190,35 +204,41 @@ void AuctionHouseMgr::SendAuctionSalePendingMail(AuctionEntry* auction, Characte
     if (sWorld->getIntConfig(CONFIG_MAIL_DELIVERY_DELAY) == 0)
         return;
 
-    Player* owner = ObjectAccessor::FindPlayer(auction->Owner);
+    // the owner may stand on another map: the mail reaches him by guid
+    bool const ownerOnline = ObjectAccessor::IsPlayerOnline(auction->Owner);
     uint32 owner_accId = ObjectMgr::GetPlayerAccountIdByGUID(auction->Owner);
     // owner exist (online or offline)
-    if (owner || owner_accId)
+    if (ownerOnline || owner_accId)
         MailDraft(auction->BuildAuctionMailSubject(AUCTION_SALE_PENDING), AuctionEntry::BuildAuctionMailBody(auction->Bidder.GetCounter(), auction->bid, auction->buyout, auction->deposit, auction->GetAuctionCut()))
-            .SendMailTo(trans, MailReceiver(owner, auction->Owner.GetCounter()), auction, MAIL_CHECK_MASK_COPIED);
+            .SendMailTo(trans, MailReceiver(nullptr, auction->Owner.GetCounter()), auction, MAIL_CHECK_MASK_COPIED);
 }
 
 //call this method to send mail to auction owner, when auction is successful, it does not clear ram
 void AuctionHouseMgr::SendAuctionSuccessfulMail(AuctionEntry* auction, CharacterDatabaseTransaction& trans)
 {
-    Player* owner = ObjectAccessor::FindPlayer(auction->Owner);
+    bool const ownerOnline = ObjectAccessor::IsPlayerOnline(auction->Owner);
     uint32 owner_accId = ObjectMgr::GetPlayerAccountIdByGUID(auction->Owner);
     Item* item = GetAItem(auction->itemGUIDLow);
-    if (item && (owner || owner_accId))
+    if (item && (ownerOnline || owner_accId))
     {
         uint64 profit = auction->bid + auction->deposit - auction->GetAuctionCut();
 
         //FIXME: what do if owner offline
-        if (owner)
+        // the seller may be on another map (or the world thread runs this): his criteria change in his thread
+        uint64 const soldFor = auction->bid;
+        ObjectAccessor::PostToPlayer(auction->Owner, [profit, soldFor](Player* owner) -> void
         {
             owner->UpdateAchievementCriteria(CRITERIA_TYPE_GOLD_EARNED_BY_AUCTIONS, profit);
-            owner->UpdateAchievementCriteria(CRITERIA_TYPE_HIGHEST_AUCTION_SOLD, auction->bid);
+            owner->UpdateAchievementCriteria(CRITERIA_TYPE_HIGHEST_AUCTION_SOLD, soldFor);
+        }, 0, ObjectAccessor::PlayerScope::InWorld);
+        ObjectAccessor::WithPlayer(auction->Owner, [auction, item](Player* owner)
+        {
             owner->GetSession()->SendAuctionClosedNotification(auction, static_cast<float>(sWorld->getIntConfig(CONFIG_MAIL_DELIVERY_DELAY)), true, item);
-        }
+        });
 
         MailDraft(auction->BuildAuctionMailSubject(AUCTION_SUCCESSFUL), AuctionEntry::BuildAuctionMailBody(auction->Bidder.GetCounter(), auction->bid, auction->buyout, auction->deposit, auction->GetAuctionCut()))
             .AddMoney(profit)
-            .SendMailTo(trans, MailReceiver(owner, auction->Owner.GetCounter()), auction, MAIL_CHECK_MASK_COPIED, sWorld->getIntConfig(CONFIG_MAIL_DELIVERY_DELAY));
+            .SendMailTo(trans, MailReceiver(nullptr, auction->Owner.GetCounter()), auction, MAIL_CHECK_MASK_COPIED, sWorld->getIntConfig(CONFIG_MAIL_DELIVERY_DELAY));
     }
 }
 
@@ -233,22 +253,24 @@ void AuctionHouseMgr::SendAuctionExpiredMail(AuctionEntry* auction, CharacterDat
         return;
     }
 
-    Player* owner = ObjectAccessor::FindPlayer(auction->Owner);
+    bool const ownerOnline = ObjectAccessor::IsPlayerOnline(auction->Owner);
     uint32 owner_accId = ObjectMgr::GetPlayerAccountIdByGUID(auction->Owner);
     // owner exist
-    if (owner || owner_accId)
+    if (ownerOnline || owner_accId)
     {
         CharacterDatabasePreparedStatement* stmt = CharacterDatabase.GetPreparedStatement(CHAR_UPD_ITEM_OWNER);
         stmt->setUInt64(0, auction->Owner.GetCounter());
         stmt->setUInt64(1, pItem->GetGUID().GetCounter());
         trans->Append(stmt);
 
-        if (owner)
-            owner->GetSession()->SendAuctionClosedNotification(auction, 0.0f, false, pItem);
+        // the owner may stand on another map: notified under the accessor lock
+        ObjectAccessor::WithPlayer(auction->Owner, [auction, pItem](Player* owner) { owner->GetSession()->SendAuctionClosedNotification(auction, 0.0f, false, pItem); });
 
+        // The mail owns the item from now on and may free it in the receiver's thread: unlist it first
+        RemoveAItem(auction->itemGUIDLow);
         MailDraft(auction->BuildAuctionMailSubject(AUCTION_EXPIRED), AuctionEntry::BuildAuctionMailBody(0, 0, auction->buyout, auction->deposit, 0))
             .AddItem(pItem)
-            .SendMailTo(trans, MailReceiver(owner, auction->Owner.GetCounter()), auction, MAIL_CHECK_MASK_COPIED, 0);
+            .SendMailTo(trans, MailReceiver(nullptr, auction->Owner.GetCounter()), auction, MAIL_CHECK_MASK_COPIED, 0);
     }
     else
     {
@@ -260,43 +282,43 @@ void AuctionHouseMgr::SendAuctionExpiredMail(AuctionEntry* auction, CharacterDat
 //this function sends mail to old bidder
 void AuctionHouseMgr::SendAuctionOutbiddedMail(AuctionEntry* auction, uint64 const& /*newPrice*/, Player* /*newBidder*/, CharacterDatabaseTransaction& trans)
 {
-    Player* oldBidder = ObjectAccessor::FindPlayer(auction->Bidder);
+    // the old bidder may stand on another map: notified under the accessor lock, mailed by guid
+    bool const oldBidderOnline = ObjectAccessor::IsPlayerOnline(auction->Bidder);
     Item* item = GetAItem(auction->itemGUIDLow);
     uint32 oldBidder_accId = 0;
-    if (!oldBidder)
+    if (!oldBidderOnline)
         oldBidder_accId = ObjectMgr::GetPlayerAccountIdByGUID(auction->Bidder);
 
-    if (oldBidder || oldBidder_accId)
+    if (oldBidderOnline || oldBidder_accId)
     {
-        if (oldBidder && item)
-            oldBidder->GetSession()->SendAuctionOutBidNotification(auction, item);
+        if (item)
+            ObjectAccessor::WithPlayer(auction->Bidder, [auction, item](Player* oldBidder) { oldBidder->GetSession()->SendAuctionOutBidNotification(auction, item); });
 
         MailDraft(auction->BuildAuctionMailSubject(AUCTION_OUTBIDDED), AuctionEntry::BuildAuctionMailBody(auction->Owner.GetCounter(), auction->bid, auction->buyout, auction->deposit, auction->GetAuctionCut()))
             .AddMoney(auction->bid)
-            .SendMailTo(trans, MailReceiver(oldBidder, auction->Bidder.GetCounter()), auction, MAIL_CHECK_MASK_COPIED);
+            .SendMailTo(trans, MailReceiver(nullptr, auction->Bidder.GetCounter()), auction, MAIL_CHECK_MASK_COPIED);
     }
 }
 
 //this function sends mail, when auction is cancelled to old bidder
 void AuctionHouseMgr::SendAuctionCancelledToBidderMail(AuctionEntry* auction, CharacterDatabaseTransaction& trans, Item* item)
 {
-    Player* bidder = ObjectAccessor::FindPlayer(auction->Bidder);
-
-    uint32 bidder_accId = 0;
-    if (!bidder)
-        bidder_accId = ObjectMgr::GetPlayerAccountIdByGUID(auction->Bidder);
-
-    if (bidder)
+    // the bidder may stand on another map: notified under the accessor lock, mailed by guid
+    bool const bidderOnline = ObjectAccessor::WithPlayer(auction->Bidder, [auction, item](Player* bidder)
     {
         bidder->GetSession()->SendAuctionOutBidNotification(auction, item);
         //bidder->GetSession()->SendAuctionRemovedNotification(auction->Id, auction->itemEntry, item->GetItemRandomPropertyId());
-    }
+    });
+
+    uint32 bidder_accId = 0;
+    if (!bidderOnline)
+        bidder_accId = ObjectMgr::GetPlayerAccountIdByGUID(auction->Bidder);
 
     // bidder exist
-    if (bidder || bidder_accId)
+    if (bidderOnline || bidder_accId)
         MailDraft(auction->BuildAuctionMailSubject(AUCTION_CANCELLED_TO_BIDDER), AuctionEntry::BuildAuctionMailBody(auction->Owner.GetCounter(), auction->bid, auction->buyout, auction->deposit, 0))
             .AddMoney(auction->bid)
-            .SendMailTo(trans, MailReceiver(bidder, auction->Bidder.GetCounter()), auction, MAIL_CHECK_MASK_COPIED);
+            .SendMailTo(trans, MailReceiver(nullptr, auction->Bidder.GetCounter()), auction, MAIL_CHECK_MASK_COPIED);
 }
 
 void AuctionHouseMgr::LoadAuctionItems()
@@ -364,6 +386,7 @@ void AuctionHouseMgr::LoadAuctions()
 
     uint32 count = 0;
 
+    std::lock_guard<std::recursive_mutex> guard(_lock);
     CharacterDatabaseTransaction trans = CharacterDatabase.BeginTransaction();
     do
     {
@@ -390,12 +413,14 @@ void AuctionHouseMgr::LoadAuctions()
 void AuctionHouseMgr::AddAItem(Item* it)
 {
     ASSERT(it);
+    std::lock_guard<std::recursive_mutex> guard(_lock);
     ASSERT(mAitems.find(it->GetGUIDLow()) == mAitems.end());
     mAitems[it->GetGUIDLow()] = it;
 }
 
 bool AuctionHouseMgr::RemoveAItem(ObjectGuid::LowType const& id, bool deleteItem)
 {
+    std::lock_guard<std::recursive_mutex> guard(_lock);
     auto i = mAitems.find(id);
     if (i == mAitems.end())
         return false;
@@ -472,18 +497,23 @@ void AuctionHouseObject::Update()
     time_t curTime = GameTime::GetGameTime();
     ///- Handle expired auctions
 
-    // If storage is empty, no need to update. next == NULL in this case.
-    if (AuctionsMap.empty())
-        return;
-
-    for (PlayerGetAllThrottleMap::const_iterator itr = GetAllThrottleMap.begin(); itr != GetAllThrottleMap.end();)
     {
-        if (itr->second.NextAllowedReplication <= curTime)
-            itr = GetAllThrottleMap.erase(itr);
-        else
-            ++itr;
+        std::lock_guard<std::recursive_mutex> guard(sAuctionMgr->GetLock());
+
+        // If storage is empty, no need to update. next == NULL in this case.
+        if (AuctionsMap.empty())
+            return;
+
+        for (PlayerGetAllThrottleMap::const_iterator itr = GetAllThrottleMap.begin(); itr != GetAllThrottleMap.end();)
+        {
+            if (itr->second.NextAllowedReplication <= curTime)
+                itr = GetAllThrottleMap.erase(itr);
+            else
+                ++itr;
+        }
     }
 
+    // blocking query: run without the lock, an auction gone meanwhile is skipped below
     CharacterDatabasePreparedStatement* stmt = CharacterDatabase.GetPreparedStatement(CHAR_SEL_AUCTION_BY_TIME);
     stmt->setUInt32(0, static_cast<uint32>(curTime)); // was curTime + 60: auctions closed up to a minute before the time shown
     PreparedQueryResult result = CharacterDatabase.Query(stmt);
@@ -491,6 +521,7 @@ void AuctionHouseObject::Update()
     if (!result)
         return;
 
+    std::lock_guard<std::recursive_mutex> guard(sAuctionMgr->GetLock());
     do
     {
         // from auctionhousehandler.cpp, creates auction pointer & player pointer
