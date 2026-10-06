@@ -2714,6 +2714,16 @@ bool Object::IsUnitOwnedByPlayer() const
     return false;
 }
 
+// A player's area trigger takes the phases of its caster, so it must also see what the caster sees:
+// phase-less creatures stay hittable when the player stands in a zone phase (Rain of Fire in Orgrimmar)
+static bool UsesPlayerPhasingRules(Object const* obj)
+{
+    if (obj->IsPlayer() || obj->IsUnitOwnedByPlayer())
+        return true;
+
+    return obj->IsAreaTrigger() && obj->ToAreaTrigger()->GetCasterGUID().IsPlayer();
+}
+
 void WorldObject::Talk(std::string const& text, ChatMsg msgType, Language language, float textRange, WorldObject const* target)
 {
     Trinity::CustomChatTextBuilder builder(this, msgType, text, language, target);
@@ -3860,7 +3870,7 @@ ObjectGuid WorldObject::GetTransGUID() const
 //! if some has ignorePhase id - see each.
 bool WorldObject::InSamePhaseId(std::set<uint32> const& phase, bool otherUsePlayerPhasingRules) const
 {
-    bool usePlayerPhasingRules = IsPlayer() || IsUnitOwnedByPlayer();
+    bool usePlayerPhasingRules = UsesPlayerPhasingRules(this);
 
     if (IgnorePhaseId())
         return true;
@@ -3906,13 +3916,13 @@ std::set<uint32> const& WorldObject::GetPhases() const
 
 bool WorldObject::InSamePhaseId(WorldObject const* obj) const
 {
-    return obj->IgnorePhaseId() || (obj->IsGameObject() && obj->GetPhases().empty()) || InSamePhaseId(obj->GetPhases(), obj->IsPlayer() || obj->IsUnitOwnedByPlayer());
+    return obj->IgnorePhaseId() || (obj->IsGameObject() && obj->GetPhases().empty()) || InSamePhaseId(obj->GetPhases(), UsesPlayerPhasingRules(obj));
 }
 
 bool WorldObject::InSamePhase(WorldObject const* obj) const
 {
-    bool usePlayerPhasingRules = IsPlayer() || IsUnitOwnedByPlayer();
-    bool otherUsePlayerPhasingRules = obj->IsPlayer() || obj->IsUnitOwnedByPlayer();
+    bool usePlayerPhasingRules = UsesPlayerPhasingRules(this);
+    bool otherUsePlayerPhasingRules = UsesPlayerPhasingRules(obj);
 
     if (!InSamePhase(obj->GetPhaseMask()))
         return false;

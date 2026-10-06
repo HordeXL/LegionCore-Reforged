@@ -9217,6 +9217,10 @@ bool Spell::CheckEffectTarget(Unit const* target, uint32 eff) const
             if (m_caster->GetEntry() == WORLD_TRIGGER || target->GetEntry() == 56895)
                 break;
 
+            // An area trigger picked the unit from its own position: the caster may well not see it (Rain of Fire)
+            if (_triggeredCastFlags & TRIGGERED_CASTED_BY_AREATRIGGER)
+                break;
+
             // Get GO cast coordinates if original caster -> GO
             WorldObject* caster = nullptr;
             if (m_originalCasterGUID.IsGameObject())
