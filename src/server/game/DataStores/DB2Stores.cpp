@@ -1448,8 +1448,8 @@ uint32 DB2Manager::LoadStores(std::string const& dataPath, uint32 defaultLocale)
     LOAD_DB2(sSpellEffectStore);
     //LOAD_DB2(sSpellEffectEmissionStore);
     LOAD_DB2(sSpellEquippedItemsStore);
-    //LOAD_DB2(sSpellFlyoutStore);
-    //LOAD_DB2(sSpellFlyoutItemStore);
+    LOAD_DB2(sSpellFlyoutStore);
+    LOAD_DB2(sSpellFlyoutItemStore);
     LOAD_DB2(sSpellFocusObjectStore);
     LOAD_DB2(sSpellInterruptsStore);
     LOAD_DB2(sSpellItemEnchantmentStore);

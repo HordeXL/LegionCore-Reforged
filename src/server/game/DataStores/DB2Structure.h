@@ -5919,6 +5919,7 @@ struct SpellFlyoutItemEntry
     int32       ID;
     int32       SpellID;
     uint8       Slot;
+    uint8       SpellFlyoutID;
 };
 
 // FileOptions: Index, None

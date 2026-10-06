@@ -2103,7 +2103,7 @@ void HotfixDatabaseConnection::DoPrepareStatements()
     PREPARE_LOCALE_STMT(HOTFIX_SEL_SPELL_FLYOUT, "SELECT ID, Name_lang, Description_lang FROM spell_flyout_locale WHERE locale = ?", CONNECTION_SYNCH);
 
     // SpellFlyoutItem.db2
-    PrepareStatement(HOTFIX_SEL_SPELL_FLYOUT_ITEM, "SELECT ID, SpellID, Slot FROM spell_flyout_item ORDER BY ID DESC", CONNECTION_SYNCH);
+    PrepareStatement(HOTFIX_SEL_SPELL_FLYOUT_ITEM, "SELECT ID, SpellID, Slot, SpellFlyoutID FROM spell_flyout_item ORDER BY ID DESC", CONNECTION_SYNCH);
 
     // SpellFocusObject.db2
     PrepareStatement(HOTFIX_SEL_SPELL_FOCUS_OBJECT, "SELECT ID, Name FROM spell_focus_object ORDER BY ID DESC", CONNECTION_SYNCH);

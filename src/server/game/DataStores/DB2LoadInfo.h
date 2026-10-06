@@ -10040,6 +10040,7 @@ struct SpellFlyoutItemLoadInfo
             { true, FT_INT, "ID" },
             { true, FT_INT, "SpellID" },
             { false, FT_BYTE, "Slot" },
+            { false, FT_BYTE, "SpellFlyoutID" },
         };
         static DB2LoadInfo const loadInfo(&fields[0], std::extent<decltype(fields)>::value, SpellFlyoutItemMeta::Instance(), HOTFIX_SEL_SPELL_FLYOUT_ITEM);
         return &loadInfo;
