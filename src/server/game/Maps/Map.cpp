@@ -3751,6 +3751,11 @@ void InstanceMap::PermBindAllPlayers(Player* source)
     if (!IsDungeon() || IsLfr() || isChallenge())
         return;
 
+    // Legion: only raids and mythic dungeons lock players out; normal and heroic dungeons can be run again at will,
+    // a permanent bind there left the dungeon finder refusing the dungeon until the next reset
+    if (!IsRaid() && GetDifficultyID() != DIFFICULTY_MYTHIC_DUNGEON)
+        return;
+
     InstanceSave* save = sInstanceSaveMgr->GetInstanceSave(GetInstanceId());
     if (!save)
     {
