@@ -137,6 +137,17 @@ void WorldSession::HandleSetSelectionOpcode(WorldPackets::Misc::SetSelection& pa
 
 void WorldSession::HandleStandStateChangeOpcode(WorldPackets::Misc::StandStateChange& packet)
 {
+    switch (packet.StandState)
+    {
+        case UNIT_STAND_STATE_STAND:
+        case UNIT_STAND_STATE_SIT:
+        case UNIT_STAND_STATE_SLEEP:
+        case UNIT_STAND_STATE_KNEEL:
+            break;
+        default:
+            return;
+    }
+
     _player->SetStandState(packet.StandState);
 }
 
@@ -217,6 +228,15 @@ void WorldSession::HandleAreaTrigger(WorldPackets::Misc::AreaTrigger& packet)
 
     if (sScriptMgr->OnAreaTrigger(player, atEntry, packet.Entered))
         return;
+
+    // Leaving is not checked against the radius, the client reports it from wherever the player ended up (teleport,
+    // charge, spirit release); it only reaches the scripts, never the quest, tavern and teleport code below
+    if (!packet.Entered)
+    {
+        if (OutdoorPvP* pvp = player->GetOutdoorPvP())
+            pvp->HandleAreaTrigger(_player, packet.AreaTriggerID, false);
+        return;
+    }
 
     if (player->IsAlive())
     {
@@ -670,6 +690,9 @@ void WorldSession::HandleRequestResearchHistory(WorldPackets::Misc::RequestResea
 
 void WorldSession::HandleChoiceResponse(WorldPackets::Misc::ChoiceResponse& packet)
 {
+    if (!packet.ChoiceID || _player->GetOpenPlayerChoice() != packet.ChoiceID)
+        return;
+
     auto playerChoice = sObjectMgr->GetPlayerChoice(packet.ChoiceID);
     if (!playerChoice)
         return;
@@ -677,6 +700,8 @@ void WorldSession::HandleChoiceResponse(WorldPackets::Misc::ChoiceResponse& pack
     auto playerChoiceResponse = playerChoice->GetResponse(packet.ResponseID);
     if (!playerChoiceResponse)
         return;
+
+    _player->ClearOpenPlayerChoice();
 
     if (auto reward = playerChoiceResponse->Reward)
         if (reward.has_value() && reward->SpellID)

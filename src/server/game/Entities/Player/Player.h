@@ -3158,6 +3158,8 @@ class TC_GAME_API Player : public Unit, public GridObject<Player>
 
         uint32 SelectArfiactSpellForSpec(uint32 specID);
         void SendDisplayPlayerChoice(ObjectGuid sender, int32 choiceId);
+        uint32 GetOpenPlayerChoice() const { return m_openPlayerChoiceId; }
+        void ClearOpenPlayerChoice() { m_openPlayerChoiceId = 0; }
 
         Bracket* getBracket(uint8 slot) const;
         std::tuple<uint32, uint32> GetItemDataForRatedQuest(uint32 bracketType);
@@ -3649,6 +3651,7 @@ class TC_GAME_API Player : public Unit, public GridObject<Player>
         uint8 m_grantableLevels;
 
     private:
+        uint32 m_openPlayerChoiceId = 0;
         bool m_createSpellsPending = false;
         bool m_introCinematicPlaying = false;
         uint8 m_createSpellsPose = UNIT_STAND_STATE_STAND;

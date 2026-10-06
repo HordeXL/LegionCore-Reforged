@@ -2123,7 +2123,9 @@ bool Player::SafeTeleport(uint32 mapid, float x, float y, float z, float orienta
     // The player was ported to another map and loses the duel immediately.
     // We have to perform this check before the teleport, otherwise the
     // ObjectAccessor won't find the flag.
-    if (duel && GetMapId() != mapid && GetMap()->GetGameObject(GetGuidValue(PLAYER_FIELD_DUEL_ARBITER)))
+    // ended even without its flag: a duel must never survive a change of Map object (both duelers are looked up on
+    // one map), which a zone map change does on the same map id; a same-id teleport otherwise stays in this instance
+    if (duel && (GetMapId() != mapid || (options & TELE_TO_ZONE_MAP)))
         DuelComplete(DUEL_FLED);
 
     // preparing unsummon pet if lost (we must get pet before teleportation or will not find it later)
@@ -2500,6 +2502,10 @@ void Player::ZoneTeleport(uint32 zoneId)
 
     if (IsHasDelayedTeleport() || IsHasGlobalTeleport()) // If teleport allready run, not zone teleport
         return;
+
+    // the zone map is another Map (and thread): the opponent could not be found from there
+    if (duel)
+        DuelComplete(DUEL_FLED);
 
     Map* oldmap = GetMap();
     uint32 mapid = GetMap()->GetId();
@@ -10356,6 +10362,13 @@ void Player::CheckDuelDistance()
     if (!duel)
         return;
 
+    // the opponent left this map without ending the duel: nothing can end it any more from here
+    if (!ObjectAccessor::GetPlayer(*this, duel->opponent))
+    {
+        DuelComplete(DUEL_INTERRUPTED);
+        return;
+    }
+
     if (GameObject* arbiter = GetMap()->GetGameObject(duel->arbiter))
     {
         if (!duel->outOfBoundTimer)
@@ -10386,10 +10399,29 @@ void Player::DuelComplete(DuelCompleteType type)
     if (!duel || m_duelLock)
         return;
 
-    Player* dueler = ObjectAccessor::FindPlayer(duel->opponent);
+    // both duelers stand on the same map (the duel ends before a teleport): a global lookup could hand out a player of another thread
+    Player* dueler = ObjectAccessor::GetPlayer(*this, duel->opponent);
 
+    // the opponent is gone from this map: only this side can be cleaned, he cleans his own (CheckDuelDistance)
     if (!dueler)
+    {
+        if (duel->initiator == GetGUID())
+            if (GameObject* obj = GetMap()->GetGameObject(duel->arbiter))
+                RemoveGameObject(obj, true);
+
+        DisablePvpRules();
+
+        WorldPackets::Duel::DuelComplete duelCompleted;
+        duelCompleted.Started = type != DUEL_INTERRUPTED;
+        SendDirectMessage(duelCompleted.Write());
+
+        SetGuidValue(PLAYER_FIELD_DUEL_ARBITER, ObjectGuid::Empty);
+        SetUInt32Value(PLAYER_FIELD_DUEL_TEAM, 0);
+
+        delete duel;
+        duel = nullptr;
         return;
+    }
 
     m_duelLock = true;
     TC_LOG_DEBUG("entities.unit", "Duel Complete: WinnerName %s, BeatenName %s", dueler->GetName(), GetName());
@@ -10397,7 +10429,7 @@ void Player::DuelComplete(DuelCompleteType type)
     // Remove Duel Flag object
     if (GameObject* obj = GetMap()->GetGameObject(duel->arbiter))
     {
-        if (Player* initiator = ObjectAccessor::FindPlayer(duel->initiator))
+        if (Player* initiator = ObjectAccessor::GetPlayer(*this, duel->initiator))
             initiator->RemoveGameObject(obj, true);
     }
 
@@ -26539,9 +26571,10 @@ void Player::UpdateDuelFlag(uint32 diff)
 
     if (duel->countdownTimer <= diff)
     {
-        Player* dueler = ObjectAccessor::FindPlayer(duel->opponent);
+        Player* dueler = ObjectAccessor::GetPlayer(*this, duel->opponent);
 
-        if (!dueler)
+        // the opponent may have ended his side alone (he left the map meanwhile)
+        if (!dueler || !dueler->duel || dueler->duel->opponent != GetGUID())
             return;
 
         sScriptMgr->OnPlayerDuelStart(this, dueler);
@@ -36412,10 +36445,15 @@ void Player::SceneCompleted(uint32 instance)
     if (data == m_sceneInstanceID.end())
         return;
 
+    uint32 const sceneId = data->second;
+
     // Triger some events at complete scene.
     TrigerScene(instance, "complete");
 
-    m_sceneStatus[data->second] = SCENE_COMPLETE;
+    // A finished scene is forgotten, so a replayed "complete" packet cannot fire its events again
+    m_sceneInstanceID.erase(instance);
+
+    m_sceneStatus[sceneId] = SCENE_COMPLETE;
 
     AddDelayedEvent(100, [this]() -> void
     {
@@ -36425,7 +36463,7 @@ void Player::SceneCompleted(uint32 instance)
     AuraEffectList const& periodicAuras = GetAuraEffectsByType(SPELL_AURA_ACTIVATE_SCENE);
     for (AuraEffectList::const_iterator i = periodicAuras.begin(); i != periodicAuras.end(); ++i)
     {
-        if ((*i)->GetMiscValue() == data->second)
+        if ((*i)->GetMiscValue() == int32(sceneId))
         {
             RemoveAurasDueToSpell((*i)->GetId());
             break;
@@ -38083,6 +38121,7 @@ void Player::SendDisplayPlayerChoice(ObjectGuid sender, int32 choiceId)
         }
     }
 
+    m_openPlayerChoiceId = uint32(choiceId);
     SendDirectMessage(displayPlayerChoice.Write());
 }
 

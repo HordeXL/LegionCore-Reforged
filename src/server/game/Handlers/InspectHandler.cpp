@@ -20,13 +20,28 @@
 #include "GuildMgr.h"
 #include "Bracket.h"
 
+namespace
+{
+    float const InspectDistance = 28.0f;
+
+    // Retail only lets a player inspect someone close by and not hostile; arena spectators watch from anywhere.
+    // The target is looked up on the inspector's map: only that one belongs to this thread.
+    bool CanInspect(Player* inspector, Player* target)
+    {
+        if (inspector->IsSpectator())
+            return true;
+
+        return inspector->IsWithinDistInMap(target, InspectDistance, false) && !inspector->IsValidAttackTarget(target);
+    }
+}
+
 void WorldSession::HandleInspect(WorldPackets::Inspect::Inspect& packet)
 {
-    Player* player = ObjectAccessor::FindPlayer(packet.Target);
+    Player* player = ObjectAccessor::GetPlayer(*GetPlayer(), packet.Target);
     if (!player)
         return;
 
-    if (!GetPlayer()->IsSpectator() && GetPlayer()->IsValidAttackTarget(player))
+    if (!CanInspect(GetPlayer(), player))
         return;
 
     uint8 index = player->GetActiveTalentGroup();
@@ -75,12 +90,15 @@ void WorldSession::HandleInspect(WorldPackets::Inspect::Inspect& packet)
 
 void WorldSession::HandleRequestHonorStats(WorldPackets::Inspect::RequestHonorStats& packet)
 {
-    Player* player = ObjectAccessor::FindPlayer(packet.TargetGUID);
+    Player* player = ObjectAccessor::GetPlayer(*GetPlayer(), packet.TargetGUID);
     if (!player)
     {
         TC_LOG_DEBUG("network", "WorldSession::HandleRequestHonorStats: Target %s not found.", packet.TargetGUID.ToString().c_str());
         return;
     }
+
+    if (!CanInspect(GetPlayer(), player))
+        return;
 
     WorldPackets::Inspect::InspectHonorStats honorStats;
     honorStats.PlayerGUID  = packet.TargetGUID;
@@ -93,8 +111,11 @@ void WorldSession::HandleRequestHonorStats(WorldPackets::Inspect::RequestHonorSt
 
 void WorldSession::HandleInspectPVP(WorldPackets::Inspect::InspectPVPRequest& packet)
 {
-    Player* player = ObjectAccessor::FindPlayer(packet.InspectTarget);
+    Player* player = ObjectAccessor::GetPlayer(*GetPlayer(), packet.InspectTarget);
     if (!player)
+        return;
+
+    if (!CanInspect(GetPlayer(), player))
         return;
 
     WorldPackets::Inspect::InspectPVPResponse response;
@@ -122,6 +143,12 @@ void WorldSession::HandleInspectPVP(WorldPackets::Inspect::InspectPVPRequest& pa
 
 void WorldSession::HandleQueryInspectAchievements(WorldPackets::Inspect::QueryInspectAchievements& inspect)
 {
-    if (Player* player = ObjectAccessor::FindPlayer(inspect.Guid))
-        player->GetAchievementMgr()->SendAchievementInfo(_player);
+    Player* player = ObjectAccessor::GetPlayer(*GetPlayer(), inspect.Guid);
+    if (!player)
+        return;
+
+    if (!CanInspect(GetPlayer(), player))
+        return;
+
+    player->GetAchievementMgr()->SendAchievementInfo(_player);
 }

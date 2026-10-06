@@ -18,16 +18,19 @@
 
 #include "DuelPackets.h"
 
+// Both duelers share a map, hence a thread: the duel spell targets a unit of the caster's map, and leaving
+// the map (teleport, logout run by the map) completes the duel first. Lookups stay inside this map so an
+// object or player of another thread is never touched.
 void WorldSession::HandleDuelResponse(WorldPackets::Duel::DuelResponse& packet)
 {
-    if (GameObject* arbiter = ObjectAccessor::FindGameObject(packet.ArbiterGUID))
+    if (GameObject* arbiter = ObjectAccessor::GetGameObject(*_player, packet.ArbiterGUID))
     {
         if (!_player->duel)
             return;
 
-        auto dueler = ObjectAccessor::FindPlayer(_player->duel->opponent);
+        auto dueler = ObjectAccessor::GetPlayer(*_player, _player->duel->opponent);
 
-        if (!dueler)
+        if (!dueler || !dueler->duel)
             return;
 
         if (_player->duel->arbiter != arbiter->GetGUID())
@@ -83,7 +86,7 @@ void WorldSession::HandleDuelResponse(WorldPackets::Duel::DuelResponse& packet)
 
 void WorldSession::HandleCanDuel(WorldPackets::Duel::CanDuel& packet)
 {
-    Player* dueler = ObjectAccessor::FindPlayer(packet.TargetGUID);
+    Player* dueler = ObjectAccessor::GetPlayer(*_player, packet.TargetGUID);
     if (!dueler)
         return;
 
