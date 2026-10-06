@@ -92,7 +92,11 @@ public:
             Position battleCenterPosition = Position((playerPosition.m_positionX + trainerPosition.m_positionX) / 2, (playerPosition.m_positionY + trainerPosition.m_positionY) / 2, 0.0f, trainerPosition.GetOrientation() + M_PI);
             battleCenterPosition.m_positionZ = player->GetMap()->GetHeight(battleCenterPosition.m_positionX, battleCenterPosition.m_positionY, MAX_HEIGHT);
 
-            PetBattleRequest* battleRequest = sPetBattleSystem->CreateRequest(player->GetGUID());
+            // a trainer battle request is never published: nobody else may answer it
+            sPetBattleSystem->RemoveRequest(player->GetGUID());
+            auto request = std::make_shared<PetBattleRequest>();
+            PetBattleRequest* battleRequest = request.get();
+            battleRequest->RequesterGuid = player->GetGUID();
             battleRequest->OpponentGuid = creature->GetGUID();
             battleRequest->PetBattleCenterPosition = battleCenterPosition;
             battleRequest->TeamPosition[PETBATTLE_TEAM_1] = playerPosition;
@@ -103,7 +107,6 @@ public:
             if (canEnterResult != PETBATTLE_REQUEST_OK)
             {
                 player->GetSession()->SendPetBattleRequestFailed(canEnterResult);
-                sPetBattleSystem->RemoveRequest(battleRequest->RequesterGuid);
                 return true;
             }
 
@@ -185,7 +188,8 @@ public:
 
             player->GetSession()->SendPetBattleFinalizeLocation(battleRequest);
 
-            PetBattle* petBattle = sPetBattleSystem->CreateBattle();
+            std::shared_ptr<PetBattle> petBattle = sPetBattleSystem->NewBattle();
+            std::lock_guard<std::recursive_mutex> battleGuard(petBattle->BattleLock);
 
             petBattle->Teams[PETBATTLE_TEAM_1]->OwnerGuid = player->GetGUID();
             petBattle->Teams[PETBATTLE_TEAM_1]->PlayerGuid = player->GetGUID();
@@ -204,8 +208,6 @@ public:
             petBattle->PveBattleType = PVE_PETBATTLE_TRAINER;
 
             player->_petBattleId = petBattle->ID;
-
-            sPetBattleSystem->RemoveRequest(battleRequest->RequesterGuid);
 
             for (size_t i = 0; i < MAX_PETBATTLE_SLOTS; ++i)
             {

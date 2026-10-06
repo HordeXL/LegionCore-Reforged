@@ -9,8 +9,11 @@
 #pragma once
 
 #include "Common.h"
+#include <memory>
+#include <mutex>
 
 class Field;
+class WorldPacket;
 
 #define MAX_PETBATTLE_SLOTS 3
 #define MAX_PETBATTLE_TEAM 2
@@ -539,11 +542,16 @@ public:
 
     int8 CapturedPet;                                       ///< Captured pet id
 
-    bool Ready;                                             ///< Team is ready to process next round
+    uint32 TrapLevel;                                       ///< Owner trap level, read in Begin so the world thread never asks the player
+
+    bool Ready;                                            ///< Team is ready to process next round
     bool isRun;                                             ///< Team is ready to run
 };
 
-class TC_GAME_API PetBattle
+// Threading: PetBattleSystem::Update advances battles in the world thread while packet handlers act on them from
+// the players' map threads. Every access to a battle holds BattleLock. Lock order: BattleLock may take the
+// PetBattleSystem lock, never the reverse. Player side effects of the world thread are posted to the player.
+class TC_GAME_API PetBattle : public std::enable_shared_from_this<PetBattle>
 {
 public:
     PetBattle();
@@ -551,11 +559,17 @@ public:
 
     void AddPet(uint32 teamID, std::shared_ptr<BattlePetInstance> pet);
 
-    void Begin();
+    // Called from the map thread that owns the team players (handler, trainer script, delayed operation).
+    // caller: the team player whose thread runs this; only players of his map are touched
+    void Begin(Player* caller);
     void ProceedRound();
     void Finish(uint32 winnerTeamID, bool aborted, bool ignoreAbandonPenalty);
+    void Forfeit(ObjectGuid forfeiterGuid, bool ignoreAbandonPenalty);
 
     void Update(uint32 diff);
+
+    WorldPacket BuildRoundResultPacket();
+    WorldPacket BuildReplacementMadePacket();
 
     void SwapPet(uint32 teamID, int32 newFrontPetID, bool initial = false);
 
@@ -601,7 +615,12 @@ public:
     int8 CatchedPetId;
     ObjectGuid InitialWildPetGUID;
 
+    std::recursive_mutex BattleLock;
+    uint32 CreationElapsed = 0;                                             ///< Time spent in PETBATTLE_STATUS_CREATION, advanced by PetBattleSystem::Update
+
 private:
+    void RewardAndRelease(Player* player, uint32 teamID, bool aborted);
+
     IntervalTimer m_UpdateTimer;
 
 };

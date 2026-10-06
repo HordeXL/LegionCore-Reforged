@@ -17,8 +17,26 @@
 #include "ScriptMgr.h"
 #include "GameTables.h"
 #include "BattlePetPackets.h"
+#include "Player.h"
+#include "WorldPacket.h"
+#include "WorldSession.h"
 
 #define PETBATTLE_UPDATE_INTERVAL 300
+
+namespace
+{
+    // The packet is built now, under the battle lock, and sent from the player's own update.
+    void QueuePacket(ObjectGuid const& playerGuid, WorldPacket const& packet)
+    {
+        if (!playerGuid)
+            return;
+
+        ObjectAccessor::PostToPlayer(playerGuid, [packet](Player* player) -> void
+        {
+            player->SendDirectMessage(&packet);
+        }, 0, ObjectAccessor::PlayerScope::InWorld);
+    }
+}
 
 void BattlePet::Load(Field* fields)
 {
@@ -705,8 +723,7 @@ bool PetBattleTeam::Update()
         {
             PetBattleInstance->SwapPet(thisTeamID, availablesPets[0]);
 
-            if (auto player = ObjectAccessor::GetObjectInWorld(PlayerGuid, static_cast<Player*>(nullptr)))
-                player->GetSession()->SendPetBattleReplacementMade(PetBattleInstance);
+            QueuePacket(PlayerGuid, PetBattleInstance->BuildReplacementMadePacket());
 
             if (PetBattleInstance->BattleType == PETBATTLE_TYPE_PVE && thisTeamID == PETBATTLE_PVE_TEAM_ID)
                 PetBattleInstance->Teams[PETBATTLE_TEAM_1]->Ready = true;
@@ -720,8 +737,7 @@ bool PetBattleTeam::Update()
         {
             PetBattleInstance->SwapPet(thisTeamID, availablesPets[rand() % availablesPets.size()]);
 
-            if (auto player = ObjectAccessor::GetObjectInWorld(PlayerGuid, static_cast<Player*>(nullptr)))
-                player->GetSession()->SendPetBattleReplacementMade(PetBattleInstance);
+            QueuePacket(PlayerGuid, PetBattleInstance->BuildReplacementMadePacket());
 
             PetBattleInstance->Teams[PETBATTLE_TEAM_1]->Ready = true;
             Ready = true;
@@ -796,6 +812,14 @@ bool PetBattleTeam::CanSwap(int8 replacementPet)
 
     if (replacementPet != PETBATTLE_NULL_ID)
     {
+        // The index comes from the client.
+        if (replacementPet < 0 || replacementPet >= MAX_PETBATTLE_TEAM * MAX_PETBATTLE_SLOTS)
+            return false;
+
+        uint32 thisTeamID = PetBattleInstance->Teams[PETBATTLE_TEAM_1] == this ? PETBATTLE_TEAM_1 : PETBATTLE_TEAM_2;
+        if (!PetBattleInstance->Pets[replacementPet] || PetBattleInstance->Pets[replacementPet]->TeamID != thisTeamID)
+            return false;
+
         if (!PetBattleInstance->Pets[replacementPet]->IsAlive())
             return false;
 
@@ -903,8 +927,8 @@ uint32 PetBattleTeam::GetCatchAbilityID()
         return 0;
 
     static const uint32 petBattleCatchAbilityID[] = {427, 77, 135};
-    if (auto player = ObjectAccessor::GetObjectInWorld(PlayerGuid, static_cast<Player*>(nullptr)))
-        return petBattleCatchAbilityID[player->GetBattlePetTrapLevel() - 1];
+    if (TrapLevel >= 1 && TrapLevel <= 3)
+        return petBattleCatchAbilityID[TrapLevel - 1];
 
     return petBattleCatchAbilityID[0];
 }
@@ -929,6 +953,7 @@ PetBattle::PetBattle()
         team->activeAbilityTurn = 0;
         team->activeAbilityTurnMax = 0;
         team->CapturedPet = PETBATTLE_NULL_ID;
+        team->TrapLevel = 1;
         team->Ready = false;
         team->isRun = false;
 
@@ -1019,9 +1044,24 @@ void PetBattle::AddPet(uint32 teamID, std::shared_ptr<BattlePetInstance> pet)
         pet->Health = pet->InfoMaxHealth;
 }
 
-void PetBattle::Begin()
+void PetBattle::Begin(Player* caller)
 {
     // TC_LOG_DEBUG("battlepet", "PetBattle::Begin()");
+
+    std::lock_guard<std::recursive_mutex> guard(BattleLock);
+
+    if (BattleStatus != PETBATTLE_STATUS_CREATION)
+        return;
+
+    // The caller runs in the map thread of the team players; a player found on another map is not touched.
+    Player* players[MAX_PETBATTLE_TEAM] = { };
+    for (size_t i = 0; i < MAX_PETBATTLE_TEAM; ++i)
+    {
+        if (!Teams[i]->PlayerGuid || !caller)
+            continue;
+
+        players[i] = ObjectAccessor::GetPlayer(*caller, Teams[i]->PlayerGuid);
+    }
 
     RoundStatus = PETBATTLE_ROUND_RUNNING;
     RoundResult = PETBATTLE_ROUND_RESULT_NORMAL;
@@ -1032,8 +1072,11 @@ void PetBattle::Begin()
         Teams[i]->ActiveAbilityId = 0;
         Teams[i]->ActivePetID = i == PETBATTLE_TEAM_2 ? MAX_PETBATTLE_SLOTS : 0;
 
-        if (Player* player = sObjectAccessor->FindPlayer(Teams[i]->OwnerGuid))
+        if (Player* player = players[i])
+        {
+            Teams[i]->TrapLevel = player->GetBattlePetTrapLevel();
             player->UnsummonCurrentBattlePetIfAny(true);
+        }
     }
 
     /// In PVE battle the front pets (slot 0) are auto lock
@@ -1045,7 +1088,7 @@ void PetBattle::Begin()
         /// Team 2 pet selection
         SwapPet(PETBATTLE_TEAM_2, Teams[PETBATTLE_TEAM_2]->ActivePetID, true);
 
-        if (Player* player = sObjectAccessor->FindPlayer(Teams[PETBATTLE_TEAM_1]->OwnerGuid))
+        if (Player* player = players[PETBATTLE_TEAM_1])
         {
             player->PetBattleCountBattleSpecies();
 
@@ -1059,8 +1102,8 @@ void PetBattle::Begin()
     }
     else if (BattleType == PETBATTLE_TYPE_PVP_DUEL || BattleType == PETBATTLE_TYPE_PVP_MATCHMAKING)
     {
-        Player* playerA = sObjectAccessor->FindPlayer(Teams[PETBATTLE_TEAM_1]->OwnerGuid);
-        Player* playerB = sObjectAccessor->FindPlayer(Teams[PETBATTLE_TEAM_2]->OwnerGuid);
+        Player* playerA = players[PETBATTLE_TEAM_1];
+        Player* playerB = players[PETBATTLE_TEAM_2];
 
         if (playerA && playerB)
         {
@@ -1191,14 +1234,9 @@ void PetBattle::ProceedRound()
     if (RoundResult == PETBATTLE_ROUND_RESULT_NONE)
         RoundResult = PETBATTLE_ROUND_RESULT_NORMAL;
 
+    WorldPacket const roundResult = BuildRoundResultPacket();
     for (auto& team : Teams)
-    {
-        if (!team->PlayerGuid)
-            continue;
-
-        if (auto player = ObjectAccessor::GetObjectInWorld(team->PlayerGuid, static_cast<Player*>(nullptr)))
-            player->GetSession()->SendPetBattleRoundResult(this);
-    }
+        QueuePacket(team->PlayerGuid, roundResult);
 
 
     // To next turn
@@ -1214,6 +1252,12 @@ void PetBattle::ProceedRound()
 
 void PetBattle::Finish(uint32 winnerTeamID, bool aborted, bool ignoreAbandonPenalty)
 {
+    std::lock_guard<std::recursive_mutex> guard(BattleLock);
+
+    // A late forfeit or a second end of round must not hand the rewards out twice.
+    if (BattleStatus != PETBATTLE_STATUS_RUNNING)
+        return;
+
     if (aborted)
         if (Pets[Teams[winnerTeamID]->ActivePetID] && Pets[Teams[winnerTeamID]->ActivePetID]->IsAlive() && Pets[Teams[winnerTeamID]->ActivePetID]->States[BATTLEPET_STATE_Mechanic_IsWebbed])
             return;
@@ -1221,177 +1265,228 @@ void PetBattle::Finish(uint32 winnerTeamID, bool aborted, bool ignoreAbandonPena
     RoundStatus = PETBATTLE_ROUND_FINISHED;
     WinnerTeamId = winnerTeamID;
 
+    // Battle-side changes are made now, so every final round packet shows the same pets.
     for (size_t currentTeamID = 0; currentTeamID < MAX_PETBATTLE_TEAM; ++currentTeamID)
     {
-        if (Teams[currentTeamID]->PlayerGuid)
+        if (!Teams[currentTeamID]->PlayerGuid)
+            continue;
+
+        for (size_t currentPetID = 0; currentPetID < Teams[currentTeamID]->TeamPetCount; ++currentPetID)
         {
-            auto player = ObjectAccessor::GetObjectInWorld(Teams[currentTeamID]->PlayerGuid, static_cast<Player*>(nullptr));
-            if (!player)
+            auto currentPet = Teams[currentTeamID]->TeamPets[currentPetID];
+            if (!currentPet)
                 continue;
 
-            sScriptMgr->OnPetBattleFinish(player);
+            if (currentPet->Health < 0)
+                currentPet->Health = 0;
 
-            uint32 availablePetCount = Teams[currentTeamID]->GetAvailablesPets().size();
-
-            for (size_t currentPetID = 0; currentPetID < Teams[currentTeamID]->TeamPetCount; ++currentPetID)
-            {
-                auto currentPet = Teams[currentTeamID]->TeamPets[currentPetID];
-                if (!currentPet)
-                    continue;
-
-                if (currentPet->Health < 0)
-                    currentPet->Health = 0;
-
-                if (ignoreAbandonPenalty && aborted && winnerTeamID != currentTeamID)
-                    currentPet->Health = AddPct(currentPet->Health, -GetForfeitHealthPenalityPct());
-
-                if (winnerTeamID == currentTeamID && availablePetCount && BattleType == PETBATTLE_TYPE_PVE && currentPet->IsAlive() && currentPet->Level < BATTLEPET_MAX_LEVEL && FightedPets.find(currentPet->ID) != FightedPets.end())
-                {
-                    uint32 xpEarn = 0;
-                    float xpMod[] = {1.0f, 1.0f, 0.5f};
-
-                    for (uint32 opponentTeamCurrentPet = 0; opponentTeamCurrentPet < Teams[PETBATTLE_PVE_TEAM_ID]->TeamPetCount; opponentTeamCurrentPet++)
-                    {
-                        if (!Teams[PETBATTLE_PVE_TEAM_ID]->TeamPets[opponentTeamCurrentPet] || FightedPets.find(Teams[PETBATTLE_PVE_TEAM_ID]->TeamPets[opponentTeamCurrentPet]->ID) == FightedPets.end())
-                            continue;
-
-                        xpEarn += float(currentPet->GetXPEarn(Teams[PETBATTLE_PVE_TEAM_ID]->TeamPets[opponentTeamCurrentPet]->ID)) * xpMod[opponentTeamCurrentPet] / availablePetCount;
-                    }
-
-                    AddPct(xpEarn, player->GetTotalAuraModifier(SPELL_AURA_MOD_BATTLE_PET_XP_GAIN));
-                    auto xpToNextLevel = currentPet->GetMaxXPForCurrentLevel();
-                    if (currentPet->XP + xpEarn >= xpToNextLevel)
-                    {
-                        currentPet->XP = currentPet->XP + xpEarn - xpToNextLevel;
-                        currentPet->Level++;
-                        currentPet->UpdateStats();
-                        currentPet->UpdateAbilities();
-                        currentPet->Health = currentPet->InfoMaxHealth;
-
-                        if (currentPet->Level == BATTLEPET_MAX_LEVEL)
-                            currentPet->XP = 0;
-
-                        if (auto speciesInfo = sBattlePetSpeciesStore.LookupEntry(currentPet->Species))
-                        {
-                            player->UpdateAchievementCriteria(CRITERIA_TYPE_BATTLEPET_LEVEL_UP, currentPet->Level, speciesInfo->PetTypeEnum, currentPet->Species);
-                            player->UpdateAchievementCriteria(CRITERIA_TYPE_LEVEL_BATTLE_PET_CREDIT, speciesInfo->ID, currentPet->Level, currentPet->Species);
-                        }
-
-                        if (currentPet->Level >= 3)
-                        {
-                            /// Quest progress for 12 x Level Up!
-                            player->KilledMonsterCredit(65876);
-                        }
-                    }
-                    else
-                        currentPet->XP += xpEarn;
-                }
-
-                currentPet->UpdateOriginalInstance(player);
-                player->UpdateBattlePetCombatTeam();
-                player->GetSession()->SendBattlePetUpdates(currentPet.get());
-            }
-
-            if (winnerTeamID == currentTeamID)
-            {
-                auto speciesInfo = sDB2Manager.GetSpeciesByCreatureID(InitialWildPetGUID.GetEntry());
-                player->UpdateAchievementCriteria(CRITERIA_TYPE_BATTLEPET_WIN, BattleType != PETBATTLE_TYPE_PVE, 0, speciesInfo ? speciesInfo->ID : 0);
-                if (speciesInfo)
-                    player->QuestObjectiveSatisfy(speciesInfo->ID, 1, QUEST_OBJECTIVE_DEFEATBATTLEPET, InitialWildPetGUID);
-            }
-
-            if (BattleType == PETBATTLE_TYPE_PVE && PveBattleType == PVE_PETBATTLE_WILD)
-            {
-                /// Quest progress for 12 x Learning the Ropes
-                player->KilledMonsterCredit(65355);
-            }
-
-            if (BattleType == PETBATTLE_TYPE_PVE && currentTeamID == winnerTeamID && Teams[currentTeamID]->CapturedPet != PETBATTLE_NULL_ID)
-            {
-                if (Pets[Teams[currentTeamID]->CapturedPet]->Level >= 16 && Pets[Teams[currentTeamID]->CapturedPet]->Level <= 20)
-                    Pets[Teams[currentTeamID]->CapturedPet]->Level -= 1;
-                else if (Pets[Teams[currentTeamID]->CapturedPet]->Level >= 21 && Pets[Teams[currentTeamID]->CapturedPet]->Level <= 25)
-                    Pets[Teams[currentTeamID]->CapturedPet]->Level -= 2;
-
-                if (Pets[Teams[currentTeamID]->CapturedPet]->Health <= CalculatePct(Pets[Teams[currentTeamID]->CapturedPet]->InfoMaxHealth, 5))
-                    if (auto achievement = sAchievementStore.LookupEntry(6571))
-                        player->CompletedAchievement(achievement);
-
-                Pets[Teams[currentTeamID]->CapturedPet]->UpdateStats();
-                Pets[Teams[currentTeamID]->CapturedPet]->Health = Pets[Teams[currentTeamID]->CapturedPet]->InfoMaxHealth;
-                Pets[Teams[currentTeamID]->CapturedPet]->Slot = PETBATTLE_NULL_SLOT;
-                Pets[Teams[currentTeamID]->CapturedPet]->AddToPlayer(player);
-                player->_battlePets.emplace(Pets[Teams[currentTeamID]->CapturedPet]->JournalID, Pets[Teams[currentTeamID]->CapturedPet]);
-
-                if (auto speciesInfo = sBattlePetSpeciesStore.LookupEntry(Pets[Teams[currentTeamID]->CapturedPet]->Species))
-                {
-                    player->UpdateAchievementCriteria(CRITERIA_TYPE_ADD_BATTLE_PET_JOURNAL, speciesInfo->CreatureID);
-                    player->UpdateAchievementCriteria(CRITERIA_TYPE_CAPTURE_SPECIFIC_BATTLEPET, speciesInfo->ID, 0, speciesInfo->ID);
-                    player->UpdateAchievementCriteria(CRITERIA_TYPE_CAPTURE_PET_IN_BATTLE, 1, Pets[Teams[currentTeamID]->CapturedPet]->Quality, speciesInfo->ID);
-                }
-
-                /// Quest progress for 12 x Got One!
-                player->KilledMonsterCredit(65356);
-            }
-
-            if (BattleType == PETBATTLE_TYPE_PVE && PveBattleType == PVE_PETBATTLE_TRAINER && currentTeamID == winnerTeamID)
-                if (auto trainer = ObjectAccessor::GetObjectInOrOutOfWorld(Teams[PETBATTLE_PVE_TEAM_ID]->OwnerGuid, static_cast<Creature*>(nullptr)))
-                    player->QuestObjectiveSatisfy(trainer->GetEntry(), 1, QUEST_OBJECTIVE_PET_TRAINER_DEFEAT, trainer->GetGUID());
+            if (ignoreAbandonPenalty && aborted && winnerTeamID != currentTeamID)
+                currentPet->Health = AddPct(currentPet->Health, -GetForfeitHealthPenalityPct());
         }
     }
 
+    // Finish may run in the world thread: rewards and release go to each player's own update, and the
+    // captured pointer keeps the battle alive until then. A player between two maps gets them on arrival.
+    std::shared_ptr<PetBattle> self = shared_from_this();
+    for (uint32 currentTeamID = 0; currentTeamID < MAX_PETBATTLE_TEAM; ++currentTeamID)
+    {
+        if (!Teams[currentTeamID]->PlayerGuid)
+            continue;
+
+        ObjectAccessor::PostToPlayer(Teams[currentTeamID]->PlayerGuid, [self, currentTeamID, aborted](Player* player) -> void
+        {
+            self->RewardAndRelease(player, currentTeamID, aborted);
+        });
+    }
+
+    // The wild creatures belong to a map: released by the team 1 player's update, on his map. Only the pets
+    // HandlePetBattleRequestWild took from nearby creatures carry OriginalCreature, and that search is disabled.
+    std::vector<ObjectGuid> wildCreatures;
     for (size_t currentTeamID = 0; currentTeamID < MAX_PETBATTLE_TEAM; ++currentTeamID)
     {
         if (Teams[currentTeamID]->PlayerGuid)
+            continue;
+
+        if (BattleType == PETBATTLE_TYPE_PVE && PveBattleType == PVE_PETBATTLE_WILD)
         {
-            auto player = ObjectAccessor::GetObjectInWorld(Teams[currentTeamID]->PlayerGuid, static_cast<Player*>(nullptr));
-            if (!player)
-                continue;
-
-            //TODO: update achievement criteria
-            player->RemoveFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_PACIFIED | UNIT_FLAG_IMMUNE_TO_NPC);
-
-            // Send battle result
-            CombatResult = aborted ? PETBATTLE_RESULT_ABANDON : currentTeamID == winnerTeamID ? PETBATTLE_RESULT_WON : PETBATTLE_RESULT_LOOSE;
-
-            player->GetSession()->SendPetBattleFinalRound(this);
-            player->SetControlled(false, UNIT_STATE_ROOT);
-            player->AddDelayedEvent(10, [player]() -> void { if (player) player->SummonLastSummonedBattlePet(); });
-            player->_petBattleId.Clear();
-            player->GetSession()->SendBattlePetJournal();
-
-            if (BattleType == PETBATTLE_TYPE_PVP_MATCHMAKING)
-                player->TeleportTo(player->m_recallLoc);
-        }
-        else
-        {
-            if (BattleType == PETBATTLE_TYPE_PVE && PveBattleType == PVE_PETBATTLE_WILD)
+            for (size_t i = 0; i < Teams[currentTeamID]->TeamPetCount; ++i)
             {
-                for (size_t i = 0; i < Teams[currentTeamID]->TeamPetCount; ++i)
-                {
-                    auto currentPet = Teams[currentTeamID]->TeamPets[i];
-                    if (!currentPet || currentPet->OriginalCreature)
-                        continue;
-
-                    auto wildPet = ObjectAccessor::GetObjectInOrOutOfWorld(currentPet->OriginalCreature, static_cast<Creature*>(nullptr));
-                    if (!wildPet)
-                        continue;
-
-                    wildPet->RemoveFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_PACIFIED | UNIT_FLAG_IMMUNE_TO_PC);
-                    wildPet->SetControlled(false, UNIT_STATE_ROOT);
-                    wildPet->_petBattleId.Clear();
-
-                    sWildBattlePetMgr->LeaveBattle(wildPet, winnerTeamID != PETBATTLE_PVE_TEAM_ID);
-                }
+                auto currentPet = Teams[currentTeamID]->TeamPets[i];
+                if (currentPet && !currentPet->OriginalCreature.IsEmpty())
+                    wildCreatures.push_back(currentPet->OriginalCreature);
             }
         }
+    }
+
+    if (!wildCreatures.empty())
+    {
+        ObjectGuid const battleID = ID;
+        bool const defeated = winnerTeamID != PETBATTLE_PVE_TEAM_ID;
+        ObjectAccessor::PostToPlayer(Teams[PETBATTLE_TEAM_1]->PlayerGuid, [wildCreatures, battleID, defeated](Player* player) -> void
+        {
+            for (ObjectGuid const& guid : wildCreatures)
+            {
+                Creature* wildPet = ObjectAccessor::GetCreature(*player, guid);
+                if (!wildPet || wildPet->_petBattleId != battleID)
+                    continue;
+
+                wildPet->RemoveFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_PACIFIED | UNIT_FLAG_IMMUNE_TO_PC);
+                wildPet->SetControlled(false, UNIT_STATE_ROOT);
+                wildPet->_petBattleId.Clear();
+
+                sWildBattlePetMgr->LeaveBattle(wildPet, defeated);
+            }
+        }, 0, ObjectAccessor::PlayerScope::InWorld);
     }
 
     BattleStatus = PETBATTLE_STATUS_FINISHED;
 }
 
+void PetBattle::RewardAndRelease(Player* player, uint32 currentTeamID, bool aborted)
+{
+    std::lock_guard<std::recursive_mutex> guard(BattleLock);
+
+    uint32 const winnerTeamID = uint32(WinnerTeamId);
+
+    sScriptMgr->OnPetBattleFinish(player);
+
+    uint32 availablePetCount = Teams[currentTeamID]->GetAvailablesPets().size();
+
+    for (size_t currentPetID = 0; currentPetID < Teams[currentTeamID]->TeamPetCount; ++currentPetID)
+    {
+        auto currentPet = Teams[currentTeamID]->TeamPets[currentPetID];
+        if (!currentPet)
+            continue;
+
+        if (winnerTeamID == currentTeamID && availablePetCount && BattleType == PETBATTLE_TYPE_PVE && currentPet->IsAlive() && currentPet->Level < BATTLEPET_MAX_LEVEL && FightedPets.find(currentPet->ID) != FightedPets.end())
+        {
+            uint32 xpEarn = 0;
+            float xpMod[] = {1.0f, 1.0f, 0.5f};
+
+            for (uint32 opponentTeamCurrentPet = 0; opponentTeamCurrentPet < Teams[PETBATTLE_PVE_TEAM_ID]->TeamPetCount; opponentTeamCurrentPet++)
+            {
+                if (!Teams[PETBATTLE_PVE_TEAM_ID]->TeamPets[opponentTeamCurrentPet] || FightedPets.find(Teams[PETBATTLE_PVE_TEAM_ID]->TeamPets[opponentTeamCurrentPet]->ID) == FightedPets.end())
+                    continue;
+
+                xpEarn += float(currentPet->GetXPEarn(Teams[PETBATTLE_PVE_TEAM_ID]->TeamPets[opponentTeamCurrentPet]->ID)) * xpMod[opponentTeamCurrentPet] / availablePetCount;
+            }
+
+            AddPct(xpEarn, player->GetTotalAuraModifier(SPELL_AURA_MOD_BATTLE_PET_XP_GAIN));
+            auto xpToNextLevel = currentPet->GetMaxXPForCurrentLevel();
+            if (currentPet->XP + xpEarn >= xpToNextLevel)
+            {
+                currentPet->XP = currentPet->XP + xpEarn - xpToNextLevel;
+                currentPet->Level++;
+                currentPet->UpdateStats();
+                currentPet->UpdateAbilities();
+                currentPet->Health = currentPet->InfoMaxHealth;
+
+                if (currentPet->Level == BATTLEPET_MAX_LEVEL)
+                    currentPet->XP = 0;
+
+                if (auto speciesInfo = sBattlePetSpeciesStore.LookupEntry(currentPet->Species))
+                {
+                    player->UpdateAchievementCriteria(CRITERIA_TYPE_BATTLEPET_LEVEL_UP, currentPet->Level, speciesInfo->PetTypeEnum, currentPet->Species);
+                    player->UpdateAchievementCriteria(CRITERIA_TYPE_LEVEL_BATTLE_PET_CREDIT, speciesInfo->ID, currentPet->Level, currentPet->Species);
+                }
+
+                if (currentPet->Level >= 3)
+                {
+                    /// Quest progress for 12 x Level Up!
+                    player->KilledMonsterCredit(65876);
+                }
+            }
+            else
+                currentPet->XP += xpEarn;
+        }
+
+        currentPet->UpdateOriginalInstance(player);
+        player->UpdateBattlePetCombatTeam();
+        player->GetSession()->SendBattlePetUpdates(currentPet.get());
+    }
+
+    if (winnerTeamID == currentTeamID)
+    {
+        auto speciesInfo = sDB2Manager.GetSpeciesByCreatureID(InitialWildPetGUID.GetEntry());
+        player->UpdateAchievementCriteria(CRITERIA_TYPE_BATTLEPET_WIN, BattleType != PETBATTLE_TYPE_PVE, 0, speciesInfo ? speciesInfo->ID : 0);
+        if (speciesInfo)
+            player->QuestObjectiveSatisfy(speciesInfo->ID, 1, QUEST_OBJECTIVE_DEFEATBATTLEPET, InitialWildPetGUID);
+    }
+
+    if (BattleType == PETBATTLE_TYPE_PVE && PveBattleType == PVE_PETBATTLE_WILD)
+    {
+        /// Quest progress for 12 x Learning the Ropes
+        player->KilledMonsterCredit(65355);
+    }
+
+    if (BattleType == PETBATTLE_TYPE_PVE && currentTeamID == winnerTeamID && Teams[currentTeamID]->CapturedPet != PETBATTLE_NULL_ID)
+    {
+        if (Pets[Teams[currentTeamID]->CapturedPet]->Level >= 16 && Pets[Teams[currentTeamID]->CapturedPet]->Level <= 20)
+            Pets[Teams[currentTeamID]->CapturedPet]->Level -= 1;
+        else if (Pets[Teams[currentTeamID]->CapturedPet]->Level >= 21 && Pets[Teams[currentTeamID]->CapturedPet]->Level <= 25)
+            Pets[Teams[currentTeamID]->CapturedPet]->Level -= 2;
+
+        if (Pets[Teams[currentTeamID]->CapturedPet]->Health <= CalculatePct(Pets[Teams[currentTeamID]->CapturedPet]->InfoMaxHealth, 5))
+            if (auto achievement = sAchievementStore.LookupEntry(6571))
+                player->CompletedAchievement(achievement);
+
+        Pets[Teams[currentTeamID]->CapturedPet]->UpdateStats();
+        Pets[Teams[currentTeamID]->CapturedPet]->Health = Pets[Teams[currentTeamID]->CapturedPet]->InfoMaxHealth;
+        Pets[Teams[currentTeamID]->CapturedPet]->Slot = PETBATTLE_NULL_SLOT;
+        Pets[Teams[currentTeamID]->CapturedPet]->AddToPlayer(player);
+        player->_battlePets.emplace(Pets[Teams[currentTeamID]->CapturedPet]->JournalID, Pets[Teams[currentTeamID]->CapturedPet]);
+
+        if (auto speciesInfo = sBattlePetSpeciesStore.LookupEntry(Pets[Teams[currentTeamID]->CapturedPet]->Species))
+        {
+            player->UpdateAchievementCriteria(CRITERIA_TYPE_ADD_BATTLE_PET_JOURNAL, speciesInfo->CreatureID);
+            player->UpdateAchievementCriteria(CRITERIA_TYPE_CAPTURE_SPECIFIC_BATTLEPET, speciesInfo->ID, 0, speciesInfo->ID);
+            player->UpdateAchievementCriteria(CRITERIA_TYPE_CAPTURE_PET_IN_BATTLE, 1, Pets[Teams[currentTeamID]->CapturedPet]->Quality, speciesInfo->ID);
+        }
+
+        /// Quest progress for 12 x Got One!
+        player->KilledMonsterCredit(65356);
+    }
+
+    if (BattleType == PETBATTLE_TYPE_PVE && PveBattleType == PVE_PETBATTLE_TRAINER && currentTeamID == winnerTeamID)
+        if (auto trainer = sObjectAccessor->GetCreature(*player, Teams[PETBATTLE_PVE_TEAM_ID]->OwnerGuid))
+            player->QuestObjectiveSatisfy(trainer->GetEntry(), 1, QUEST_OBJECTIVE_PET_TRAINER_DEFEAT, trainer->GetGUID());
+
+    //TODO: update achievement criteria
+    player->RemoveFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_PACIFIED | UNIT_FLAG_IMMUNE_TO_NPC);
+
+    // Send battle result
+    CombatResult = aborted ? PETBATTLE_RESULT_ABANDON : currentTeamID == winnerTeamID ? PETBATTLE_RESULT_WON : PETBATTLE_RESULT_LOOSE;
+
+    player->GetSession()->SendPetBattleFinalRound(this);
+    player->SetControlled(false, UNIT_STATE_ROOT);
+    player->AddDelayedEvent(10, [player]() -> void { if (player) player->SummonLastSummonedBattlePet(); });
+    if (player->_petBattleId == ID)
+        player->_petBattleId.Clear();
+    player->GetSession()->SendBattlePetJournal();
+
+    if (BattleType == PETBATTLE_TYPE_PVP_MATCHMAKING)
+        player->TeleportTo(player->m_recallLoc);
+}
+
+void PetBattle::Forfeit(ObjectGuid forfeiterGuid, bool ignoreAbandonPenalty)
+{
+    std::lock_guard<std::recursive_mutex> guard(BattleLock);
+
+    uint32 forfeiterTeamID;
+    for (forfeiterTeamID = 0; forfeiterTeamID < MAX_PETBATTLE_TEAM; ++forfeiterTeamID)
+        if (Teams[forfeiterTeamID]->OwnerGuid == forfeiterGuid)
+            break;
+
+    if (forfeiterTeamID == MAX_PETBATTLE_TEAM)
+        return;
+
+    Finish(!forfeiterTeamID, true, ignoreAbandonPenalty);
+}
+
 void PetBattle::Update(uint32 diff)
 {
+    std::lock_guard<std::recursive_mutex> guard(BattleLock);
+
     if (BattleStatus != PETBATTLE_STATUS_RUNNING)
         return;
 

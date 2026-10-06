@@ -11,6 +11,14 @@
 #define _PetBattleSystem
 
 #include "Common.h"
+#include <atomic>
+#include <memory>
+#include <mutex>
+#include <vector>
+
+class PetBattle;
+class Player;
+struct PetBattleRequest;
 
 enum eBattlePetRequests
 {
@@ -67,6 +75,10 @@ struct LFBTicket
     uint32 ProposalTime;
 };
 
+// Threading: map threads (packet handlers) and the world thread (Update) share this manager. _lock guards the
+// battle and request maps and the deletion queues, _LFBRequestsMutex the matchmaking tickets. Neither is held
+// while a Player is touched or a battle is locked: entries are copied out first. Lock order: PetBattle::BattleLock
+// may be held when taking _lock; the two manager locks never nest.
 class TC_GAME_API PetBattleSystem
 {
     PetBattleSystem();
@@ -75,11 +87,18 @@ class TC_GAME_API PetBattleSystem
 public:
     static PetBattleSystem* instance();
 
-    PetBattle* CreateBattle();
-    PetBattleRequest* CreateRequest(ObjectGuid requesterGuid);
+    std::shared_ptr<PetBattle> NewBattle();
+    std::shared_ptr<PetBattle> AcquireBattle(ObjectGuid battleID);
 
+    // Raw access for older callers: the battle stays listed at least 30 s after it ends.
+    PetBattle* CreateBattle();
     PetBattle* GetBattle(ObjectGuid battleID);
-    PetBattleRequest* GetRequest(ObjectGuid requesterGuid);
+
+    // Raw access for the requester's own thread; a request can only be taken by the opponent it names.
+    PetBattleRequest* CreateRequest(ObjectGuid requesterGuid);
+    void AddRequest(std::shared_ptr<PetBattleRequest> const& request);
+    std::shared_ptr<PetBattleRequest> GetRequest(ObjectGuid requesterGuid);
+    std::shared_ptr<PetBattleRequest> TakeRequest(ObjectGuid requesterGuid, ObjectGuid opponentGuid);
 
     void RemoveBattle(ObjectGuid battleID);
     void RemoveRequest(ObjectGuid requesterGuid);
@@ -95,16 +114,20 @@ public:
     eBattlePetRequests CanPlayerEnterInPetBattle(Player* player, PetBattleRequest* petBattleRequest);
 
 private:
-    std::map<ObjectGuid, PetBattle*> _petBattles;           ///< All running battles
-    std::map<ObjectGuid, PetBattleRequest*> _battleRequests;             ///< All pending battles request
+    void UpdateQueue();
+
+    std::map<ObjectGuid, std::shared_ptr<PetBattle>> _petBattles;           ///< All running battles
+    std::map<ObjectGuid, std::shared_ptr<PetBattleRequest>> _battleRequests; ///< All pending battles request
     std::map<ObjectGuid, LFBTicket*> _LFBRequests;
-    std::queue<std::pair<ObjectGuid, PetBattle*>> _petBattlesDeleteQueue;   ///< Deletion queue
+    std::vector<ObjectGuid> _deleteQueuePending;   ///< Battles finished during the current interval
+    std::vector<ObjectGuid> _deleteQueueReady;     ///< Battles erased at the next interval
+    std::mutex _lock;
     std::mutex _LFBRequestsMutex;
     IntervalTimer _LFBRequestsUpdateTimer;
     IntervalTimer _deleteUpdateTimer;        ///< Deletion queue update timer
     uint32 _LFBAvgWaitTime;
     uint32 _LFBNumWaitTimeAvg;
-    uint32 _maxPetBattleID;       ///< Global battle unique id
+    std::atomic<uint32> _maxPetBattleID;       ///< Global battle unique id
 };
 
 #define sPetBattleSystem PetBattleSystem::instance()

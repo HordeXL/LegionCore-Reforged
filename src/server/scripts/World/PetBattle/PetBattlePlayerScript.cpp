@@ -28,24 +28,28 @@ public:
 
     void OnUpdate(Player* player, uint32 /*diff*/) override
     {
-        m_Mutex.lock();
-
-        if (m_DelayedPetBattleStart.find(player->GetGUID()) != m_DelayedPetBattleStart.end())
+        // decided under the script mutex (shared by every player thread), acted on after releasing it
+        bool start = false;
         {
-            if (m_DelayedPetBattleStart[player->GetGUID()] > getMSTime())
+            std::lock_guard<std::mutex> guard(m_Mutex);
+            auto itr = m_DelayedPetBattleStart.find(player->GetGUID());
+            if (itr != m_DelayedPetBattleStart.end() && getMSTime() >= itr->second)   // the battle starts 1 s after the move ends
             {
-                m_DelayedPetBattleStart.erase(m_DelayedPetBattleStart.find(player->GetGUID()));
-
-                if (PetBattle* battle = sPetBattleSystem->GetBattle(player->_petBattleId))
-                {
-                    player->SetFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_PACIFIED | UNIT_FLAG_IMMUNE_TO_NPC); // Immuned only to NPC
-                    player->SetControlled(true, UNIT_STATE_ROOT);
-                    battle->Begin();
-                }
+                m_DelayedPetBattleStart.erase(itr);
+                start = true;
             }
         }
 
-        m_Mutex.unlock();
+        if (!start)
+            return;
+
+        if (std::shared_ptr<PetBattle> battle = sPetBattleSystem->AcquireBattle(player->_petBattleId))
+        {
+            std::lock_guard<std::recursive_mutex> battleGuard(battle->BattleLock);
+            player->SetFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_PACIFIED | UNIT_FLAG_IMMUNE_TO_NPC); // Immuned only to NPC
+            player->SetControlled(true, UNIT_STATE_ROOT);
+            battle->Begin(player);
+        }
     }
 
     std::map<ObjectGuid, uint32> m_DelayedPetBattleStart;

@@ -2774,8 +2774,9 @@ void Player::ProcessDelayedOperations()
 
     if (m_DelayedOperations & DELAYED_PET_BATTLE_INITIAL)
     {
-        if (PetBattle* battle = sPetBattleSystem->GetBattle(_petBattleId))
+        if (std::shared_ptr<PetBattle> battle = sPetBattleSystem->AcquireBattle(_petBattleId))
         {
+            std::lock_guard<std::recursive_mutex> battleGuard(battle->BattleLock);
             uint8 teamID = battle->Teams[PETBATTLE_TEAM_1]->OwnerGuid == GetGUID() ? PETBATTLE_TEAM_1 : PETBATTLE_TEAM_2;
 
             PetBattleRequest request;
@@ -2796,7 +2797,7 @@ void Player::ProcessDelayedOperations()
                 matchMakingRequest.IsPvPReady[teamID] = true;
 
             if (matchMakingRequest.IsPvPReady[PETBATTLE_TEAM_1] == true && matchMakingRequest.IsPvPReady[PETBATTLE_TEAM_2] == true)
-                battle->Begin();
+                battle->Begin(this);
         }
     }
 
@@ -37706,10 +37707,11 @@ void Player::SaveBattlePets(CharacterDatabaseTransaction& trans)
 
 void Player::PetBattleCountBattleSpecies()
 {
-    PetBattle* battle = sPetBattleSystem->GetBattle(_petBattleId);
+    std::shared_ptr<PetBattle> battle = sPetBattleSystem->AcquireBattle(_petBattleId);
     if (!battle)
         return;
 
+    std::lock_guard<std::recursive_mutex> battleGuard(battle->BattleLock);
     uint32 thisTeamID = battle->Teams[PETBATTLE_TEAM_1]->PlayerGuid == GetGUID() ? PETBATTLE_TEAM_1 : PETBATTLE_TEAM_2;
 
     for (BattlePetMap::iterator itr = _battlePets.begin(); itr != _battlePets.end(); ++itr)
