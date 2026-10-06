@@ -22,6 +22,7 @@
 #include "World.h"
 #include "GuildMgr.h"
 #include "ObjectGuid.h"
+#include <mutex>
 
 enum GuildFinderPlayStyle
 {
@@ -54,6 +55,12 @@ enum GuildFinderOptionsLevel
     ANY_FINDER_LEVEL   = 0x1,
     MAX_FINDER_LEVEL   = 0x2,
     ALL_GUILDFINDER_LEVELS = ANY_FINDER_LEVEL | MAX_FINDER_LEVEL
+};
+
+enum GuildFinderMisc
+{
+    MAX_GUILD_FINDER_APPLICATIONS = 10,
+    MAX_GUILD_FINDER_COMMENT_LEN  = 255     // guild_finder_* comment columns
 };
 
 /// Holds all required informations about a membership request
@@ -131,6 +138,10 @@ class GuildFinderMgr
         GuildFinderMgr();
         ~GuildFinderMgr();
 
+        // Leaf lock: held only to read or change the two containers, never while calling a guild,
+        // GuildMgr or a player (callers of this manager may hold a guild lock)
+        std::mutex _lock;
+
         LFGuildStore  _guildSettings;
 
         MembershipRequestStore _membershipRequests;
@@ -161,6 +172,8 @@ class GuildFinderMgr
         uint8 CountRequestsFromPlayer(ObjectGuid const& playerId);
         void SendApplicantListUpdate(Guild& guild);
         void SendMembershipRequestListUpdate(Player& player);
+        // the applicant may stand on any map: built here, sent under the accessor lock
+        void SendMembershipRequestListUpdate(ObjectGuid const& playerGuid);
 };
 
 #define sGuildFinderMgr GuildFinderMgr::instance()

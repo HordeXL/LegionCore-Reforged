@@ -37,33 +37,50 @@ GuildMgr::~GuildMgr()
         delete itr->second;
 }
 
+std::vector<Guild*> GuildMgr::_GetAllGuilds() const
+{
+    std::shared_lock<std::shared_mutex> lock(_guildStoreLock);
+
+    std::vector<Guild*> guilds;
+    guilds.reserve(GuildStore.size());
+    for (GuildContainer::const_iterator itr = GuildStore.begin(); itr != GuildStore.end(); ++itr)
+        guilds.push_back(itr->second);
+    return guilds;
+}
+
 void GuildMgr::UnloadAll()
 {
-    for (GuildContainer::iterator itr = GuildStore.begin(); itr != GuildStore.end(); ++itr)
-        itr->second->GetAchievementMgr().ClearMap();
+    for (Guild* guild : _GetAllGuilds())
+        guild->GetAchievementMgr().ClearMap();
 }
 
 void GuildMgr::AddGuild(Guild* guild)
 {
+    std::unique_lock<std::shared_mutex> lock(_guildStoreLock);
     GuildStore[guild->GetId()] = guild;
 }
 
+// The Guild object is not deleted: other threads may still hold the pointer GetGuildById gave them
 void GuildMgr::RemoveGuild(ObjectGuid::LowType guildId)
 {
+    std::unique_lock<std::shared_mutex> lock(_guildStoreLock);
     GuildStore.erase(guildId);
 }
 
 void GuildMgr::SaveGuilds()
 {
-    for (GuildContainer::iterator itr = GuildStore.begin(); itr != GuildStore.end(); ++itr)
+    // Guilds are saved outside the store lock (a guild save locks the guild)
+    for (Guild* guild : _GetAllGuilds())
     {
-        if (itr->second->GetMembersOnline()) // Save guild only with player active
-            itr->second->SaveToDB(true);
+        if (guild->GetMembersOnline()) // Save guild only with player active
+            guild->SaveToDB(true);
     }
 }
 
 ObjectGuid::LowType GuildMgr::GenerateGuildId()
 {
+    std::unique_lock<std::shared_mutex> lock(_guildStoreLock);
+
     if (NextGuildId >= std::numeric_limits<ObjectGuid::LowType>::max())
     {
         TC_LOG_ERROR("guild", "Guild ids overflow!! Can't continue, shutting down server. ");
@@ -74,6 +91,7 @@ ObjectGuid::LowType GuildMgr::GenerateGuildId()
 
 void GuildMgr::SetNextGuildId(ObjectGuid::LowType Id)
 {
+    std::unique_lock<std::shared_mutex> lock(_guildStoreLock);
     NextGuildId = Id;
 }
 
@@ -92,6 +110,7 @@ Guild* GuildMgr::GetGuildById(ObjectGuid::LowType guildId) const
     if (!guildId)
         return nullptr;
 
+    std::shared_lock<std::shared_mutex> lock(_guildStoreLock);
     return Trinity::Containers::MapGetValuePtr(GuildStore, guildId);
 }
 
@@ -110,6 +129,9 @@ Guild* GuildMgr::GetGuildByName(std::string const& guildName) const
 {
     std::string search = guildName;
     std::transform(search.begin(), search.end(), search.begin(), ::toupper);
+
+    // Guild::GetName only takes the guild's leaf lock, never held while waiting on this one
+    std::shared_lock<std::shared_mutex> lock(_guildStoreLock);
     for (GuildContainer::const_iterator itr = GuildStore.begin(); itr != GuildStore.end(); ++itr)
     {
         std::string gname = itr->second->GetName();
@@ -130,6 +152,8 @@ std::string GuildMgr::GetGuildNameById(ObjectGuid::LowType const& guildId) const
 
 Guild* GuildMgr::GetGuildByLeader(ObjectGuid const& guid) const
 {
+    // Guild::GetLeaderGUID only takes the guild's leaf lock
+    std::shared_lock<std::shared_mutex> lock(_guildStoreLock);
     for (GuildContainer::const_iterator itr = GuildStore.begin(); itr != GuildStore.end(); ++itr)
         if (itr->second->GetLeaderGUID() == guid)
             return itr->second;
@@ -137,6 +161,7 @@ Guild* GuildMgr::GetGuildByLeader(ObjectGuid const& guid) const
     return nullptr;
 }
 
+// Startup, single-threaded: GuildStore is walked without its lock (Validate may remove from it)
 void GuildMgr::LoadGuilds()
 {
     // 1. Load all guilds
@@ -486,25 +511,15 @@ void GuildMgr::LoadGuilds()
         for (GuildContainer::iterator itr = GuildStore.begin(); itr != GuildStore.end();)
         {
             Guild* guild = itr->second;
-            if (guild)
-            {
-                volatile uint32 _guildId = guild->GetId();
-                if(!guild->GetMemberCount())
-                {
-                    //Delete guild without member
-                    CharacterDatabase.DirectPExecute("DELETE FROM guild WHERE `guildid` IN (%u)", _guildId);
-                }
+            ObjectGuid::LowType guildId = itr->first;
+            // Validate() may disband the guild, which erases it from GuildStore: step past it first
+            ++itr;
 
-                if (!guild->Validate())
-                {
-                    GuildStore.erase(itr++);
-                    delete guild;
-                }
-                else
-                    ++itr;
+            if (guild && !guild->Validate())
+            {
+                GuildStore.erase(guildId);
+                delete guild;
             }
-            else
-                ++itr;
         }
 
         TC_LOG_INFO("server.loading", ">> Validated data of loaded guilds in %u ms", GetMSTimeDiffToNow(oldMSTime));

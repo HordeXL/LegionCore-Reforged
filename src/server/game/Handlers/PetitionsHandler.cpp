@@ -328,13 +328,13 @@ void WorldSession::HandleSignPetition(WorldPackets::Petition::SignPetition& pack
 
     SendPetitionSignResult(playerGUID, packet.PetitionGUID, PETITION_SIGN_OK);
 
-    if (Player* owner = ObjectAccessor::FindPlayer(ownerGuid))
-    {
+    // The owner's items belong to his map thread: only touched from the same map; the result reaches him anywhere
+    if (Player* owner = ObjectAccessor::GetPlayer(*player, ownerGuid))
         if (Item* item = owner->GetItemByGuid(packet.PetitionGUID))
             item->SetUInt32Value(ITEM_FIELD_ENCHANTMENT + 1, signs);
 
-        owner->GetSession()->SendPetitionSignResult(playerGUID, packet.PetitionGUID, PETITION_SIGN_OK);
-    }
+    ObjectGuid const petitionGuid = packet.PetitionGUID;
+    ObjectAccessor::WithPlayer(ownerGuid, [playerGUID, petitionGuid](Player* owner) { owner->GetSession()->SendPetitionSignResult(playerGUID, petitionGuid, PETITION_SIGN_OK); });
 }
 
 void WorldSession::SendPetitionSignResult(ObjectGuid const& playerGuid, ObjectGuid const& petitionGuid, uint8 result)
@@ -366,6 +366,10 @@ void WorldSession::HandleDeclinePetition(WorldPackets::Petition::DeclinePetition
 
 void WorldSession::HandleOfferPetition(WorldPackets::Petition::OfferPetition& packet)
 {
+    // Only the charter in one's own bags can be offered
+    if (!_player->GetItemByGuid(packet.ItemGUID))
+        return;
+
     Player* player = ObjectAccessor::FindPlayer(packet.TargetPlayer);
     if (!player)
         return;
@@ -502,8 +506,6 @@ void WorldSession::HandleTurnInPetition(WorldPackets::Petition::TurnInPetition& 
         return;
     }
 
-    player->DestroyItem(item->GetBagSlot(), item->GetSlot(), true);
-
     Guild* guild = new Guild;
     if (!guild->Create(player, name))
     {
@@ -513,11 +515,14 @@ void WorldSession::HandleTurnInPetition(WorldPackets::Petition::TurnInPetition& 
 
     sGuildMgr->AddGuild(guild);
 
+    // Destroyed only once the guild exists: a failed creation keeps the charter
+    player->DestroyItem(item->GetBagSlot(), item->GetSlot(), true);
+
     for (uint8 i = 0; i < signatures; ++i)
     {
         Field* fields = result->Fetch();
         ObjectGuid guid = ObjectGuid::Create<HighGuid::Player>(fields[0].GetUInt64());
-        if (Player* member = ObjectAccessor::FindPlayer(guid))
+        if (ObjectAccessor::IsPlayerOnline(guid))
         {
             AddDelayedEvent(10, [guild, guid]() -> void
             {

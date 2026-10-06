@@ -17,6 +17,7 @@
 
 #include "GuildFinderMgr.h"
 #include "GuildMgr.h"
+#include "ObjectAccessor.h"
 #include "World.h"
 #include "GuildPackets.h"
 #include "DatabaseEnv.h"
@@ -119,8 +120,9 @@ void GuildFinderMgr::LoadGuildSettings()
 {
     TC_LOG_INFO("server.loading", "Loading guild finder guild-related settings...");
     //                                                           0                1             2                  3             4           5             6         7
+    // One row per guild: the faction is the guild master's
     QueryResult result = CharacterDatabase.Query("SELECT gfgs.guildId, gfgs.availability, gfgs.classRoles, gfgs.interests, gfgs.level, gfgs.listed, gfgs.comment, c.race "
-        "FROM guild_finder_guild_settings gfgs LEFT JOIN guild_member gm ON gm.guildid=gfgs.guildId LEFT JOIN characters c ON c.guid = gm.guid LIMIT 1");
+        "FROM guild_finder_guild_settings gfgs LEFT JOIN guild g ON g.guildid = gfgs.guildId LEFT JOIN characters c ON c.guid = g.leaderguid");
 
     if (!result)
     {
@@ -134,6 +136,10 @@ void GuildFinderMgr::LoadGuildSettings()
     {
         Field* fields = result->Fetch();
         ObjectGuid guildId = ObjectGuid::Create<HighGuid::Guild>(fields[0].GetUInt64());
+        // Settings left by a deleted guild
+        if (!sGuildMgr->GetGuildById(guildId.GetCounter()))
+            continue;
+
         uint8 availability = fields[1].GetUInt8();
         uint8 classRoles = fields[2].GetUInt8();
         uint8 playStyle = fields[3].GetUInt8();
@@ -145,7 +151,10 @@ void GuildFinderMgr::LoadGuildSettings()
         if (ChrRacesEntry const* raceEntry = sChrRacesStore.LookupEntry(fields[7].GetUInt8()))
             guildTeam = static_cast<TeamId>(raceEntry->Alliance);
 
-        _guildSettings[guildId] = LFGuildSettings(listed, guildTeam, guildId, classRoles, availability, playStyle, level, comment);
+        {
+            std::lock_guard<std::mutex> lock(_lock);
+            _guildSettings[guildId] = LFGuildSettings(listed, guildTeam, guildId, classRoles, availability, playStyle, level, comment);
+        }
 
         ++count;
     } while (result->NextRow());
@@ -180,7 +189,10 @@ void GuildFinderMgr::LoadMembershipRequests()
 
         MembershipRequest request(playerId, guildId, availability, classRoles, playStyle, comment, time_t(submitTime));
 
-        _membershipRequests[guildId].push_back(request);
+        {
+            std::lock_guard<std::mutex> lock(_lock);
+            _membershipRequests[guildId].push_back(request);
+        }
 
         ++count;
     } while (result->NextRow());
@@ -196,7 +208,10 @@ GuildFinderMgr* GuildFinderMgr::instance()
 
 void GuildFinderMgr::AddMembershipRequest(ObjectGuid const& guildGuid, MembershipRequest const& request)
 {
-    _membershipRequests[guildGuid].push_back(request);
+    {
+        std::lock_guard<std::mutex> lock(_lock);
+        _membershipRequests[guildGuid].push_back(request);
+    }
 
     CharacterDatabaseTransaction trans = CharacterDatabase.BeginTransaction();
     CharacterDatabasePreparedStatement* stmt = CharacterDatabase.GetPreparedStatement(CHAR_REP_GUILD_FINDER_APPLICANT);
@@ -210,8 +225,7 @@ void GuildFinderMgr::AddMembershipRequest(ObjectGuid const& guildGuid, Membershi
     trans->Append(stmt);
     CharacterDatabase.CommitTransaction(trans);
 
-    if (Player* player = ObjectAccessor::FindPlayer(request.GetPlayerGUID()))
-        SendMembershipRequestListUpdate(*player);
+    SendMembershipRequestListUpdate(request.GetPlayerGUID());
 
     if (Guild* guild = sGuildMgr->GetGuildById(guildGuid.GetCounter()))
         SendApplicantListUpdate(*guild);
@@ -219,54 +233,73 @@ void GuildFinderMgr::AddMembershipRequest(ObjectGuid const& guildGuid, Membershi
 
 void GuildFinderMgr::RemoveAllMembershipRequestsFromPlayer(ObjectGuid const& playerId)
 {
-    for (auto& itr : _membershipRequests)
+    std::vector<ObjectGuid> updatedGuilds;
     {
-        auto itr2 = itr.second.begin();
-        for (; itr2 != itr.second.end(); ++itr2)
-            if (itr2->GetPlayerGUID() == playerId)
+        std::lock_guard<std::mutex> lock(_lock);
+
+        for (auto& itr : _membershipRequests)
+        {
+            auto itr2 = itr.second.begin();
+            for (; itr2 != itr.second.end(); ++itr2)
+                if (itr2->GetPlayerGUID() == playerId)
+                    break;
+
+            if (itr2 == itr.second.end())
+                continue;
+
+            CharacterDatabaseTransaction trans = CharacterDatabase.BeginTransaction();
+
+            CharacterDatabasePreparedStatement* stmt = CharacterDatabase.GetPreparedStatement(CHAR_DEL_GUILD_FINDER_APPLICANT);
+            stmt->setUInt64(0, itr2->GetGuildGuid().GetCounter());
+            stmt->setUInt64(1, itr2->GetPlayerGUID().GetCounter());
+            trans->Append(stmt);
+
+            CharacterDatabase.CommitTransaction(trans);
+            itr.second.erase(itr2);
+
+            updatedGuilds.push_back(itr.first);
+        }
+    }
+
+    // Guilds and players are reached once the finder lock is released
+    for (ObjectGuid const& guildGuid : updatedGuilds)
+        if (Guild* guild = sGuildMgr->GetGuildById(guildGuid.GetCounter()))
+            SendApplicantListUpdate(*guild);
+
+    if (!updatedGuilds.empty())
+        SendMembershipRequestListUpdate(playerId);
+}
+
+void GuildFinderMgr::RemoveMembershipRequest(ObjectGuid const& playerId, ObjectGuid const& guildId)
+{
+    {
+        std::lock_guard<std::mutex> lock(_lock);
+
+        auto guildRequests = _membershipRequests.find(guildId);
+        if (guildRequests == _membershipRequests.end())
+            return;
+
+        auto itr = guildRequests->second.begin();
+        for (; itr != guildRequests->second.end(); ++itr)
+            if (itr->GetPlayerGUID() == playerId)
                 break;
 
-        if (itr2 == itr.second.end())
+        if (itr == guildRequests->second.end())
             return;
 
         CharacterDatabaseTransaction trans = CharacterDatabase.BeginTransaction();
 
         CharacterDatabasePreparedStatement* stmt = CharacterDatabase.GetPreparedStatement(CHAR_DEL_GUILD_FINDER_APPLICANT);
-        stmt->setUInt64(0, itr2->GetGuildGuid().GetCounter());
-        stmt->setUInt64(1, itr2->GetPlayerGUID().GetCounter());
+        stmt->setUInt64(0, itr->GetGuildGuid().GetCounter());
+        stmt->setUInt64(1, itr->GetPlayerGUID().GetCounter());
         trans->Append(stmt);
 
         CharacterDatabase.CommitTransaction(trans);
-        itr.second.erase(itr2);
 
-        if (Guild* guild = sGuildMgr->GetGuildById(itr.first.GetCounter()))
-            SendApplicantListUpdate(*guild);
+        guildRequests->second.erase(itr);
     }
-}
 
-void GuildFinderMgr::RemoveMembershipRequest(ObjectGuid const& playerId, ObjectGuid const& guildId)
-{
-    auto itr = _membershipRequests[guildId].begin();
-    for (; itr != _membershipRequests[guildId].end(); ++itr)
-        if (itr->GetPlayerGUID() == playerId)
-            break;
-
-    if (itr == _membershipRequests[guildId].end())
-        return;
-
-    CharacterDatabaseTransaction trans = CharacterDatabase.BeginTransaction();
-
-    CharacterDatabasePreparedStatement* stmt = CharacterDatabase.GetPreparedStatement(CHAR_DEL_GUILD_FINDER_APPLICANT);
-    stmt->setUInt64(0, itr->GetGuildGuid().GetCounter());
-    stmt->setUInt64(1, itr->GetPlayerGUID().GetCounter());
-    trans->Append(stmt);
-
-    CharacterDatabase.CommitTransaction(trans);
-
-    _membershipRequests[guildId].erase(itr);
-
-    if (Player* player = ObjectAccessor::FindPlayer(playerId))
-        SendMembershipRequestListUpdate(*player);
+    SendMembershipRequestListUpdate(playerId);
 
     if (Guild* guild = sGuildMgr->GetGuildById(guildId.GetCounter()))
         SendApplicantListUpdate(*guild);
@@ -274,6 +307,8 @@ void GuildFinderMgr::RemoveMembershipRequest(ObjectGuid const& playerId, ObjectG
 
 std::list<MembershipRequest> GuildFinderMgr::GetAllMembershipRequestsForPlayer(ObjectGuid const& playerGuid)
 {
+    std::lock_guard<std::mutex> lock(_lock);
+
     std::list<MembershipRequest> resultSet;
     for (MembershipRequestStore::const_iterator itr = _membershipRequests.begin(); itr != _membershipRequests.end(); ++itr)
     {
@@ -292,6 +327,8 @@ std::list<MembershipRequest> GuildFinderMgr::GetAllMembershipRequestsForPlayer(O
 
 uint8 GuildFinderMgr::CountRequestsFromPlayer(ObjectGuid const& playerId)
 {
+    std::lock_guard<std::mutex> lock(_lock);
+
     uint8 result = 0;
     for (MembershipRequestStore::const_iterator itr = _membershipRequests.begin(); itr != _membershipRequests.end(); ++itr)
     {
@@ -309,10 +346,15 @@ uint8 GuildFinderMgr::CountRequestsFromPlayer(ObjectGuid const& playerId)
 
 LFGuildStore GuildFinderMgr::GetGuildsMatchingSetting(LFGuildPlayer& settings, TeamId faction)
 {
+    std::lock_guard<std::mutex> lock(_lock);
+
     LFGuildStore resultSet;
     for (LFGuildStore::const_iterator itr = _guildSettings.begin(); itr != _guildSettings.end(); ++itr)
     {
         LFGuildSettings const& guildSettings = itr->second;
+
+        if (!guildSettings.IsListed())
+            continue;
 
         if (guildSettings.GetTeam() != faction)
             continue;
@@ -337,7 +379,13 @@ LFGuildStore GuildFinderMgr::GetGuildsMatchingSetting(LFGuildPlayer& settings, T
 
 bool GuildFinderMgr::HasRequest(ObjectGuid const& playerId, ObjectGuid const& guildId)
 {
-    for (auto const& itr : _membershipRequests[guildId])
+    std::lock_guard<std::mutex> lock(_lock);
+
+    auto guildRequests = _membershipRequests.find(guildId);
+    if (guildRequests == _membershipRequests.end())
+        return false;
+
+    for (auto const& itr : guildRequests->second)
         if (itr.GetPlayerGUID() == playerId)
             return true;
 
@@ -346,7 +394,10 @@ bool GuildFinderMgr::HasRequest(ObjectGuid const& playerId, ObjectGuid const& gu
 
 void GuildFinderMgr::SetGuildSettings(ObjectGuid const& guildGuid, LFGuildSettings const& settings)
 {
-    _guildSettings[guildGuid] = settings;
+    {
+        std::lock_guard<std::mutex> lock(_lock);
+        _guildSettings[guildGuid] = settings;
+    }
 
     CharacterDatabaseTransaction trans = CharacterDatabase.BeginTransaction();
 
@@ -365,43 +416,51 @@ void GuildFinderMgr::SetGuildSettings(ObjectGuid const& guildGuid, LFGuildSettin
 
 LFGuildSettings GuildFinderMgr::GetGuildSettings(ObjectGuid const& guildGuid)
 {
+    std::lock_guard<std::mutex> lock(_lock);
     return _guildSettings.find(guildGuid) != _guildSettings.end() ? _guildSettings[guildGuid] : LFGuildSettings();
 }
 
 void GuildFinderMgr::DeleteGuild(ObjectGuid const& guildId)
 {
-    auto itr = _membershipRequests[guildId].begin();
-    while (itr != _membershipRequests[guildId].end())
+    CharacterDatabaseTransaction trans = CharacterDatabase.BeginTransaction();
+
+    std::vector<ObjectGuid> applicants;
     {
-        CharacterDatabaseTransaction trans = CharacterDatabase.BeginTransaction();
+        std::lock_guard<std::mutex> lock(_lock);
 
-        ObjectGuid applicant = itr->GetPlayerGUID();
+        auto guildRequests = _membershipRequests.find(guildId);
+        if (guildRequests != _membershipRequests.end())
+        {
+            for (MembershipRequest const& request : guildRequests->second)
+            {
+                CharacterDatabasePreparedStatement* stmt = CharacterDatabase.GetPreparedStatement(CHAR_DEL_GUILD_FINDER_APPLICANT);
+                stmt->setUInt64(0, guildId.GetCounter());
+                stmt->setUInt64(1, request.GetPlayerGUID().GetCounter());
+                trans->Append(stmt);
 
-        CharacterDatabasePreparedStatement* stmt = CharacterDatabase.GetPreparedStatement(CHAR_DEL_GUILD_FINDER_APPLICANT);
-        stmt->setUInt64(0, itr->GetGuildGuid().GetCounter());
-        stmt->setUInt64(1, applicant.GetCounter());
-        trans->Append(stmt);
+                applicants.push_back(request.GetPlayerGUID());
+            }
 
-        stmt = CharacterDatabase.GetPreparedStatement(CHAR_DEL_GUILD_FINDER_GUILD_SETTINGS);
-        stmt->setUInt64(0, itr->GetGuildGuid().GetCounter());
-        trans->Append(stmt);
+            _membershipRequests.erase(guildRequests);
+        }
 
-        CharacterDatabase.CommitTransaction(trans);
-        _membershipRequests[guildId].erase(itr);
-
-        if (Player* player = ObjectAccessor::FindPlayer(applicant))
-            SendMembershipRequestListUpdate(*player);
+        _guildSettings.erase(guildId);
     }
 
-    _membershipRequests.erase(guildId);
-    _guildSettings.erase(guildId);
+    // Also when the guild had no applicant
+    CharacterDatabasePreparedStatement* stmt = CharacterDatabase.GetPreparedStatement(CHAR_DEL_GUILD_FINDER_GUILD_SETTINGS);
+    stmt->setUInt64(0, guildId.GetCounter());
+    trans->Append(stmt);
 
-    if (Guild* guild = sGuildMgr->GetGuildById(guildId.GetCounter()))
-        SendApplicantListUpdate(*guild);
+    CharacterDatabase.CommitTransaction(trans);
+
+    for (ObjectGuid const& applicant : applicants)
+        SendMembershipRequestListUpdate(applicant);
 }
 
 std::vector<MembershipRequest> GuildFinderMgr::GetAllMembershipRequestsForGuild(ObjectGuid const& guildGuid)
 {
+    std::lock_guard<std::mutex> lock(_lock);
     return _membershipRequests.find(guildGuid) != _membershipRequests.end() ? _membershipRequests[guildGuid] : std::vector<MembershipRequest>();
 }
 
@@ -433,39 +492,45 @@ void GuildFinderMgr::SendApplicantListUpdate(Guild& guild)
         recruit.Recruits.push_back(data);
     }
 
-    if (Player* player = ObjectAccessor::FindPlayer(guild.GetLeaderGUID()))
-        player->SendDirectMessage(recruit.Write());
-
-    guild.BroadcastPacketToRank(recruit.Write(), GR_OFFICER);
+    // Write() once: a second call would serialize the list twice into the same packet
+    guild.BroadcastPacketToRight(recruit.Write(), GR_RIGHT_INVITE);
 }
 
+// The applicant gets his own applications, not a guild's recruits
+// Like SendApplicantListUpdate: never called with _lock held, the getters copy under it
 void GuildFinderMgr::SendMembershipRequestListUpdate(Player& player)
 {
-    std::vector<MembershipRequest> recruitsList = sGuildFinderMgr->GetAllMembershipRequestsForGuild(ObjectGuid::Create<HighGuid::Guild>(player.GetGuildId()));
+    SendMembershipRequestListUpdate(player.GetGUID());
+}
 
-    WorldPackets::Guild::LFGuildRecruits recruits;
-    //recruit.UpdateTime 
-    recruits.Recruits.reserve(recruitsList.size());
-    for (auto const& x : recruitsList)
+void GuildFinderMgr::SendMembershipRequestListUpdate(ObjectGuid const& playerGuid)
+{
+    if (!ObjectAccessor::IsPlayerOnline(playerGuid))
+        return;
+
+    std::list<MembershipRequest> applicatedGuilds = GetAllMembershipRequestsForPlayer(playerGuid);
+
+    WorldPackets::Guild::LFGuildApplication application;
+    application.NumRemaining = MAX_GUILD_FINDER_APPLICATIONS - CountRequestsFromPlayer(playerGuid);
+    application.Applications.reserve(applicatedGuilds.size());
+    for (auto const& v : applicatedGuilds)
     {
-        WorldPackets::Guild::LFGuildRecruitData data;
-        data.RecruitGUID = x.GetPlayerGUID();
-        data.RecruitVirtualRealm = GetVirtualRealmAddress();
-        data.Comment = x.GetComment();
-        data.ClassRoles = x.GetClassRoles();
-        data.PlayStyle = x.GetPlayStyle();
-        data.Availability = x.GetAvailability();
-        data.SecondsSinceCreated = GameTime::GetGameTime() - x.GetSubmitTime();
-        data.SecondsUntilExpiration = x.GetExpiryTime() - GameTime::GetGameTime();
-        if (CharacterInfo const* charInfo = sWorld->GetCharacterInfo(data.RecruitGUID))
-        {
-            data.Name = charInfo->Name;
-            data.CharacterClass = charInfo->Class;
-            data.CharacterGender = charInfo->Sex;
-            data.CharacterLevel = charInfo->Level;
-        }
-        recruits.Recruits.push_back(data);
+        Guild* guild = sGuildMgr->GetGuildById(v.GetGuildGuid().GetCounter());
+        if (!guild)
+            continue;
+
+        LFGuildSettings guildSettings = GetGuildSettings(v.GetGuildGuid());
+        WorldPackets::Guild::LFGuildApplicationData data;
+        data.GuildGUID = guild->GetGUID();
+        data.GuildVirtualRealm = GetVirtualRealmAddress();
+        data.ClassRoles = guildSettings.GetClassRoles();
+        data.PlayStyle = guildSettings.GetPlayStyle();
+        data.Availability = guildSettings.GetAvailability();
+        data.SecondsSinceCreated = GameTime::GetGameTime() - v.GetSubmitTime();
+        data.GuildName = guild->GetName();
+        data.Comment = v.GetComment();
+        application.Applications.push_back(data);
     }
 
-    player.SendDirectMessage(recruits.Write());
+    ObjectAccessor::SendToPlayer(playerGuid, application.Write());
 }

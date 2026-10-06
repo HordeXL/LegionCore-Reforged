@@ -84,7 +84,9 @@ public:
         }
 
         Guild* guild = new Guild;
-        if (!guild->Create(target, guildName))
+        // the target may be another player, possibly on another map: then his guild fields are set in his own thread
+        Player* self = handler->GetSession() ? handler->GetSession()->GetPlayer() : nullptr;
+        if (!guild->Create(target, guildName, target == self))
         {
             delete guild;
             handler->SendSysMessage(LANG_GUILD_NOT_CREATED);

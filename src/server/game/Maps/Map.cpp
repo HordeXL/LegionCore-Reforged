@@ -4684,6 +4684,7 @@ void Map::UpdateEncounterState(EncounterCreditType type, uint32 creditEntry, Uni
 
     if (dungeonId && (fullEncounterIndex == completedEncounters || findCustomDungeon)) // For auto find dungeonId disable find last encounter from base, need 
     {
+        std::set<ObjectGuid> newsGuilds; // one news per guild, not one per member inside
         auto const& players = GetPlayers();
         for (const auto& itr : players)
         {
@@ -4699,10 +4700,9 @@ void Map::UpdateEncounterState(EncounterCreditType type, uint32 creditEntry, Uni
                             break;
                         }
 
-                        if (player)
-                            if (auto guild = player->GetGuild())
-                                if (grp->IsGuildGroup())
-                                    guild->AddGuildNews(GUILD_NEWS_DUNGEON_ENCOUNTER, player->GetGUID(), 0, encounterId);
+                        if (auto guild = player2->GetGuild())
+                            if (grp->IsGuildGroup() && newsGuilds.insert(player2->GetGuildGUID()).second)
+                                guild->AddGuildNews(GUILD_NEWS_DUNGEON_ENCOUNTER, player2->GetGUID(), 0, encounterId);
                     }
                 }
                 else

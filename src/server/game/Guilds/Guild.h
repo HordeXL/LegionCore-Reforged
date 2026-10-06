@@ -23,6 +23,8 @@
 #include "DatabaseEnvFwd.h"
 #include "ObjectGuid.h"
 #include "SharedDefines.h"
+#include <functional>
+#include <mutex>
 #include <unordered_map>
 
 class Player;
@@ -94,6 +96,7 @@ enum GuildRankRights
     GR_RIGHT_WITHDRAW_REPAIR    = 0x00040000,                   // withdraw for repair
     GR_RIGHT_WITHDRAW_GOLD      = 0x00080000,                   // withdraw gold
     GR_RIGHT_CREATE_GUILD_EVENT = 0x00100000,                   // wotlk
+    GR_RIGHT_EDIT_BANK_TAB_INFO = 0x00400000,                   // rename a bank tab and change its icon
     GR_RIGHT_ALL                = 0x00DDFFBF
 };
 
@@ -265,15 +268,6 @@ enum GuildNews
     GUILD_NEWS_LEVEL_UP             = 6
 };
 
-struct GuildNewsEntry
-{
-    GuildNews EventType;
-    time_t Date;
-    ObjectGuid PlayerGuid;
-    uint32 Flags;
-    uint32 Data;
-};
-
 struct GuildReward
 {
     uint32 Entry;
@@ -284,8 +278,6 @@ struct GuildReward
 };
 
 uint32 const MinNewsItemLevel[7] = { 61, 90, 200, 353, 450, 600, 750 };
-
-typedef std::map<uint32, GuildNewsEntry> GuildNewsLogMap;
 
 enum GuildChallengeType
 {
@@ -404,9 +396,6 @@ class TC_GAME_API Guild
         void SetPublicNote(std::string const& publicNote);
         void SetOfficerNote(std::string const& officerNote);
 
-        std::string GetPublicNote() { return m_publicNote; };
-        std::string GetOfficerNote() { return m_officerNote; };
-
         void SetZoneId(uint32 id) { m_zoneId = id; }
         void SetAchievementPoints(uint32 val) { m_achievementPoints = val; }
         void SetLevel(uint8 var) { m_level = var; }
@@ -440,7 +429,7 @@ class TC_GAME_API Guild
 
         bool IsOnline();
 
-        void ChangeRank(uint8 newRank);
+        void ChangeRank(uint8 newRank, Player const* caller = nullptr);
 
         void UpdateLogoutTime();
 
@@ -450,15 +439,12 @@ class TC_GAME_API Guild
 
         bool IsSamePlayer(ObjectGuid guid) const;
 
-        void ResetValues();
-
         void DecreaseBankRemainingValue(CharacterDatabaseTransaction& trans, uint8 tabId, uint32 amount);
         uint32 GetBankRemainingValue(uint8 tabId, const Guild* guild) const;
 
         void ResetTabTimes();
         void ResetMoneyTime();
 
-        Player* FindPlayer() const;
 
     private:
         ObjectGuid::LowType m_guildId;
@@ -478,24 +464,10 @@ class TC_GAME_API Guild
         std::string m_officerNote;
 
         RemainingValue m_bankRemaining[GUILD_BANK_MAX_TABS + 1];
-        int32 m_bankWithdraw[GUILD_BANK_MAX_TABS + 1]{};
         uint32 m_achievementPoints;
         uint32 m_totalReputation;
         ProfessionInfo m_professionInfo[MAX_GUILD_PROFESSIONS];
         std::set<uint32> m_trackedCriteriaIds;
-    };
-
-    // News Log class
-    class GuildNewsLog
-    {
-    public:
-        GuildNewsLog(Guild* guild);
-        GuildNewsEntry* GetNewsById(uint32 id);
-        Guild* GetGuild() const;
-
-    private:
-        Guild* _guild;
-        GuildNewsLogMap _newsLog;
     };
 
     // Base class for event entries
@@ -600,6 +572,7 @@ class TC_GAME_API Guild
         ~LogHolder();
 
         uint8 GetSize() const { return uint8(m_log.size()); }
+        uint32 GetMaxRecords() const { return m_maxRecords; }
         // Checks if new log entry can be added to holder when loading from DB
         bool CanInsert() const { return m_log.size() < m_maxRecords; }
         // Adds event from DB to collection
@@ -781,7 +754,9 @@ public:
     Guild();
     ~Guild();
 
-    bool Create(Player* pLeader, std::string const& name);
+    // leaderIsCaller: false when pLeader is not the player running this code (GM command on another player)
+    bool Create(Player* pLeader, std::string const& name, bool leaderIsCaller = true);
+    // Must be called without m_guildLock held: it ends in GuildFinderMgr and GuildMgr
     void Disband();
 
     void SaveToDB(bool withMembers);
@@ -789,13 +764,12 @@ public:
     // Getters
     ObjectGuid::LowType GetId() const { return m_id; }
     ObjectGuid GetGUID() const { return ObjectGuid::Create<HighGuid::Guild>(m_id); }
-    ObjectGuid GetLeaderGUID() const { return m_leaderGuid; }
-    std::string const& GetName() const { return m_name; }
-    std::string const& GetMOTD() const { return m_motd; }
-    std::string const& GetInfo() const { return m_info; }
-    uint32 GetMemberCount() const { return uint32(m_members.size()); }
+    ObjectGuid GetLeaderGUID() const;
+    std::string GetName() const;
+    std::string GetMOTD() const;
+    std::string GetInfo() const;
     time_t GetCreatedDate() const { return m_createdDate; }
-    uint64 GetBankMoney() const { return m_bankMoney; }
+    uint64 GetBankMoney() const;
     void SetGuildName(const std::string& name);
     void SetRename(bool apply);
     bool IsFlaggedForRename() const;
@@ -812,7 +786,7 @@ public:
     void HandleSetInfo(WorldSession* session, std::string const& info);
     void HandleSetEmblem(WorldSession* session, const EmblemInfo& emblemInfo);
     void HandleSetNewGuildMaster(WorldSession* session, std::string name);
-    void HandleSetBankTabInfo(WorldSession* session, uint8 tabId, std::string const& name, std::string const& icon);
+    void HandleSetBankTabInfo(WorldSession* session, uint8 tabId, std::string name, std::string icon);
     void HandleSetMemberNote(WorldSession* session, std::string const& note, ObjectGuid guid, bool isPublic);
     void HandleSetRankInfo(WorldSession* session, uint32 rankId, std::string const& name, uint32 rights, uint32 moneyPerDay, GuildBankRightsAndSlotsVec rightsAndSlots);
     void HandleBuyBankTab(WorldSession* session, uint8 tabId);
@@ -862,18 +836,22 @@ public:
     void BroadcastToGuild(WorldSession* session, bool officerOnly, std::string const& msg, uint32 language = LANG_UNIVERSAL) const;
     void BroadcastAddonToGuild(WorldSession* session, bool officerOnly, std::string const& msg, std::string const& prefix) const;
     void BroadcastPacketToRank(WorldPacket const* packet, uint8 rankId) const;
+    void BroadcastPacketToRight(WorldPacket const* packet, uint32 right) const;
     void BroadcastPacket(WorldPacket const* packet) const;
     void BroadcastPacketIfTrackingAchievement(WorldPacket const* packet, uint32 criteriaId) const;
 
     void MassInviteToEvent(WorldSession* session, uint32 minLevel, uint32 maxLevel, uint32 minRank);
 
+    // Lock-free on m_guildLock: reached from AchievementMgr under its own locks. _do runs under the accessor
+    // lock (members stand on any map): it may only build and send packets.
     template<class Do>
     void BroadcastWorker(Do& _do, Player* except = nullptr)
     {
-        for (Members::iterator itr = m_members.begin(); itr != m_members.end(); ++itr)
-            if (Player* player = itr->second->FindPlayer())
-                if (player != except)
-                    _do(player);
+        _ForEachOnlineMember([&_do, except](Player* player)
+        {
+            if (player != except)
+                _do(player);
+        });
     }
 
     // Members
@@ -883,22 +861,22 @@ public:
     bool ChangeMemberRank(ObjectGuid guid, uint8 newRank);
     bool IsMember(ObjectGuid guid);
     uint32 GetMembersCount() const;
+    bool HasRankRight(Player* player, uint32 right) const;
 
     // Bank
     void SwapItems(Player* player, uint8 tabId, uint8 slotId, uint8 destTabId, uint8 destSlotId, uint32 splitedAmount);
     void SwapItemsWithInventory(Player* player, bool toChar, uint8 tabId, uint8 slotId, uint8 playerBag, uint8 playerSlotId, uint32 splitedAmount);
 
-    void SetBankTabText(uint8 tabId, std::string const& text);
+    void SetBankTabText(WorldSession* session, uint8 tabId, std::string const& text);
     AchievementMgr<Guild>& GetAchievementMgr();
     AchievementMgr<Guild> const& GetAchievementMgr() const;
 
-    void ResetWeek();
     void RewardReputation(Player* player, uint32 amount);
     uint8 GetLevel() const { return _level; }
     void AddMemberOnline();
     void RemoveMemberOnline();
     uint32 GetMembersOnline() const;
-    EmblemInfo const& GetEmblemInfo() const;
+    EmblemInfo GetEmblemInfo() const;
     uint8 GetPurchasedTabsSize() const;
     void AddGuildNews(uint8 type, ObjectGuid guid, uint32 flags, uint32 value, Item* item = nullptr);
 
@@ -916,8 +894,7 @@ public:
     void SendGuildEventTabAdded();
     void SendGuildEventTabModified(uint8 tabId, std::string name, std::string icon);
     void SendGuildEventTabTextChanged(uint32 tabId);
-    KnownRecipesMap const& GetGuildRecipes();
-    KnownRecipes& GetGuildRecipes(uint32 skillId);
+    KnownRecipesMap GetGuildRecipes();
     void UpdateGuildRecipes(uint32 skillId = 0);
     void SendGuildMembersForRecipeResponse(WorldSession* session, uint32 skillId, uint32 spellId);
     void SendGuildMemberRecipesResponse(WorldSession* session, ObjectGuid playerGuid, uint32 skillId);
@@ -950,12 +927,18 @@ protected:
     LogHolder* m_bankEventLog[GUILD_BANK_MAX_TABS + 1];
     AchievementMgr<Guild> m_achievementMgr;
 
-    std::recursive_mutex m_event_lock;
-    std::recursive_mutex m_newsevent_lock;
-    std::recursive_mutex m_guildRecipeslock;
+    // Lock order: m_guildLock -> m_leafLock / m_newsLock (never both, nothing taken under either).
+    // m_guildLock guards members, ranks, bank (tabs, items, money), event and bank logs, texts, emblem, recipes.
+    // AchievementMgr<Guild> and GuildMgr call this guild while holding their own locks, and player code run
+    // under m_guildLock (bank moves) can take those locks: they must only use what the leaf locks guard.
+    mutable std::recursive_mutex m_guildLock;
+    mutable std::mutex m_leafLock;                  // m_name, m_leaderGuid, m_memberGuids
+    mutable std::mutex m_newsLock;                  // m_newsLog
+    std::vector<ObjectGuid> m_memberGuids;          // copy of m_members keys for lock-free broadcasts
 
     uint32 _level;
     KnownRecipesMap _guildRecipes;
+    bool m_recipesDirty;
 
 private:
     uint32 _GetRanksSize() const;
@@ -970,6 +953,14 @@ private:
     Member* GetMember(WorldSession* session, std::string const& name);
 
     static inline void _DeleteMemberFromDB(ObjectGuid::LowType const& lowguid);
+
+    std::vector<ObjectGuid> _GetMemberGuids() const;
+    void _ForEachOnlineMember(std::function<void(Player*)> const& fn) const;
+    void _SetLeaderGuidValue(ObjectGuid guid);
+    bool _AddMember(ObjectGuid guid, uint8 rankId, Player const* caller);
+    // Returns false, without removing anyone, when the guild must be disbanded instead
+    bool _DeleteMember(ObjectGuid guid, bool isDisbanding, bool isKicked, Player const* caller);
+    void _UpdateMemberStats(Player* player);
 
     // Creates log holders (either when loading or when creating guild)
     void _CreateLogHolders();
@@ -995,7 +986,7 @@ private:
     std::string _GetRankName(uint32 rankId) const;
 
     int32 _GetMemberRemainingSlots(ObjectGuid guid, uint8 tabId) const;
-    int32 _GetMemberRemainingMoney(ObjectGuid guid) const;
+    int64 _GetMemberRemainingMoney(ObjectGuid guid) const;
     void _DecreaseMemberRemainingSlots(CharacterDatabaseTransaction& trans, ObjectGuid guid, uint8 tabId);
     bool _MemberHasTabRights(ObjectGuid guid, uint8 tabId, uint32 rights) const;
 

@@ -321,7 +321,7 @@ void CharacterDatabaseConnection::DoPrepareStatements()
     PrepareStatement(CHAR_SEL_GUILD_ACHIEVEMENT, "SELECT achievement, date, guids FROM guild_achievement WHERE guildId = ?", CONNECTION_SYNCH);
     PrepareStatement(CHAR_SEL_GUILD_ACHIEVEMENT_CRITERIA, "SELECT criteria, counter, date, completedGuid, achievID, completed FROM guild_achievement_progress WHERE guildId = ?", CONNECTION_SYNCH);
     PrepareStatement(CHAR_INS_GUILD_NEWS, "INSERT INTO guild_newslog (guildid, LogGuid, EventType, PlayerGuid, Flags, Value, Timestamp, Data) VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
-        " ON DUPLICATE KEY UPDATE LogGuid = VALUES (LogGuid), EventType = VALUES (EventType), PlayerGuid = VALUES (PlayerGuid), Flags = VALUES (Flags), Value = VALUES (Value), Timestamp = VALUES (Timestamp)", CONNECTION_ASYNC);
+        " ON DUPLICATE KEY UPDATE LogGuid = VALUES (LogGuid), EventType = VALUES (EventType), PlayerGuid = VALUES (PlayerGuid), Flags = VALUES (Flags), Value = VALUES (Value), Timestamp = VALUES (Timestamp), Data = VALUES (Data)", CONNECTION_ASYNC);
 
     PrepareStatement(CHAR_LOAD_GUILD_CHALLENGES, "SELECT GuildId, ChallengeType, ChallengeCount FROM guild_challenges", CONNECTION_SYNCH);
     PrepareStatement(CHAR_INIT_GUILD_CHALLENGES, "INSERT INTO guild_challenges VALUES (?, ?, 0)", CONNECTION_ASYNC);

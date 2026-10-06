@@ -19,6 +19,7 @@
 #define _GUILDMGR_H
 
 #include "Guild.h"
+#include <shared_mutex>
 
 struct GuildChallengeReward
 {
@@ -62,8 +63,13 @@ public:
     GuildChallengeRewardData const& GetGuildChallengeRewardData() const;
 
 protected:
+    // Lock order: _guildStoreLock may be taken under a Guild's main lock (player code run there),
+    // so while holding it only a guild's leaf-locked data is read (name, leader)
+    mutable std::shared_mutex _guildStoreLock;
     ObjectGuid::LowType NextGuildId;
     GuildContainer GuildStore;
+
+    std::vector<Guild*> _GetAllGuilds() const;
     std::vector<uint64> GuildXPperLevel;
     std::vector<GuildReward> GuildRewards;
     GuildChallengeRewardData _challengeRewardData;

@@ -17,13 +17,28 @@
 
 #include "GuildFinderMgr.h"
 #include "GuildPackets.h"
+#include "Util.h"
 
 void WorldSession::HandleLFGuildAddRecruit(WorldPackets::Guild::LFGuildAddRecruit& packet)
 {
-    if (sGuildFinderMgr->GetAllMembershipRequestsForPlayer(GetPlayer()->GetGUID()).size() == 10)
+    Player* player = GetPlayer();
+    if (player->GetGuildId())
+        return;
+
+    if (sGuildFinderMgr->GetAllMembershipRequestsForPlayer(player->GetGUID()).size() >= MAX_GUILD_FINDER_APPLICATIONS)
         return;
 
     if (!packet.GuildGUID.IsGuild())
+        return;
+
+    if (!sGuildMgr->GetGuildByGuid(packet.GuildGUID))
+        return;
+
+    LFGuildSettings settings = sGuildFinderMgr->GetGuildSettings(packet.GuildGUID);
+    if (!settings.IsListed() || settings.GetTeam() != player->GetTeamId())
+        return;
+
+    if (sGuildFinderMgr->HasRequest(player->GetGUID(), packet.GuildGUID))
         return;
 
     if (!(packet.ClassRoles & GUILDFINDER_ALL_ROLES) || packet.ClassRoles > GUILDFINDER_ALL_ROLES)
@@ -35,7 +50,9 @@ void WorldSession::HandleLFGuildAddRecruit(WorldPackets::Guild::LFGuildAddRecrui
     if (!(packet.PlayStyle & ALL_PLAY_STYLES) || packet.PlayStyle > ALL_PLAY_STYLES)
         return;
 
-    sGuildFinderMgr->AddMembershipRequest(packet.GuildGUID, MembershipRequest(GetPlayer()->GetGUID(), packet.GuildGUID, packet.Availability, packet.ClassRoles, packet.PlayStyle, packet.Comment, GameTime::GetGameTime()));
+    utf8truncate(packet.Comment, MAX_GUILD_FINDER_COMMENT_LEN);
+
+    sGuildFinderMgr->AddMembershipRequest(packet.GuildGUID, MembershipRequest(player->GetGUID(), packet.GuildGUID, packet.Availability, packet.ClassRoles, packet.PlayStyle, packet.Comment, GameTime::GetGameTime()));
 }
 
 void WorldSession::HandleLFGuildBrowse(WorldPackets::Guild::LFGuildBrowse& packet)
@@ -68,6 +85,9 @@ void WorldSession::HandleLFGuildBrowse(WorldPackets::Guild::LFGuildBrowse& packe
     for (auto const& x : guildList)
     {
         Guild* guild = sGuildMgr->GetGuildById(x.first.GetCounter());
+        if (!guild)
+            continue;
+
         WorldPackets::Guild::LFGuildBrowseData data;
         data.GuildGUID = guild->GetGUID();
         data.GuildVirtualRealm = GetVirtualRealmAddress();
@@ -77,11 +97,12 @@ void WorldSession::HandleLFGuildBrowse(WorldPackets::Guild::LFGuildBrowse& packe
         data.Availability = x.second.GetAvailability();
         data.ClassRoles = x.second.GetClassRoles();
         data.LevelRange = guild->GetLevel();
-        data.EmblemStyle = guild->GetEmblemInfo().GetStyle();
-        data.EmblemColor = guild->GetEmblemInfo().GetColor();
-        data.BorderStyle = guild->GetEmblemInfo().GetBorderStyle();
-        data.BorderColor = guild->GetEmblemInfo().GetBorderColor();
-        data.Background = guild->GetEmblemInfo().GetBackgroundColor();
+        EmblemInfo const emblem = guild->GetEmblemInfo();   // one consistent copy, taken under the guild lock
+        data.EmblemStyle = emblem.GetStyle();
+        data.EmblemColor = emblem.GetColor();
+        data.BorderStyle = emblem.GetBorderStyle();
+        data.BorderColor = emblem.GetBorderColor();
+        data.Background = emblem.GetBackgroundColor();
         data.GuildName = guild->GetName();
         data.Comment = x.second.GetComment();
         data.Cached = 0;
@@ -94,45 +115,29 @@ void WorldSession::HandleLFGuildBrowse(WorldPackets::Guild::LFGuildBrowse& packe
 
 void WorldSession::HandleLFGuildDeclineRecruit(WorldPackets::Guild::LFGuildDeclineRecruit& packet)
 {
-    if (packet.RecruitGUID.IsPlayer())
-        sGuildFinderMgr->RemoveMembershipRequest(packet.RecruitGUID, ObjectGuid::Create<HighGuid::Guild>(GetPlayer()->GetGuildId()));
+    if (!packet.RecruitGUID.IsPlayer())
+        return;
+
+    // Same right as the one needed to accept a recruit: inviting him
+    Guild* guild = sGuildMgr->GetGuildById(GetPlayer()->GetGuildId());
+    if (!guild || !guild->HasRankRight(GetPlayer(), GR_RIGHT_INVITE))
+        return;
+
+    sGuildFinderMgr->RemoveMembershipRequest(packet.RecruitGUID, guild->GetGUID());
 }
 
 void WorldSession::HandleLFGuildGetApplications(WorldPackets::Guild::LFGuildGetApplications& /*packet*/)
 {
-    std::list<MembershipRequest> applicatedGuilds = sGuildFinderMgr->GetAllMembershipRequestsForPlayer(GetPlayer()->GetGUID());
-    WorldPackets::Guild::LFGuildApplication application;
-    application.NumRemaining = 10 - sGuildFinderMgr->CountRequestsFromPlayer(GetPlayer()->GetGUID());
-
-    if (!applicatedGuilds.empty())
-    {
-        application.Applications.reserve(applicatedGuilds.size());
-        for (auto const& v : applicatedGuilds)
-        {
-            Guild* guild = sGuildMgr->GetGuildById(v.GetGuildGuid().GetCounter());
-            if (!guild)
-                continue;
-
-            LFGuildSettings guildSettings = sGuildFinderMgr->GetGuildSettings(v.GetGuildGuid());
-            WorldPackets::Guild::LFGuildApplicationData data;
-            data.GuildGUID = guild->GetGUID();
-            data.GuildVirtualRealm = GetVirtualRealmAddress();
-            data.ClassRoles = guildSettings.GetClassRoles();
-            data.PlayStyle = guildSettings.GetPlayStyle();
-            data.Availability = guildSettings.GetAvailability();
-            data.SecondsSinceCreated = GameTime::GetGameTime() - v.GetSubmitTime();
-            data.GuildName = guild->GetName();
-            data.Comment = v.GetComment();
-            application.Applications.push_back(data);
-        }
-    }
-
-    GetPlayer()->SendDirectMessage(application.Write());
+    sGuildFinderMgr->SendMembershipRequestListUpdate(*GetPlayer());
 }
 
 void WorldSession::HandleLFGuildGetRecruits(WorldPackets::Guild::LFGuildGetRecruits& /*packet*/)
 {
     Player* player = GetPlayer();
+    Guild* guild = sGuildMgr->GetGuildById(player->GetGuildId());
+    if (!guild || !guild->HasRankRight(player, GR_RIGHT_INVITE))
+        return;
+
     std::vector<MembershipRequest> recruitsList = sGuildFinderMgr->GetAllMembershipRequestsForGuild(ObjectGuid::Create<HighGuid::Guild>(player->GetGuildId()));
     
     WorldPackets::Guild::LFGuildRecruits recruits;
@@ -167,10 +172,8 @@ void WorldSession::HandleLFGuildGetGuildPost(WorldPackets::Guild::LFGuildGetGuil
     if (!player->GetGuildId())
         return;
 
-    bool isGuildMaster = true;
-    if (Guild* guild = sGuildMgr->GetGuildById(player->GetGuildId()))
-        if (guild->GetLeaderGUID() != player->GetGUID())
-            isGuildMaster = false;
+    Guild* guild = sGuildMgr->GetGuildById(player->GetGuildId());
+    bool isGuildMaster = guild && guild->GetLeaderGUID() == player->GetGUID();
 
     WorldPackets::Guild::LFGuildPost post;
     if (isGuildMaster)
@@ -224,6 +227,8 @@ void WorldSession::HandleLFGuildSetGuildPost(WorldPackets::Guild::LFGuildSetGuil
 
     if (guild->GetLeaderGUID() != player->GetGUID())
         return;
+
+    utf8truncate(packet.Comment, MAX_GUILD_FINDER_COMMENT_LEN);
 
     sGuildFinderMgr->SetGuildSettings(guild->GetGUID(), LFGuildSettings(packet.Active, player->GetTeamId(), guild->GetGUID(), packet.ClassRoles, packet.Availability, packet.PlayStyle, packet.LevelRange, packet.Comment));
 }

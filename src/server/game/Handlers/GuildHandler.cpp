@@ -55,6 +55,16 @@ inline Guild* _GetPlayerGuild(WorldSession* session, bool sendError = false)
     return nullptr;
 }
 
+// Bags only, as the legacy swap handler: no equipped, bank or buyback slot
+inline bool _IsGuildBankPlayerPos(WorldSession* session, uint8 bag, uint8 slot)
+{
+    if (Player::IsInventoryPos(bag, slot))
+        return true;
+
+    session->GetPlayer()->SendEquipError(EQUIP_ERR_INTERNAL_BAG_ERROR);
+    return false;
+}
+
 void WorldSession::HandleGuildQueryOpcode(WorldPackets::Guild::QueryGuildInfo& packet)
 {
     if (Guild* guild = sGuildMgr->GetGuildByGuid(packet.GuildGuid))
@@ -85,7 +95,8 @@ void WorldSession::HandleGuildOfficerRemoveMember(WorldPackets::Guild::GuildOffi
 
 void WorldSession::HandleGuildAcceptInvite(WorldPackets::Guild::AcceptGuildInvite& /*packet*/)
 {
-    if (_GetPlayerGuild(this, true))
+    // Not being in a guild is the expected case here: no "not in guild" error
+    if (_GetPlayerGuild(this))
         return;
 
     if (Guild* guild = sGuildMgr->GetGuildById(GetPlayer()->GetGuildIdInvited()))
@@ -94,16 +105,14 @@ void WorldSession::HandleGuildAcceptInvite(WorldPackets::Guild::AcceptGuildInvit
 
 void WorldSession::HandleGuildDeclineInvitation(WorldPackets::Guild::GuildDeclineInvitation& /*decline*/)
 {
-    if (Player* inviter = ObjectAccessor::FindPlayer(GetPlayer()->GetGuildInviterGuid()))
-    {
-        WorldPackets::Guild::GuildInviteDeclined packet;
-        packet.Name = GetPlayer()->GetName();
-        packet.VirtualRealmAddress = GetVirtualRealmAddress();
-        inviter->SendDirectMessage(packet.Write());
-    }
+    // the inviter may stand on another map
+    WorldPackets::Guild::GuildInviteDeclined packet;
+    packet.Name = GetPlayer()->GetName();
+    packet.VirtualRealmAddress = GetVirtualRealmAddress();
+    ObjectAccessor::SendToPlayer(GetPlayer()->GetGuildInviterGuid(), packet.Write());
 
+    // Only the pending invitation goes: a member declining must stay in his guild
     GetPlayer()->SetGuildIdInvited(0);
-    GetPlayer()->SetInGuild(0);
 }
 
 void WorldSession::HandleGuildRosterOpcode(WorldPackets::Guild::GuildGetRoster& /*packet*/)
@@ -126,7 +135,7 @@ void WorldSession::HandleGuildDemoteMember(WorldPackets::Guild::GuildDemoteMembe
 
 void WorldSession::HandleGuildAssignRank(WorldPackets::Guild::GuildAssignMemberRank& packet)
 {
-    if (packet.RankOrder < 0 || packet.RankOrder > GUILD_RANKS_MAX_COUNT)
+    if (packet.RankOrder < 0 || packet.RankOrder >= GUILD_RANKS_MAX_COUNT)
         return;
 
     if (Guild* guild = _GetPlayerGuild(this, true))
@@ -309,6 +318,9 @@ void WorldSession::HandleGuildBankMoveItemsPlayerBank(WorldPackets::Guild::Guild
     if (!CanOpenGuildBank(packet.Banker))
         return;
 
+    if (!_IsGuildBankPlayerPos(this, packet.HasBag ? packet.PlayerBag : INVENTORY_SLOT_BAG_0, packet.PlayerSlot))
+        return;
+
     if (auto guild = GetPlayer()->GetGuild())
         guild->SwapItemsWithInventory(GetPlayer(), false, packet.BankTab, packet.BankSlot, packet.HasBag ? packet.PlayerBag : INVENTORY_SLOT_BAG_0, packet.PlayerSlot, 0);
 }
@@ -316,6 +328,9 @@ void WorldSession::HandleGuildBankMoveItemsPlayerBank(WorldPackets::Guild::Guild
 void WorldSession::HandleGuildBankMoveItemsBankPlayer(WorldPackets::Guild::GuildBankSwapItems& packet)
 {
     if (!CanOpenGuildBank(packet.Banker))
+        return;
+
+    if (!_IsGuildBankPlayerPos(this, packet.HasBag ? packet.PlayerBag : INVENTORY_SLOT_BAG_0, packet.PlayerSlot))
         return;
 
     if (auto guild = GetPlayer()->GetGuild())
@@ -336,6 +351,9 @@ void WorldSession::HandleGuildBankMoveItemsPlayerBankCount(WorldPackets::Guild::
     if (!CanOpenGuildBank(packet.Banker))
         return;
 
+    if (!_IsGuildBankPlayerPos(this, packet.HasBag ? packet.PlayerBag : INVENTORY_SLOT_BAG_0, packet.PlayerSlot))
+        return;
+
     if (auto guild = GetPlayer()->GetGuild())
         guild->SwapItemsWithInventory(GetPlayer(), false, packet.BankTab, packet.BankSlot, packet.HasBag ? packet.PlayerBag : INVENTORY_SLOT_BAG_0, packet.PlayerSlot, packet.StackCount);
 }
@@ -343,6 +361,9 @@ void WorldSession::HandleGuildBankMoveItemsPlayerBankCount(WorldPackets::Guild::
 void WorldSession::HandleGuildBankMoveItemsBankPlayerCount(WorldPackets::Guild::GuildBankSwapItemsCount& packet)
 {
     if (!CanOpenGuildBank(packet.Banker))
+        return;
+
+    if (!_IsGuildBankPlayerPos(this, packet.HasBag ? packet.PlayerBag : INVENTORY_SLOT_BAG_0, packet.PlayerSlot))
         return;
 
     if (auto guild = GetPlayer()->GetGuild())
@@ -372,6 +393,9 @@ void WorldSession::HandleGuildBankMergeItemsPlayerBank(WorldPackets::Guild::Guil
     if (!CanOpenGuildBank(packet.Banker))
         return;
 
+    if (!_IsGuildBankPlayerPos(this, packet.HasBag ? packet.PlayerBag : INVENTORY_SLOT_BAG_0, packet.PlayerSlot))
+        return;
+
     if (auto guild = GetPlayer()->GetGuild())
         guild->SwapItemsWithInventory(GetPlayer(), false, packet.BankTab, packet.BankSlot, packet.HasBag ? packet.PlayerBag : INVENTORY_SLOT_BAG_0, packet.PlayerSlot, packet.StackCount);
 }
@@ -379,6 +403,9 @@ void WorldSession::HandleGuildBankMergeItemsPlayerBank(WorldPackets::Guild::Guil
 void WorldSession::HandleGuildBankMergeItemsBankPlayer(WorldPackets::Guild::GuildBankSwapItemsCount& packet)
 {
     if (!CanOpenGuildBank(packet.Banker))
+        return;
+
+    if (!_IsGuildBankPlayerPos(this, packet.HasBag ? packet.PlayerBag : INVENTORY_SLOT_BAG_0, packet.PlayerSlot))
         return;
 
     if (auto guild = GetPlayer()->GetGuild())
@@ -397,6 +424,9 @@ void WorldSession::HandleGuildBankMergeItemsBankBank(WorldPackets::Guild::GuildB
 void WorldSession::HandleGuildBankSwapItemsBankPlayer(WorldPackets::Guild::GuildBankSwapItems& packet)
 {
     if (!CanOpenGuildBank(packet.Banker))
+        return;
+
+    if (!_IsGuildBankPlayerPos(this, packet.HasBag ? packet.PlayerBag : INVENTORY_SLOT_BAG_0, packet.PlayerSlot))
         return;
 
     if (auto guild = GetPlayer()->GetGuild())
@@ -446,7 +476,7 @@ void WorldSession::HandleGuildBankTextQuery(WorldPackets::Guild::GuildBankTextQu
 void WorldSession::HandleGuildBankSetTabText(WorldPackets::Guild::GuildBankSetTabText& packet)
 {
     if (Guild* guild = _GetPlayerGuild(this))
-        guild->SetBankTabText(packet.TabId, packet.TabText);
+        guild->SetBankTabText(this, packet.TabId, packet.TabText);
 }
 
 void WorldSession::HandleGuildSetRankPermissions(WorldPackets::Guild::GuildSetRankPermissions& packet)
@@ -459,7 +489,9 @@ void WorldSession::HandleGuildSetRankPermissions(WorldPackets::Guild::GuildSetRa
     for (uint8 tabId = 0; tabId < GUILD_BANK_MAX_TABS; ++tabId)
         rightsAndSlots[tabId] = GuildBankRightsAndSlots(tabId, uint8(packet.TabFlags[tabId]), uint32(packet.TabWithdrawItemLimit[tabId]));
 
-    guild->HandleSetRankInfo(this, packet.RankOrder, packet.RankName, packet.Flags, packet.WithdrawGoldLimit * GOLD, rightsAndSlots);
+    // Stored in copper on 32 bits, the max value meaning unlimited
+    uint64 moneyPerDay = std::min<uint64>(uint64(std::max<int32>(packet.WithdrawGoldLimit, 0)) * GOLD, uint64(GUILD_WITHDRAW_MONEY_UNLIMITED) - 1);
+    guild->HandleSetRankInfo(this, packet.RankOrder, packet.RankName, packet.Flags, uint32(moneyPerDay), rightsAndSlots);
 }
 
 void WorldSession::HandleGuildRequestPartyState(WorldPackets::Guild::RequestGuildPartyState& packet)
@@ -598,8 +630,12 @@ void WorldSession::HandleGuildChangeNameRequest(WorldPackets::Guild::GuildChange
         if (guild->GetLeaderGUID() != _player->GetGUID())
             return;
 
+        // Renaming is a paid service: only a guild flagged for it may rename, and never to a taken name
+        if (!guild->IsFlaggedForRename())
+            return;
+
         bool success = true;
-        if (guild->GetName() == packet.NewName || sCharacterDataStore->IsReservedName(packet.NewName) || !sCharacterDataStore->IsValidCharterName(packet.NewName, GetSessionDbLocaleIndex()) || (sWorld->getBoolConfig(CONFIG_WORD_FILTER_ENABLE) && !sWordFilterMgr->FindBadWord(packet.NewName).empty()))
+        if (guild->GetName() == packet.NewName || sGuildMgr->GetGuildByName(packet.NewName) || sCharacterDataStore->IsReservedName(packet.NewName) || !sCharacterDataStore->IsValidCharterName(packet.NewName, GetSessionDbLocaleIndex()) || (sWorld->getBoolConfig(CONFIG_WORD_FILTER_ENABLE) && !sWordFilterMgr->FindBadWord(packet.NewName).empty()))
             success = false;
 
         WorldPackets::Guild::GuildChangeNameResult result;
@@ -625,15 +661,15 @@ void WorldSession::HandleGuildSetAchievementTracking(WorldPackets::Guild::GuildS
 
 void WorldSession::HandleGuildAutoDeclineInvitation(WorldPackets::Guild::GuildAutoDeclineInvitation& /*packet*/)
 {
-    if (Player* inviter = ObjectAccessor::FindPlayer(GetPlayer()->GetGuildInviterGuid()))
     {
+        // the inviter may stand on another map
         WorldPackets::Guild::GuildInviteDeclined packet;
         packet.Name = GetPlayer()->GetName();
         packet.AutoDecline = true;
         packet.VirtualRealmAddress = GetVirtualRealmAddress();
-        inviter->SendDirectMessage(packet.Write());
+        ObjectAccessor::SendToPlayer(GetPlayer()->GetGuildInviterGuid(), packet.Write());
     }
 
+    // Only the pending invitation goes: a member declining must stay in his guild
     GetPlayer()->SetGuildIdInvited(0);
-    GetPlayer()->SetInGuild(0);
 }
