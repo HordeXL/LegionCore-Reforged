@@ -35,27 +35,24 @@ void WorldSession::HandleRequestLeaders(WorldPackets::ChallengeMode::RequestLead
 
     if (auto bestGuild = sChallengeMgr->BestGuildChallenge(_player->GetGuildId(), packet.ChallengeID))
     {
-        for (auto itr = bestGuild->member.begin(); itr != bestGuild->member.end(); ++itr)
+        WorldPackets::ChallengeMode::ModeAttempt guildLeaders;
+        guildLeaders.InstanceRealmAddress = GetVirtualRealmAddress();
+        guildLeaders.AttemptID = bestGuild->ID;
+        guildLeaders.CompletionTime = bestGuild->RecordTime;
+        guildLeaders.CompletionDate = bestGuild->Date;
+        guildLeaders.MedalEarned = bestGuild->ChallengeLevel;
+
+        for (auto const& v : bestGuild->member)
         {
-            WorldPackets::ChallengeMode::ModeAttempt guildLeaders;
-            guildLeaders.InstanceRealmAddress = GetVirtualRealmAddress();
-            guildLeaders.AttemptID = bestGuild->ID;
-            guildLeaders.CompletionTime = bestGuild->RecordTime;
-            guildLeaders.CompletionDate = bestGuild->Date;
-            guildLeaders.MedalEarned = bestGuild->ChallengeLevel;
-
-            for (auto const& v : bestGuild->member)
-            {
-                WorldPackets::ChallengeMode::ModeAttempt::Member memberData;
-                memberData.VirtualRealmAddress = GetVirtualRealmAddress();
-                memberData.NativeRealmAddress = GetVirtualRealmAddress();
-                memberData.Guid = v.guid;
-                memberData.SpecializationID = v.specId;
-                guildLeaders.Members.emplace_back(memberData);
-            }
-
-            result.GuildLeaders.emplace_back(guildLeaders);
+            WorldPackets::ChallengeMode::ModeAttempt::Member memberData;
+            memberData.VirtualRealmAddress = GetVirtualRealmAddress();
+            memberData.NativeRealmAddress = GetVirtualRealmAddress();
+            memberData.Guid = v.guid;
+            memberData.SpecializationID = v.specId;
+            guildLeaders.Members.emplace_back(memberData);
         }
+
+        result.GuildLeaders.emplace_back(guildLeaders);
     }
 
     if (ChallengeData* bestServer = sChallengeMgr->BestServerChallenge(packet.ChallengeID))
@@ -122,6 +119,9 @@ void WorldSession::HandleChallengeModeRequestMapStats(WorldPackets::ChallengeMod
 void WorldSession::HandleStartChallengeMode(WorldPackets::ChallengeMode::StartChallengeMode& packet)
 {
     if (packet.GameObjectGUID.GetEntry() != ChallengeModeOrb || !sWorld->getBoolConfig(CONFIG_CHALLENGE_ENABLED))
+        return;
+
+    if (!_player->GetGameObjectIfCanInteractWith(packet.GameObjectGUID, GAMEOBJECT_TYPE_KEYSTONE_RECEPTACLE))
         return;
 
     if (Item* item = _player->GetItemByEntry(138019))
