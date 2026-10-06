@@ -24,6 +24,7 @@ Rather than a static copy baked with late-patch shortcuts, we implemented a **pr
 * [Introduction](#introduction)
 * [Requirements](#requirements)
 * [Install](#install)
+* [Client](#client)
 * [Data Files](#data-files)
 * [Thank you](#thank-you)
 
@@ -40,6 +41,9 @@ LegionCore is a **MMORPG** framework for WOW Legion *(Build 26972)*. This core i
 
 # Install
 Most of the install steps are the same as the TrinityCore ones [here](https://www.trinitycore.info/en/install/Core-Installation).
+
+# Client
+[Legion 7.3.5 (Build 26972)](https://www.dragonwar.fr/download/Legion7.3.5.zip.torrent)
 
 # Data Files
 This core has been updated with tools to generate all required data files.
