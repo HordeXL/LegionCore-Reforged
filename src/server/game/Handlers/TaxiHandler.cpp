@@ -26,8 +26,9 @@
 
 void WorldSession::HandleEnableTaxiNode(WorldPackets::Taxi::EnableTaxiNode& enableTaxiNode)
 {
-    Creature* unit = GetPlayer()->GetMap()->GetCreature(enableTaxiNode.Unit);
-    SendLearnNewTaxiNode(unit);
+    Creature* unit = GetPlayer()->GetNPCIfCanInteractWith(enableTaxiNode.Unit, UNIT_NPC_FLAG_FLIGHTMASTER);
+    if (unit)
+        SendLearnNewTaxiNode(unit);
 }
 
 void WorldSession::HandleTaxiNodeStatusQuery(WorldPackets::Taxi::TaxiNodeStatusQuery& taxiNodeStatusQuery)
@@ -205,6 +206,9 @@ void WorldSession::HandleTaxiRequestEarlyLanding(WorldPackets::Taxi::TaxiRequest
         if (GetPlayer()->m_taxi.RequestEarlyLanding())
         {
             FlightPathMovementGenerator* flight = dynamic_cast<FlightPathMovementGenerator*>(GetPlayer()->GetMotionMaster()->top());
+            if (!flight || flight->HasArrived())
+                return;
+
             flight->LoadPath(*GetPlayer(), flight->GetPath()[flight->GetCurrentNode()]->NodeIndex);
             flight->Reset(*GetPlayer());
         }

@@ -55,7 +55,7 @@ class FlightPathMovementGenerator : public MovementGeneratorMedium<Player, Fligh
 
         bool GetResetPosition(Unit&, float& x, float& y, float& z) override;
         void InitEndGridInfo();
-        void PreloadEndGrid();
+        void PreloadEndGrid(Player& player);
 
     private:
 

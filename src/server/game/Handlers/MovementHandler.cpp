@@ -490,14 +490,21 @@ void WorldSession::HandleSetActiveMover(WorldPackets::Movement::SetActiveMover& 
 
 void WorldSession::HandleMoveTimeSkipped(WorldPackets::Movement::MoveTimeSkipped& packet)
 {
-    Player* player = GetPlayer();
-    player->m_movementInfo.MoveTime += packet.TimeSkipped;
-    player->m_movementInfo.ClientMoveTime += packet.TimeSkipped;
+    Unit* mover = GetPlayer()->GetUnitBeingMoved();
+    if (!mover || packet.MoverGUID != mover->GetGUID())
+        return;
+
+    // Client-supplied value shifts the movement clock the anticheat relies on: clamp it so a forged value cannot open a long window
+    uint32 const maxTimeSkipped = 5 * IN_MILLISECONDS;
+    uint32 timeSkipped = std::min(packet.TimeSkipped, maxTimeSkipped);
+
+    mover->m_movementInfo.MoveTime += timeSkipped;
+    mover->m_movementInfo.ClientMoveTime += timeSkipped;
 
     WorldPackets::Movement::MoveSkipTime lagSync;
-    lagSync.MoverGUID = player->GetGUID();
-    lagSync.SkippedTime = packet.TimeSkipped;
-    player->SendMessageToSet(lagSync.Write(), false);
+    lagSync.MoverGUID = mover->GetGUID();
+    lagSync.SkippedTime = timeSkipped;
+    mover->SendMessageToSet(lagSync.Write(), _player);
 }
 
 void WorldSession::HandleMoveSplineDone(WorldPackets::Movement::MoveSplineDone& packet)
@@ -523,6 +530,9 @@ void WorldSession::HandleMoveSplineDone(WorldPackets::Movement::MoveSplineDone& 
                 auto flight = dynamic_cast<FlightPathMovementGenerator*>(player->GetMotionMaster()->top());
 
                 flight->SetCurrentNodeAfterTeleport();
+                if (flight->HasArrived())
+                    return;
+
                 TaxiPathNodeEntry const* node = flight->GetPath()[flight->GetCurrentNode()];
                 flight->SkipCurrentNode();
 

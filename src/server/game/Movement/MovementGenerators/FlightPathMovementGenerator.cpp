@@ -167,7 +167,7 @@ bool FlightPathMovementGenerator::DoUpdate(Player& player, uint32 /*diff*/)
                 break;
 
             if (_currentNode == _preloadTargetNode)
-                PreloadEndGrid();
+                PreloadEndGrid(player);
             _currentNode += departureEvent ? 1 : 0;
             departureEvent = !departureEvent;
         }
@@ -223,22 +223,17 @@ void FlightPathMovementGenerator::InitEndGridInfo()
     _endGridZ = _path[nodeCount - 1]->Loc.Z;
 }
 
-void FlightPathMovementGenerator::PreloadEndGrid()
+void FlightPathMovementGenerator::PreloadEndGrid(Player& player)
 {
     MapEntry const* mapEntry = sMapStore.LookupEntry(_endMapId);
     if (!mapEntry)
         return;
 
-    // used to preload the final grid where the flightmaster is
-    Map* endMap = nullptr;
-    if (mapEntry->CanCreatedZone())
-    {
-        Map* endMap = sMapMgr->CreateBaseMap(_endMapId);
-        uint32 instanceId = endMap->GetZoneId(_endGridX, _endGridY, _endGridZ);
-        endMap = sMapMgr->FindMap(_endMapId, instanceId);
-    }
-    else
-        endMap = sMapMgr->FindBaseNonInstanceMap(_endMapId);
+    // used to preload the final grid where the flightmaster is. LoadGrid is only safe from the map's own thread,
+    // which is the player's: preload when the flight ends in the map he flies in (zone maps: same zone)
+    Map* endMap = player.FindMap();
+    if (endMap && (endMap->GetId() != _endMapId || (mapEntry->CanCreatedZone() && endMap->GetInstanceId() != endMap->GetZoneId(_endGridX, _endGridY, _endGridZ))))
+        endMap = nullptr;
 
     // Load the grid
     if (endMap)
