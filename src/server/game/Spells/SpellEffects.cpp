@@ -7772,6 +7772,15 @@ void Spell::SummonGuardian(uint32 i, uint32 entry, SummonPropertiesEntry const* 
     //TempSummonType summonType = (duration == 0) ? TEMPSUMMON_DEAD_DESPAWN : TEMPSUMMON_TIMED_DESPAWN;
     Map* map = caster->GetMap();
     ObjectGuid targetGUID = m_targets.GetUnitTargetGUID();
+    // A summon spell triggered by the one the player cast (Doomguard 18540 -> 60478) aims at a point: the
+    // enemy survives as the original target, else the player's selection (Infernal, whose trigger targets the caster)
+    if (!targetGUID && m_originalTarget && m_originalTarget != caster && caster->IsValidAttackTarget(m_originalTarget))
+        targetGUID = m_originalTargetGUID;
+    if (!targetGUID)
+        if (Player* player = caster->ToPlayer())
+            if (Unit* selected = player->GetSelectedUnit())
+                if (caster->IsHostileTo(selected) && caster->IsValidAttackTarget(selected))
+                    targetGUID = selected->GetGUID();
     switch (properties->ID)
     {
         case 3655:
@@ -7783,7 +7792,13 @@ void Spell::SummonGuardian(uint32 i, uint32 entry, SummonPropertiesEntry const* 
     {
         Position pos;
         if (count == 0)
+        {
             pos = static_cast<Position>(*destTarget);
+            // Summon Doomguard aims at the caster's own spot: the demon stood inside the warlock, it comes at his
+            // left (the Darkglare comes at his right)
+            if (m_spellInfo->Id == 60478)
+                pos = caster->GetNearPosition(3.0f, static_cast<float>(M_PI / 2));
+        }
         else
             // randomize position for multiple summons
             m_caster->GetRandomPoint(*destTarget, radius, pos);

@@ -626,9 +626,52 @@ int AnyPetAI::Permissible(const Creature* creature)
     return PERMIT_BASE_NO;
 }
 
+// Caster guardians (pet_stats.type: Doomguard, Darkglare) fight from the range of their longest offensive
+// spell. Since the pet rework only real pets learn their spells, so a guardian kept melee range, ran into its
+// target and cast nothing.
+static bool SetGuardianCastRange(Creature* me)
+{
+    if (!me->GetCasterPet() || me->GetAttackDist() > MELEE_RANGE)
+        return false;
+
+    float range = 0.0f;
+    for (uint32 spellId : me->m_templateSpells)
+        if (SpellInfo const* spellInfo = sSpellMgr->GetSpellInfo(spellId))
+            if (!spellInfo->IsPassive() && !spellInfo->IsPositive())
+                range = std::max(range, spellInfo->GetMaxRange(false));
+
+    if (range <= MELEE_RANGE)
+        return false;
+
+    me->SetAttackDist(range);
+    return true;
+}
+
+static void CastGuardianSpells(Creature* me)
+{
+    Unit* victim = me->getVictim();
+    if (!victim || me->HasUnitState(UNIT_STATE_CASTING) || me->HasFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_STUNNED))
+        return;
+
+    for (uint32 spellId : me->m_templateSpells)
+    {
+        SpellInfo const* spellInfo = sSpellMgr->GetSpellInfo(spellId);
+        if (!spellInfo || spellInfo->IsPassive() || spellInfo->IsPositive() || me->HasCreatureSpellCooldown(spellId))
+            continue;
+
+        if (!me->IsWithinDistInMap(victim, spellInfo->GetMaxRange(false)) || !me->IsWithinLOSInMap(victim))
+            continue;
+
+        me->CastSpell(victim, spellInfo, false);
+        me->AddCreatureSpellCooldown(spellId);
+        break;
+    }
+}
+
 void AnyPetAI::InitializeAI()
 {
     CreatureAI::InitializeAI();
+    SetGuardianCastRange(me);
 
     if (PetStats const* pStats = sObjectMgr->GetPetStats(me->GetEntry()))
     {
@@ -664,17 +707,23 @@ void AnyPetAI::UpdateAI(uint32 /*diff*/)
     if (!me->IsAlive())
         return;
 
+    if (SetGuardianCastRange(me) && me->getVictim())
+        me->GetMotionMaster()->MoveChase(me->getVictim(), me->GetAttackDist() - 0.5f);
+
     Unit* owner = me->GetCharmerOrOwner();
     Unit* target = me->getAttackerForHelper();
     Unit* targetOwner = nullptr;
 
     if (!me->HasReactState(REACT_PASSIVE))
     {
-        if (owner)
-            targetOwner = owner->getAttackerForHelper();
+        // The unit it was summoned on comes first; the owner's fight only while he is in combat, since
+        // getAttackerForHelper falls back on the last unit he swung at, kept long after the fight ended
+        if (Unit* summonTarget = me->GetTargetUnit())
+            if (summonTarget->IsAlive() && me->IsValidAttackTarget(summonTarget))
+                targetOwner = summonTarget;
 
-        if (!targetOwner && me->GetTargetUnit()) // If summoned on target attacked it
-            targetOwner = me->GetTargetUnit();
+        if (!targetOwner && owner && owner->isInCombat())
+            targetOwner = owner->getAttackerForHelper();
 
         if (targetOwner != nullptr && targetOwner != target)
         {
@@ -707,7 +756,9 @@ void AnyPetAI::UpdateAI(uint32 /*diff*/)
         }
     }
 
-    if (!me->GetCasterPet())
+    if (me->GetCasterPet())
+        CastGuardianSpells(me);
+    else
         DoMeleeAttackIfReady();
 }
 
