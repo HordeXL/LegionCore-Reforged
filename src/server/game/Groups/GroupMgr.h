@@ -20,6 +20,10 @@
 
 #include "Group.h"
 
+#include <atomic>
+#include <mutex>
+#include <vector>
+
 class TC_GAME_API GroupMgr
 {
 private:
@@ -36,17 +40,20 @@ public:
 
     Group* GetGroupByGUID(ObjectGuid const& guid) const;
 
-    uint32 GenerateNewGroupDbStoreId();
+    uint32 GenerateNewGroupDbStoreId(Group* group);
     void   RegisterGroupDbStoreId(uint32 storageId, Group* group);
     void   FreeGroupDbStoreId(Group* group);
-    void   SetNextGroupDbStoreId(uint32 storageId) { NextGroupDbStoreId = storageId; };
+    void   SetNextGroupDbStoreId(uint32 storageId) { std::lock_guard<std::mutex> lock(_groupDbStoreLock); NextGroupDbStoreId = storageId; };
     Group* GetGroupByDbStoreId(uint32 storageId) const;
-    void   SetGroupDbStoreSize(uint32 newSize) { GroupDbStore.resize(newSize); }
+    void   SetGroupDbStoreSize(uint32 newSize) { std::lock_guard<std::mutex> lock(_groupDbStoreLock); GroupDbStore.resize(newSize); }
 
     void   LoadGroups();
     ObjectGuid::LowType GenerateGroupId();
     void   AddGroup(Group* group);
     void   RemoveGroup(Group* group);
+    // Disbanded (or dropped pending) groups are freed here, by the world thread, a few seconds later: a Group* looked
+    // up by another thread stays valid for the call that looked it up. Queuing twice is ignored.
+    void   QueueForDelete(Group* group);
 
     void AddDelayedEvent(uint64 timeOffset, std::function<void()>&& function)
     {
@@ -54,10 +61,19 @@ public:
     }
 
 protected:
-    ObjectGuid::LowType           NextGroupId;
+    void   _RegisterGroupDbStoreId(uint32 storageId, Group* group);
+    void   _DeleteQueuedGroups(bool all);
+
+    // Groups are created and disbanded from every map thread.
+    std::atomic<ObjectGuid::LowType> NextGroupId;
     uint32           NextGroupDbStoreId;
     GroupContainer   GroupStore;
     GroupDbContainer GroupDbStore;
+    mutable std::mutex _groupStoreLock;
+    mutable std::mutex _groupDbStoreLock;
+    // leaf, like the two above
+    std::vector<std::pair<time_t, Group*>> _deleteQueue;
+    std::mutex _deleteQueueLock;
     FunctionProcessor m_Functions;
 };
 

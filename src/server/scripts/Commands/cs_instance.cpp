@@ -89,7 +89,7 @@ public:
         {
             for (uint8 i = 0; i < MAX_DIFFICULTY; ++i)
             {
-                Group::BoundInstancesMap &binds = group->GetBoundInstances(Difficulty(i));
+                Group::BoundInstancesMap binds = group->GetBoundInstancesCopy(Difficulty(i));
                 for (Group::BoundInstancesMap::const_iterator itr = binds.begin(); itr != binds.end(); ++itr)
                 {
                     InstanceSave* save = itr->second.save;

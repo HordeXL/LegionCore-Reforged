@@ -514,7 +514,9 @@ void WorldSession::HandleLootRoll(WorldPackets::Loot::LootRoll& packet)
     if (!group)
         return;
 
-    group->CountRollVote(player->GetGUID(), packet.LootListID, packet.RollType);
+    // the vote is only recorded when cast from another map than the loot's; the loot's own thread concludes the roll
+    if (!group->CountRollVote(player, packet.LootListID, packet.RollType))
+        return;
 
     switch (packet.RollType)
     {

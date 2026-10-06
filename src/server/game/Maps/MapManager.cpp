@@ -247,18 +247,20 @@ bool MapManager::CanPlayerEnter(uint32 mapid, Player* player, bool loginCheck)
     //Get instance where player's group is bound & its map
     if (group)
     {
-        InstanceGroupBind* boundInstance = group->GetBoundInstance(entry);
-        if (boundInstance && boundInstance->save)
+        InstanceGroupBind boundInstance = group->GetBoundInstanceCopy(entry);
+        if (boundInstance.save)
         {
-            if (Map* boundMap = sMapMgr->FindMap(mapid, boundInstance->save->GetInstanceId()))
-                if (!loginCheck && !boundMap->CanEnter(player))
-                    return false;
+            // the bound instance updates in its own thread: checked under the instance list lock, no Map* kept
+            if (!loginCheck)
+                if (Map* baseMap = FindBaseMap(mapid))
+                    if (baseMap->Instanceable() && !static_cast<MapInstanced*>(baseMap)->CanEnterInstance(boundInstance.save->GetInstanceId(), player))
+                        return false;
 
-            if (entry->ExpansionID < EXPANSION_LEGION && !boundInstance->save->SaveIsOld())
+            if (entry->ExpansionID < EXPANSION_LEGION && !boundInstance.save->SaveIsOld())
             {
                 if (InstancePlayerBind* tempBind = player->GetBoundInstance(mapid, targetDifficulty))
                 {
-                    uint32 allMask = boundInstance->save->GetCompletedEncounterMask() & tempBind->save->GetCompletedEncounterMask();
+                    uint32 allMask = boundInstance.save->GetCompletedEncounterMask() & tempBind->save->GetCompletedEncounterMask();
                     if (allMask != tempBind->save->GetCompletedEncounterMask() && !tempBind->save->SaveIsOld())
                     {
                         player->SendTransferAborted(mapid, TRANSFER_ABORT_LOCKED_TO_DIFFERENT_INSTANCE, targetDifficulty);
@@ -406,10 +408,11 @@ uint32 MapManager::GetNumInstances()
             if (!map->Instanceable())
                 continue;
 
-            auto& maps = static_cast<MapInstanced*>(map)->GetInstancedMaps();
-            for (auto& itr : maps)
-                if (itr.second->IsDungeon())
+            static_cast<MapInstanced*>(map)->ForEachInstancedMap([&ret](Map* instance)
+            {
+                if (instance->IsDungeon())
                     ret++;
+            });
         }
     }
     return ret;
@@ -425,10 +428,11 @@ uint32 MapManager::GetNumPlayersInInstances()
             if (!map->Instanceable())
                 continue;
 
-            auto& maps = static_cast<MapInstanced*>(map)->GetInstancedMaps();
-            for (auto& itr : maps)
-                if (itr.second->IsDungeon())
-                    ret += static_cast<InstanceMap*>(itr.second)->GetPlayerCount();
+            static_cast<MapInstanced*>(map)->ForEachInstancedMap([&ret](Map* instance)
+            {
+                if (instance->IsDungeon())
+                    ret += static_cast<InstanceMap*>(instance)->GetPlayerCount();
+            });
         }
     }
     return ret;
@@ -441,14 +445,14 @@ void MapManager::InitInstanceIds()
     if (QueryResult result = CharacterDatabase.Query("SELECT MAX(instance) FROM character_instance"))
     {
         uint32 instanceId = (*result)[0].GetUInt32();
-        if (instanceId > _nextInstanceId)
+        if (instanceId >= _nextInstanceId)
             _nextInstanceId = instanceId + 1;
     }
 
     if (QueryResult result = CharacterDatabase.Query("SELECT MAX(instance) FROM group_instance"))
     {
         uint32 instanceId = (*result)[0].GetUInt32();
-        if (instanceId > _nextInstanceId)
+        if (instanceId >= _nextInstanceId)
             _nextInstanceId = instanceId + 1;
     }
 }
@@ -474,10 +478,15 @@ void MapManager::FindSessionInAllMaps(uint32 accId, ChatHandler* handler)
                 continue;
             }
 
-            auto& maps = static_cast<MapInstanced*>(map)->GetInstancedMaps();
-            for (auto& itr : maps)
-                if (itr.second->FindSession(accId))
-                    handler->PSendSysMessage("Session find for accountID %u in map %u InstanceId %u", accId, itr.second->GetId(), itr.second->GetInstanceId());
+            // collected under the instance list lock, reported after it
+            std::vector<std::pair<uint32, uint32>> found;
+            static_cast<MapInstanced*>(map)->ForEachInstancedMap([&found, accId](Map* instance)
+            {
+                if (instance->FindSession(accId))
+                    found.emplace_back(instance->GetId(), instance->GetInstanceId());
+            });
+            for (auto const& where : found)
+                handler->PSendSysMessage("Session find for accountID %u in map %u InstanceId %u", accId, where.first, where.second);
         }
     }
 }
@@ -524,35 +533,44 @@ void MapManager::LogInfoAllMaps()
                 continue;
             }
 
-            auto& maps = static_cast<MapInstanced*>(map)->GetInstancedMaps();
-            for (auto& itr : maps)
-                if (Map* instance = itr.second)
-                    worldObjectCount += instance->GetWorldObjectCount();
+            uint32 instanceCount = 0;
+            static_cast<MapInstanced*>(map)->ForEachInstancedMap([&worldObjectCount, &instanceCount](Map* instance)
+            {
+                worldObjectCount += instance->GetWorldObjectCount();
+                ++instanceCount;
+            });
 
-            if (maps.size() > 10) // Only actual instance
-                sLog->outMapInfo("LogInfoAllMaps mapId %u instanceCount %u worldObjectCount: %u.", i, maps.size(), worldObjectCount);
+            if (instanceCount > 10) // Only actual instance
+                sLog->outMapInfo("LogInfoAllMaps mapId %u instanceCount %u worldObjectCount: %u.", i, instanceCount, worldObjectCount);
         }
     }
 }
 
 void MapManager::SetUnloadGarrison(uint32 lowGuid)
 {
-    if (Map* map = FindMap(1152, lowGuid))
-        if (InstanceMap* instance = map->ToInstanceMap())
-            instance->Reset(INSTANCE_RESET_GLOBAL);
-    if (Map* map = FindMap(1153, lowGuid))
-        if (InstanceMap* instance = map->ToInstanceMap())
-            instance->Reset(INSTANCE_RESET_GLOBAL);
-    if (Map* map = FindMap(1154, lowGuid))
-        if (InstanceMap* instance = map->ToInstanceMap())
-            instance->Reset(INSTANCE_RESET_GLOBAL);
-    if (Map* map = FindMap(1158, lowGuid))
-        if (InstanceMap* instance = map->ToInstanceMap())
-            instance->Reset(INSTANCE_RESET_GLOBAL);
-    if (Map* map = FindMap(1159, lowGuid))
-        if (InstanceMap* instance = map->ToInstanceMap())
-            instance->Reset(INSTANCE_RESET_GLOBAL);
-    if (Map* map = FindMap(1160, lowGuid))
-        if (InstanceMap* instance = map->ToInstanceMap())
-            instance->Reset(INSTANCE_RESET_GLOBAL);
+    // the garrison maps are updated by their own thread: they reset themselves on their next update
+    for (uint32 garrisonMapId : { 1152, 1153, 1154, 1158, 1159, 1160 })
+        RequestInstanceReset(garrisonMapId, lowGuid, INSTANCE_RESET_GLOBAL);
+}
+
+bool MapManager::RequestInstanceReset(uint32 mapId, uint32 instanceId, uint8 method, bool* hadPlayers /*= nullptr*/)
+{
+    Map* map = FindBaseMap(mapId);
+    if (!map || !map->Instanceable())
+        return false;
+
+    return static_cast<MapInstanced*>(map)->RequestInstanceReset(instanceId, method, hadPlayers);
+}
+
+bool MapManager::InstanceHavePlayers(uint32 mapId, uint32 instanceId) const
+{
+    Map* map = FindBaseMap(mapId);
+    if (!map)
+        return false;
+
+    // as FindMap; a base map is never freed
+    if (!map->Instanceable() && !map->CanCreatedZone())
+        return map->HavePlayers();
+
+    return static_cast<MapInstanced*>(map)->InstanceHavePlayers(instanceId);
 }

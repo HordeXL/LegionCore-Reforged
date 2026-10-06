@@ -19,6 +19,7 @@
 #ifndef TRINITY_MAP_H
 #define TRINITY_MAP_H
 
+#include <atomic>
 #include <bitset>
 
 #include "Cell.h"
@@ -760,6 +761,9 @@ public:
     void Update(const uint32) override;
     void CreateInstanceData(InstanceSave* save);
     bool Reset(uint8 method);
+    // for other threads (world thread resets): applied by this map's own thread at its next Update
+    void RequestReset(uint8 method) { m_pendingResets.fetch_or(1u << method); }
+    uint32 TakePendingResets() { return m_pendingResets.exchange(0); }
     uint32 GetScriptId() { return i_script_id; }
     InstanceScript* GetInstanceScript() { return i_data; }
     std::string const& GetScriptName() const;
@@ -781,6 +785,7 @@ private:
     bool m_unloadWhenEmpty;
     InstanceScript* i_data;
     uint32 i_script_id;
+    std::atomic<uint32> m_pendingResets;                    // 1 << InstanceResetMethod
 };
 
 class ZoneMap : public Map

@@ -21,6 +21,7 @@
 #include "GroupMgr.h"
 #include "SocialMgr.h"
 #include "BattlegroundMgr.h"
+#include "LFG.h"
 
 class Aura;
 
@@ -147,8 +148,9 @@ void WorldSession::HandlePartyInvite(WorldPackets::Party::PartyInviteClient& pac
         }
         if (!group->AddInvite(player))
         {
+            // the inviter's invite named it for a moment: freed by GroupMgr, like any dropped group
             group->RemoveAllInvites();
-            delete group;
+            sGroupMgr->QueueForDelete(group);
             return;
         }
     }
@@ -178,59 +180,82 @@ void WorldSession::HandlePartyInviteResponse(WorldPackets::Party::PartyInviteRes
 
     if (packet.Accept)
     {
-        // Remove player from invitees in any case
-        group->RemoveInvite(player);
-
-        if (group->GetLeaderGUID() == player->GetGUID())
+        bool dispose = false;
         {
-            TC_LOG_ERROR("network", "HandleGroupAcceptOpcode: player %s(%d) tried to accept an invite to his own group", player->GetName(), player->GetGUIDLow());
-            return;
-        }
+            // Two invitees may accept from two maps at once: the full check, the creation of a new group and the join
+            // are one step. m_inviteLock is only taken here and before any other lock, so holding it through
+            // Create/AddMember cannot close a cycle.
+            std::lock_guard<std::mutex> inviteGuard(group->m_inviteLock);
 
-        // Group is full
-        if (group->IsFull())
-        {
-            SendPartyResult(PARTY_OP_INVITE, "", ERR_GROUP_FULL);
-            return;
-        }
+            // dropped (the pending group is queued for deletion) or withdrawn by another thread since it was read
+            if (group->IsDisposed() || player->GetGroupInvite() != group)
+                return;
 
-        Player* leader = ObjectAccessor::FindPlayer(group->GetLeaderGUID());
+            // Remove player from invitees in any case
+            group->RemoveInvite(player);
 
-        // Forming a new group, create it
-        if (!group->IsCreated())
-        {
-            // This can happen if the leader is zoning. To be removed once delayed actions for zoning are implemented
-            if (!leader)
+            if (group->GetLeaderGUID() == player->GetGUID())
             {
-                group->RemoveAllInvites();
+                TC_LOG_ERROR("network", "HandleGroupAcceptOpcode: player %s(%d) tried to accept an invite to his own group", player->GetName(), player->GetGUIDLow());
                 return;
             }
 
-            // If we're about to create a group there really should be a leader present
-            ASSERT(leader);
-            group->RemoveInvite(leader);
-            group->Create(leader);
-            sGroupMgr->AddGroup(group);
+            // Group is full
+            if (group->IsFull())
+            {
+                SendPartyResult(PARTY_OP_INVITE, "", ERR_GROUP_FULL);
+                return;
+            }
+
+            // Forming a new group, create it (a created group being disbanded also has no member left: not reborn)
+            if (!group->IsCreated())
+            {
+                if (group->IsDisbanding())
+                    return;
+
+                // The leader stays alive while his invite names this group: his logout withdraws it under
+                // m_inviteLock, held here. He may stand on another map (Create writes on him, as before).
+                Player* leader = group->GetInvited(group->GetLeaderGUID());
+                if (leader && (leader->GetGroupInvite() != group || !leader->IsInWorld() || leader->IsDelete()))
+                    leader = nullptr;
+
+                // This can happen if the leader is zoning. To be removed once delayed actions for zoning are implemented
+                if (!leader)
+                {
+                    group->RemoveAllInvites();
+                    group->SetDisposed();
+                    dispose = true;
+                }
+                else
+                {
+                    group->RemoveInvite(leader);
+                    group->Create(leader);
+                    sGroupMgr->AddGroup(group);
+                }
+            }
+
+            // Everything is fine, do it, PLAYER'S GROUP IS SET IN ADDMEMBER!!!
+            if (!dispose && !group->AddMember(player))
+                return;
         }
 
-        // Everything is fine, do it, PLAYER'S GROUP IS SET IN ADDMEMBER!!!
-        if (!group->AddMember(player))
+        if (dispose)
+        {
+            sGroupMgr->QueueForDelete(group);
             return;
+        }
 
         group->BroadcastGroupUpdate();
     }
     else
     {
-        // Remember leader if online (group pointer will be invalid if group gets disbanded)
-        Player* leader = ObjectAccessor::FindPlayer(group->GetLeaderGUID());
+        // Remember leader (group pointer will be invalid if group gets disbanded)
+        ObjectGuid leaderGuid = group->GetLeaderGUID();
 
         // uninvite, group can be deleted
         player->UninviteFromGroup();
 
-        if (!leader || !leader->GetSession())
-            return;
-
-        leader->SendDirectMessage(WorldPackets::Party::GroupDecline(player->GetName()).Write());
+        ObjectAccessor::SendToPlayer(leaderGuid, WorldPackets::Party::GroupDecline(player->GetName()).Write());
     }
 }
 
@@ -266,9 +291,16 @@ void WorldSession::HandlePartyUninvite(WorldPackets::Party::PartyUninvite& packe
         return;
     }
 
-    if (Player* player = grp->GetInvited(packet.TargetGUID))
+    if (grp->GetInvited(packet.TargetGUID))
     {
-        player->UninviteFromGroup();
+        // the invitee may stand on another map: he leaves the invite in his own thread, found again by guid
+        ObjectGuid groupGuid = grp->GetGUID();
+        ObjectAccessor::PostToPlayer(packet.TargetGUID, [groupGuid](Player* invited) -> void
+        {
+            if (Group* invite = invited->GetGroupInvite())
+                if (invite->GetGUID() == groupGuid)
+                    invited->UninviteFromGroup();
+        });
         return;
     }
 
@@ -277,20 +309,25 @@ void WorldSession::HandlePartyUninvite(WorldPackets::Party::PartyUninvite& packe
 
 void WorldSession::HandleSetPartyLeader(WorldPackets::Party::SetPartyLeader& packet)
 {
-    Player* player = ObjectAccessor::FindPlayer(packet.TargetGUID);
     Group* group = GetPlayer()->GetGroup();
-
-    if (!group || !player)
+    if (!group)
         return;
 
-    if (!group->IsLeader(GetPlayer()->GetGUID()) || player->GetGroup() != group)
+    // the new leader and the members may stand on other maps: short reads under the accessor lock
+    bool targetInGroup = false;
+    ObjectAccessor::WithPlayer(packet.TargetGUID, [group, &targetInGroup](Player* player) { targetInGroup = player->GetGroup() == group; });
+
+    if (!group->IsLeader(GetPlayer()->GetGUID()) || !targetInGroup)
         return;
 
     // Prevent exploits with instance saves
-    for (GroupReference *itr = group->GetFirstMember(); itr != nullptr; itr = itr->next())
-        if (Player* plr = itr->getSource())
-            if (plr->GetMap() && plr->GetMap()->Instanceable())
-                return;
+    for (auto const& member : group->GetMemberSlots())
+    {
+        bool inInstance = false;
+        ObjectAccessor::WithPlayer(member.Guid, [&inInstance](Player* plr) { inInstance = plr->FindMap() && plr->FindMap()->Instanceable(); });
+        if (inInstance)
+            return;
+    }
 
     group->ChangeLeader(packet.TargetGUID, packet.PartyIndex);
     group->SendUpdate();
@@ -298,7 +335,20 @@ void WorldSession::HandleSetPartyLeader(WorldPackets::Party::SetPartyLeader& pac
 
 void WorldSession::HandleSetRole(WorldPackets::Party::SetRole& packet)
 {
+    if (packet.Role & ~(lfg::PLAYER_ROLE_TANK | lfg::PLAYER_ROLE_HEALER | lfg::PLAYER_ROLE_DAMAGE))
+        return;
+
     Group* group = GetPlayer()->GetGroup();
+    ObjectGuid senderGuid = GetPlayer()->GetGUID();
+    if (packet.TargetGUID != senderGuid)
+    {
+        if (!group || !group->IsMember(packet.TargetGUID))
+            return;
+
+        if (!group->IsLeader(senderGuid) && !group->IsAssistant(senderGuid) && !(group->GetGroupFlags() & GROUP_FLAG_EVERYONE_ASSISTANT))
+            return;
+    }
+
     uint8 oldRole = group ? group->GetLfgRoles(packet.TargetGUID) : 0;
     if (oldRole == packet.Role)
         return;
@@ -351,11 +401,15 @@ void WorldSession::HandleSetLootMethod(WorldPackets::Party::SetLootMethod& packe
     if (packet.LootThreshold < ITEM_QUALITY_UNCOMMON || packet.LootThreshold > ITEM_QUALITY_ARTIFACT)
         return;
 
+    if (packet.LootMethod > PERSONAL_LOOT)
+        return;
+
     if (packet.LootMethod == MASTER_LOOT && !group->IsMember(packet.LootMasterGUID))
         return;
 
     group->SetLootMethod(static_cast<LootMethod>(packet.LootMethod));
-    group->SetLooterGuid(packet.LootMasterGUID);
+    // the client GUID only names a master looter; round robin restarts from the leader
+    group->SetLooterGuid(packet.LootMethod == MASTER_LOOT ? packet.LootMasterGUID : GetPlayer()->GetGUID());
     group->SetLootThreshold(static_cast<ItemQualities>(packet.LootThreshold));
     group->SendUpdate();
 }
@@ -395,7 +449,7 @@ void WorldSession::HandleUpdateRaidTarget(WorldPackets::Party::UpdateRaidTarget&
 void WorldSession::HandleConvertRaid(WorldPackets::Party::ConvertRaid& packet)
 {
     Group* group = GetPlayer()->GetGroup();
-    if (!group || group->InChallenge())
+    if (!group || group->InChallenge() || group->isLFGGroup())
         return;
 
     if (_player->InBattleground())
@@ -406,9 +460,12 @@ void WorldSession::HandleConvertRaid(WorldPackets::Party::ConvertRaid& packet)
 
     SendPartyResult(PARTY_OP_INVITE, "", ERR_PARTY_RESULT_OK);
 
-    if (packet.Raid && !group->isRaidGroup())
-        group->ConvertToRaid();
-    else
+    if (packet.Raid)
+    {
+        if (!group->isRaidGroup())
+            group->ConvertToRaid();
+    }
+    else if (group->isRaidGroup())
         group->ConvertToGroup();
 }
 
@@ -431,14 +488,17 @@ void WorldSession::HandleChangeSubGroup(WorldPackets::Party::ChangeSubGroup& pac
     group->ChangeMembersGroup(packet.TargetGUID, packet.NewSubGroup);
 }
 
-//! ToDo: Write swipe command.
-void WorldSession::HandleSwapSubGroups(WorldPackets::Party::SwapSubGroups& /*packet*/)
+void WorldSession::HandleSwapSubGroups(WorldPackets::Party::SwapSubGroups& packet)
 {
     Group* group = GetPlayer()->GetGroup();
     if (!group)
         return;
 
-    group->SendUpdate();
+    ObjectGuid senderGuid = GetPlayer()->GetGUID();
+    if (!group->IsLeader(senderGuid) && !group->IsAssistant(senderGuid) && !(group->GetGroupFlags() & GROUP_FLAG_EVERYONE_ASSISTANT))
+        return;
+
+    group->SwapMembersGroups(packet.FirstTarget, packet.SecondTarget);
 }
 
 void WorldSession::HandleSetEveryoneIsAssistant(WorldPackets::Party::SetEveryoneIsAssistant& packet)
@@ -476,20 +536,18 @@ void WorldSession::HandleSetPartyAssignment(WorldPackets::Party::SetPartyAssignm
     if (!group->IsLeader(senderGuid) && !group->IsAssistant(senderGuid) && !(group->GetGroupFlags() & GROUP_FLAG_EVERYONE_ASSISTANT))
         return;
 
+    // SetGroupMemberFlag clears the previous holder only when the flag is given, and sends the update
     switch (packet.Assignment)
     {
         case GROUP_ASSIGN_MAINASSIST:
-            group->RemoveUniqueGroupMemberFlag(MEMBER_FLAG_MAINASSIST);
             group->SetGroupMemberFlag(packet.Target, packet.Set, MEMBER_FLAG_MAINASSIST);
             break;
         case GROUP_ASSIGN_MAINTANK:
-            group->RemoveUniqueGroupMemberFlag(MEMBER_FLAG_MAINTANK);
             group->SetGroupMemberFlag(packet.Target, packet.Set, MEMBER_FLAG_MAINTANK);
+            break;
         default:
             break;
     }
-
-    group->SendUpdate();
 }
 
 void WorldSession::HandleDoReadyCheck(WorldPackets::Party::DoReadyCheck& packet)
@@ -501,7 +559,8 @@ void WorldSession::HandleDoReadyCheck(WorldPackets::Party::DoReadyCheck& packet)
     if (!group->IsLeader(GetPlayer()->GetGUID()) && !group->IsAssistant(GetPlayer()->GetGUID()) && !(group->GetGroupFlags() & GROUP_FLAG_EVERYONE_ASSISTANT))
         return;
 
-    group->SetReadyCheckCount(1);
+    if (!group->StartReadyCheck(GetPlayer()->GetGUID(), packet.PartyIndex))
+        return;
 
     WorldPackets::Party::ReadyCheckStarted readyCheckStarted;
     readyCheckStarted.PartyGUID = group->GetGUID();
@@ -511,15 +570,25 @@ void WorldSession::HandleDoReadyCheck(WorldPackets::Party::DoReadyCheck& packet)
     group->BroadcastPacket(readyCheckStarted.Write(), false, -1);
 
     group->OfflineReadyCheck();
+
+    // Group::Update is not ticked: the timeout rides on the initiator, the group is looked up again
+    ObjectGuid groupGuid = group->GetGUID();
+    uint32 startTime = group->GetReadyCheckStartTime();
+    GetPlayer()->AddDelayedEvent(READY_CHECK_DURATION, [groupGuid, startTime]() -> void
+    {
+        if (Group* readyCheckGroup = sGroupMgr->GetGroupByGUID(groupGuid))
+            readyCheckGroup->ReadyCheckTimeout(startTime);
+    });
+
+    if (group->IsReadyCheckCompleted())
+        group->EndReadyCheck();
 }
 
 void WorldSession::HandleReadyCheckResponse(WorldPackets::Party::ReadyCheckResponseClient& packet)
 {
     Group* group = GetPlayer()->GetGroup();
-    if (!group)
+    if (!group || !group->SetMemberReadyChecked(GetPlayer()->GetGUID()))
         return;
-
-    group->SetReadyCheckCount(group->GetReadyCheckCount() + 1);
 
     WorldPackets::Party::ReadyCheckResponse response;
     response.PartyGUID = group->GetGUID();
@@ -527,13 +596,8 @@ void WorldSession::HandleReadyCheckResponse(WorldPackets::Party::ReadyCheckRespo
     response.IsReady = packet.IsReady;
     group->BroadcastPacket(response.Write(), true);
 
-    if (group->GetReadyCheckCount() >= group->GetMembersCount())
-    {
-        WorldPackets::Party::ReadyCheckCompleted readyCheckCompleted;
-        readyCheckCompleted.PartyIndex = packet.PartyIndex;
-        readyCheckCompleted.PartyGUID = group->GetGUID();
-        group->BroadcastPacket(readyCheckCompleted.Write(), true);
-    }
+    if (group->IsReadyCheckCompleted())
+        group->EndReadyCheck();
 }
 
 void WorldSession::HandleRequestPartyJoinUpdates(WorldPackets::Party::RequestPartyJoinUpdates& packet)
@@ -551,8 +615,19 @@ void WorldSession::HandleRequestPartyMemberStats(WorldPackets::Party::RequestPar
 {
     WorldPackets::Party::PartyMemberStats partyMemberStats;
 
-    Player* player = ObjectAccessor::FindPlayer(packet.TargetGUID);
-    if (!player)
+    // stats (position, health...) of anyone outside the requester's group are not his to see
+    bool allowed = packet.TargetGUID == GetPlayer()->GetGUID();
+    if (!allowed)
+    {
+        Group* group = GetPlayer()->GetGroup();
+        Group* originalGroup = GetPlayer()->GetOriginalGroup();
+        allowed = (group && group->IsMember(packet.TargetGUID)) || (originalGroup && originalGroup->IsMember(packet.TargetGUID));
+    }
+
+    // a member of another map is read under the accessor lock
+    bool found = allowed && ObjectAccessor::WithPlayer(packet.TargetGUID, [&partyMemberStats](Player* player) { partyMemberStats.Initialize(player); });
+
+    if (!found)
     {
         if (sBattlegroundMgr->isTesting())
             partyMemberStats.Initialize(packet.TargetGUID);
@@ -562,8 +637,6 @@ void WorldSession::HandleRequestPartyMemberStats(WorldPackets::Party::RequestPar
             partyMemberStats.MemberStats.Status = MEMBER_STATUS_OFFLINE;
         }
     }
-    else
-        partyMemberStats.Initialize(player);
 
     SendPacket(partyMemberStats.Write());
 }

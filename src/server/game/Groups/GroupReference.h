@@ -34,6 +34,9 @@ class GroupReference : public Reference<Group, Player>
     public:
         GroupReference() : Reference<Group, Player>(), iSubGroup(0) {}
         ~GroupReference() { unlink(); }
+        // Hide Reference's: the group's member list is read from other map threads, it changes under Group::m_lock
+        void link(Group* toObj, Player* fromObj);
+        void unlink();
         GroupReference* next() { return (GroupReference*)Reference<Group, Player>::next(); }
         GroupReference const* next() const { return (GroupReference const*)Reference<Group, Player>::next(); }
         uint8 getSubGroup() const { return iSubGroup; }

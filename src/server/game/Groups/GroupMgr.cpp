@@ -20,6 +20,8 @@
 #include "InstanceSaveMgr.h"
 #include "ScenarioMgr.h"
 #include "DatabaseEnv.h"
+#include "GameTime.h"
+#include <algorithm>
 
 GroupMgr::GroupMgr()
 {
@@ -31,6 +33,8 @@ GroupMgr::~GroupMgr()
 {
     for (auto& itr : GroupStore)
         delete itr.second;
+
+    _DeleteQueuedGroups(true);
 }
 
 GroupMgr* GroupMgr::instance()
@@ -39,6 +43,7 @@ GroupMgr* GroupMgr::instance()
     return &instance;
 }
 
+// world thread, every tick
 void GroupMgr::Update(uint32 diff)
 {
     // for (GroupContainer::iterator itr = GroupStore.begin(); itr != GroupStore.end(); ++itr)
@@ -46,10 +51,49 @@ void GroupMgr::Update(uint32 diff)
             // group->Update(diff);
 
     // m_Functions.Update(diff);
+
+    _DeleteQueuedGroups(false);
 }
 
-uint32 GroupMgr::GenerateNewGroupDbStoreId()
+void GroupMgr::QueueForDelete(Group* group)
 {
+    std::lock_guard<std::mutex> guard(_deleteQueueLock);
+    for (auto const& queued : _deleteQueue)
+        if (queued.second == group)
+            return;
+
+    _deleteQueue.emplace_back(GameTime::GetGameTime() + 10, group);
+}
+
+void GroupMgr::_DeleteQueuedGroups(bool all)
+{
+    time_t now = GameTime::GetGameTime();
+    std::vector<Group*> expired;
+    {
+        std::lock_guard<std::mutex> guard(_deleteQueueLock);
+        auto firstExpired = std::partition(_deleteQueue.begin(), _deleteQueue.end(), [now, all](std::pair<time_t, Group*> const& queued)
+        {
+            return !all && queued.first > now;
+        });
+        for (auto itr = firstExpired; itr != _deleteQueue.end(); ++itr)
+            expired.push_back(itr->second);
+        _deleteQueue.erase(firstExpired, _deleteQueue.end());
+    }
+
+    for (Group* group : expired)
+    {
+        // freed only now: until the deletion other threads may still write rows with this id
+        if (group->IsCreated() && !group->isBGGroup() && !group->isBFGroup())
+            FreeGroupDbStoreId(group);
+        delete group;
+    }
+}
+
+uint32 GroupMgr::GenerateNewGroupDbStoreId(Group* group)
+{
+    // the id is registered under the same lock, so a concurrent Free cannot hand it out twice
+    std::lock_guard<std::mutex> lock(_groupDbStoreLock);
+
     uint32 newStorageId = NextGroupDbStoreId;
 
     for (uint32 i = ++NextGroupDbStoreId; i < std::numeric_limits<uint32>::max(); ++i)
@@ -67,10 +111,17 @@ uint32 GroupMgr::GenerateNewGroupDbStoreId()
         World::StopNow(ERROR_EXIT_CODE);
     }
 
+    _RegisterGroupDbStoreId(newStorageId, group);
     return newStorageId;
 }
 
 void GroupMgr::RegisterGroupDbStoreId(uint32 storageId, Group* group)
+{
+    std::lock_guard<std::mutex> lock(_groupDbStoreLock);
+    _RegisterGroupDbStoreId(storageId, group);
+}
+
+void GroupMgr::_RegisterGroupDbStoreId(uint32 storageId, Group* group)
 {
     // Allocate space if necessary.
     if (storageId >= uint32(GroupDbStore.size()))
@@ -81,16 +132,21 @@ void GroupMgr::RegisterGroupDbStoreId(uint32 storageId, Group* group)
 
 void GroupMgr::FreeGroupDbStoreId(Group* group)
 {
+    std::lock_guard<std::mutex> lock(_groupDbStoreLock);
+
     uint32 storageId = group->GetDbStoreId();
 
     if (storageId < NextGroupDbStoreId)
         NextGroupDbStoreId = storageId;
 
-    GroupDbStore[storageId] = nullptr;
+    if (storageId < GroupDbStore.size())
+        GroupDbStore[storageId] = nullptr;
 }
 
 Group* GroupMgr::GetGroupByDbStoreId(uint32 storageId) const
 {
+    std::lock_guard<std::mutex> lock(_groupDbStoreLock);
+
     if (storageId < GroupDbStore.size())
         return GroupDbStore[storageId];
 
@@ -99,26 +155,30 @@ Group* GroupMgr::GetGroupByDbStoreId(uint32 storageId) const
 
 ObjectGuid::LowType GroupMgr::GenerateGroupId()
 {
-    if (NextGroupId >= std::numeric_limits<ObjectGuid::LowType>::max())
+    ObjectGuid::LowType newGroupId = NextGroupId++;
+    if (newGroupId >= std::numeric_limits<ObjectGuid::LowType>::max())
     {
         TC_LOG_ERROR("misc", "Group guid overflow!! Can't continue, shutting down server. ");
         World::StopNow(ERROR_EXIT_CODE);
     }
-    return NextGroupId++;
+    return newGroupId;
 }
 
 Group* GroupMgr::GetGroupByGUID(ObjectGuid const& groupId) const
 {
+    std::lock_guard<std::mutex> lock(_groupStoreLock);
     return Trinity::Containers::MapGetValuePtr(GroupStore, groupId.GetCounter());
 }
 
 void GroupMgr::AddGroup(Group* group)
 {
+    std::lock_guard<std::mutex> lock(_groupStoreLock);
     GroupStore[group->GetGUIDLow()] = group;
 }
 
 void GroupMgr::RemoveGroup(Group* group)
 {
+    std::lock_guard<std::mutex> lock(_groupStoreLock);
     GroupStore.erase(group->GetGUIDLow());
 }
 
@@ -139,8 +199,8 @@ void GroupMgr::LoadGroups()
 
         //                                                        0              1           2             3                 4      5          6      7         8       9
         QueryResult result = CharacterDatabase.Query("SELECT g.leaderGuid, g.lootMethod, g.looterGuid, g.lootThreshold, g.icon1, g.icon2, g.icon3, g.icon4, g.icon5, g.icon6"
-            //  10         11          12         13              14            15         16           17
-            ", g.icon7, g.icon8, g.groupType, g.difficulty, g.raiddifficulty, g.guid, lfg.dungeon, lfg.state FROM `groups` g LEFT JOIN lfg_data lfg ON lfg.guid = g.guid ORDER BY g.guid ASC");
+            //  10         11          12         13              14            15         16           17           18
+            ", g.icon7, g.icon8, g.groupType, g.difficulty, g.raiddifficulty, g.guid, lfg.dungeon, lfg.state, g.legacyRaidDifficulty FROM `groups` g LEFT JOIN lfg_data lfg ON lfg.guid = g.guid ORDER BY g.guid ASC");
         if (!result)
         {
             TC_LOG_INFO("server.loading", ">> Loaded 0 group definitions. DB table `groups` is empty!");

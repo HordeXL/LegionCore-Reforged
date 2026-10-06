@@ -32,8 +32,10 @@
 #include "ObjectMgr.h"
 #include "World.h"
 #include "Group.h"
+#include "GroupMgr.h"
 #include "InstanceScript.h"
 #include "ScenarioMgr.h"
+#include <algorithm>
 
 InstanceSaveManager::InstanceSaveManager(): lock_instLists(false)
 {
@@ -63,6 +65,8 @@ InstanceSaveManager::~InstanceSaveManager()
         save->m_groupList.clear();
         delete save;
     }
+
+    _DeleteQueuedSaves(true);
 }
 
 InstanceSaveManager* InstanceSaveManager::instance()
@@ -98,6 +102,8 @@ void InstanceSaveManager::UnloadAll()
     _instanceSaveLock.lock();
     m_instanceSaveById.clear();
     _instanceSaveLock.unlock();
+
+    _DeleteQueuedSaves(true);
 }
 
 /*
@@ -129,8 +135,27 @@ InstanceSave* InstanceSaveManager::AddInstanceSave(uint32 mapId, uint32 instance
         return nullptr;
     }
 
+    TC_LOG_DEBUG("maps", "InstanceSaveManager::AddInstanceSave: mapid = %d, instanceid = %d", mapId, instanceId);
+
+    if (!resetTime)
+        if (MapDifficultyEntry const* mapDiff = sDB2Manager.GetMapDifficultyData(mapId, difficulty))
+            resetTime = sWorld->getInstanceResetTime(mapDiff->GetRaidDuration());
+
+    InstanceSave* save = new InstanceSave(mapId, instanceId, difficulty, completedEncounter, std::move(data), resetTime, canReset);
+    {
+        std::lock_guard<sf::contention_free_shared_mutex< >> guard(_instanceSaveLock);
+        auto inserted = m_instanceSaveById.emplace(instanceId, save);
+        if (!inserted.second)
+        {
+            // another map thread created it since the lookup above
+            delete save;
+            return inserted.first->second;
+        }
+    }
+
     // initialize reset time
     // for normal instances if no creatures are killed the instance will reset in two hours
+    // scheduled outside _instanceSaveLock: Update() takes _resetTimeLock before it
     if (entry->InstanceType != MAP_RAID && difficulty <= DIFFICULTY_NORMAL)
     {
         time_t _resetTime = GameTime::GetGameTime() + 2 * HOUR;
@@ -138,21 +163,12 @@ InstanceSave* InstanceSaveManager::AddInstanceSave(uint32 mapId, uint32 instance
         ScheduleReset(true, _resetTime, InstResetEvent(0, mapId, difficulty, instanceId));
     }
 
-    TC_LOG_DEBUG("maps", "InstanceSaveManager::AddInstanceSave: mapid = %d, instanceid = %d", mapId, instanceId);
-
-    if (!resetTime)
-        if (MapDifficultyEntry const* mapDiff = sDB2Manager.GetMapDifficultyData(mapId, difficulty))
-            resetTime = sWorld->getInstanceResetTime(mapDiff->GetRaidDuration());
-
-    _instanceSaveLock.lock();
-    InstanceSave* save = new InstanceSave(mapId, instanceId, difficulty, completedEncounter, std::move(data), resetTime, canReset);
-    m_instanceSaveById[instanceId] = save;
-    _instanceSaveLock.unlock();
     return save;
 }
 
 InstanceSave* InstanceSaveManager::GetInstanceSave(uint32 InstanceId)
 {
+    std::shared_lock<sf::contention_free_shared_mutex< >> guard(_instanceSaveLock);
     return Trinity::Containers::MapGetValuePtr(m_instanceSaveById, InstanceId);
 }
 
@@ -168,31 +184,77 @@ void InstanceSaveManager::DeleteInstanceFromDB(uint32 instanceid)
     // Respawn times should be deleted only when the map gets unloaded
 }
 
-void InstanceSaveManager::RemoveInstanceSave(uint32 InstanceId)
+bool InstanceSaveManager::RemoveInstanceSave(InstanceSave* save)
 {
-    InstanceSaveHashMap::iterator itr = m_instanceSaveById.find(InstanceId);
-    if (itr != m_instanceSaveById.end())
-    {
-        _instanceSaveLock.lock();
-        itr->second->SetToDelete(true);
-        m_instanceSaveById.erase(itr);
-        _instanceSaveLock.unlock();
-    }
+    std::lock_guard<sf::contention_free_shared_mutex< >> guard(_instanceSaveLock);
+    InstanceSaveHashMap::iterator itr = m_instanceSaveById.find(save->GetInstanceId());
+    // a reset may have taken this save out and a map thread registered a new one under the same id
+    if (itr == m_instanceSaveById.end() || itr->second != save)
+        return false;
+
+    itr->second->SetToDelete(true);
+    m_instanceSaveById.erase(itr);
+    return true;
 }
 
 void InstanceSaveManager::UnloadInstanceSave(uint32 InstanceId)
 {
     if (InstanceSave* save = GetInstanceSave(InstanceId))
     {
-        save->UnloadIfEmpty();
-        if (save->m_toDelete)
-            delete save;
+        bool removed = false;
+        save->UnloadIfEmpty(removed);
+        if (removed)
+            QueueForDelete(save);
+    }
+}
+
+void InstanceSaveManager::QueueForDelete(InstanceSave* save)
+{
+    // map threads may still hold the pointer they got from GetInstanceSave a moment ago
+    std::lock_guard<std::mutex> guard(_deleteQueueLock);
+    _deleteQueue.emplace_back(GameTime::GetGameTime() + MINUTE, save);
+}
+
+void InstanceSaveManager::_DeleteQueuedSaves(bool all)
+{
+    time_t now = GameTime::GetGameTime();
+    std::vector<InstanceSave*> expired;
+    {
+        std::lock_guard<std::mutex> guard(_deleteQueueLock);
+        auto firstExpired = std::partition(_deleteQueue.begin(), _deleteQueue.end(), [now, all](std::pair<time_t, InstanceSave*> const& queued)
+        {
+            return !all && queued.first > now;
+        });
+        for (auto itr = firstExpired; itr != _deleteQueue.end(); ++itr)
+            expired.push_back(itr->second);
+        _deleteQueue.erase(firstExpired, _deleteQueue.end());
+    }
+
+    for (InstanceSave* save : expired)
+    {
+        bool inUse;
+        {
+            std::lock_guard<sf::contention_free_shared_mutex< >> playerGuard(save->_playerListLock);
+            std::lock_guard<sf::contention_free_shared_mutex< >> groupGuard(save->_groupListLock);
+            inUse = !save->m_playerList.empty() || !save->m_groupList.empty();
+            // bound again through a stale pointer: UnloadIfEmpty queues it again once its lists are empty
+            if (inUse)
+                save->m_deleteQueued = false;
+        }
+
+        if (inUse)
+        {
+            TC_LOG_ERROR("maps", "InstanceSaveManager: save of instance %u (map %u) was bound again after its removal, kept", save->GetInstanceId(), save->GetMapId());
+            continue;
+        }
+
+        delete save;
     }
 }
 
 InstanceSave::InstanceSave(uint16 MapId, uint32 InstanceId, Difficulty difficulty, uint32 completedEncounter, std::string data, time_t resetTime, bool canReset)
 : m_instanceid(InstanceId), m_mapid(MapId), m_difficulty(difficulty), m_canReset(canReset), m_toDelete(false),
-m_perm(false), m_extended(false), m_completedEncounter(completedEncounter), m_data(std::move(data)), m_resetTime(resetTime)
+m_perm(false), m_extended(false), m_completedEncounter(completedEncounter), m_data(std::move(data)), m_resetTime(resetTime), m_deleteQueued(false)
 {
     m_canBeSave = difficulty != DIFFICULTY_LFR && difficulty != DIFFICULTY_HC_SCENARIO && difficulty != DIFFICULTY_N_SCENARIO && difficulty != DIFFICULTY_LFR_RAID;
 }
@@ -201,23 +263,6 @@ InstanceSave::~InstanceSave()
 {
     // the players and groups must be unbound before deleting the save
     ASSERT(m_playerList.empty() && m_groupList.empty());
-}
-
-/*
-    Called from AddInstanceSave
-*/
-void InstanceSave::SaveToDB()
-{
-    // save instance data too
-    if (Map* map = sMapMgr->FindMap(GetMapId(), m_instanceid))
-    {
-        ASSERT(map->IsDungeon());
-        if (InstanceScript* instanceScript = dynamic_cast<InstanceMap*>(map)->GetInstanceScript())
-        {
-            m_data = instanceScript->GetSaveData();
-            m_completedEncounter = instanceScript->GetCompletedEncounterMask();
-        }
-    }
 }
 
 // to cache or not to cache, that is the question
@@ -240,14 +285,18 @@ void InstanceSave::AddPlayer(Player* player)
 
 bool InstanceSave::RemovePlayer(Player* player)
 {
+    bool removed = false;
     _playerListLock.lock();
     m_playerList.remove(player);
-    bool isStillValid = UnloadIfEmpty();
     _playerListLock.unlock();
 
-    //delete here if needed, after releasing the lock
-    if (m_toDelete)
-        delete this;
+    // called without the list lock, like RemoveGroup: UnloadIfEmpty asks MapInstanced (its m_lock) before re-taking
+    // the list locks, and CreateInstance may hold that m_lock while a script saves the binds under the list locks
+    bool isStillValid = UnloadIfEmpty(removed);
+
+    // freed later, after releasing the lock
+    if (removed)
+        sInstanceSaveMgr->QueueForDelete(this);
 
     return isStillValid;
 }
@@ -264,7 +313,14 @@ bool InstanceSave::RemoveGroup(Group* group)
     _groupListLock.lock();
     m_groupList.remove(group);
     _groupListLock.unlock();
-    return UnloadIfEmpty();
+
+    // UnloadIfEmpty takes _playerListLock before _groupListLock, so it is called without the group lock held
+    bool removed = false;
+    bool isStillValid = UnloadIfEmpty(removed);
+    if (removed)
+        sInstanceSaveMgr->QueueForDelete(this);
+
+    return isStillValid;
 }
 
 void InstanceSave::DeleteFromDB()
@@ -272,22 +328,91 @@ void InstanceSave::DeleteFromDB()
     InstanceSaveManager::DeleteInstanceFromDB(GetInstanceId());
 }
 
-/* true if the instance save is still valid */
-bool InstanceSave::UnloadIfEmpty()
+void InstanceSave::SaveBindsToDB()
 {
-    if (m_playerList.empty() && m_groupList.empty())
+    MapEntry const* entry = GetMapEntry();
+    if (!entry || entry->IsGarrison() || entry->CanCreatedZone())
+        return;
+
+    // ids only: a player or group is freed by its own thread right after it leaves these lists
+    std::vector<uint32> groupIds;
     {
-        // don't remove the save if there are still players inside the map
-        if (Map* map = sMapMgr->FindMap(GetMapId(), GetInstanceId()))
-            if (map->HavePlayers())
-                return true;
-
-        if (!sInstanceSaveMgr->lock_instLists)
-            sInstanceSaveMgr->RemoveInstanceSave(GetInstanceId());
-
-        return false;
+        std::lock_guard<sf::contention_free_shared_mutex< >> guard(_groupListLock);
+        for (Group* group : m_groupList)
+            groupIds.push_back(group->GetDbStoreId());
     }
-    return true;
+
+    std::vector<ObjectGuid::LowType> playerIds;
+    {
+        std::lock_guard<sf::contention_free_shared_mutex< >> guard(_playerListLock);
+        for (Player* player : m_playerList)
+            playerIds.push_back(player->GetGUIDLow());
+    }
+
+    // same rows as Group::UpdateInstance and Player::UpdateInstance
+    std::string data = GetData();
+    for (uint32 groupId : groupIds)
+    {
+        CharacterDatabasePreparedStatement* stmt = CharacterDatabase.GetPreparedStatement(CHAR_REP_GROUP_INSTANCE);
+        stmt->setUInt64(0, groupId);
+        stmt->setUInt32(1, GetInstanceId());
+        stmt->setUInt16(2, GetMapId());
+        stmt->setUInt8(3, GetDifficultyID());
+        stmt->setBool(4, GetPerm());
+        stmt->setUInt32(5, GetCompletedEncounterMask());
+        stmt->setString(6, data);
+        stmt->setUInt32(7, GetResetTime());
+        CharacterDatabase.Execute(stmt);
+    }
+
+    for (ObjectGuid::LowType playerId : playerIds)
+    {
+        CharacterDatabasePreparedStatement* stmt = CharacterDatabase.GetPreparedStatement(CHAR_REP_CHAR_INSTANCE);
+        stmt->setUInt64(0, playerId);
+        stmt->setUInt32(1, GetInstanceId());
+        stmt->setUInt16(2, GetMapId());
+        stmt->setUInt8(3, GetDifficultyID());
+        stmt->setBool(4, GetPerm());
+        stmt->setUInt32(5, GetCompletedEncounterMask());
+        stmt->setString(6, data);
+        stmt->setUInt32(7, GetResetTime());
+        stmt->setBool(8, GetExtended());
+        CharacterDatabase.Execute(stmt);
+    }
+}
+
+/* true if the instance save is still valid */
+bool InstanceSave::UnloadIfEmpty(bool& removed)
+{
+    removed = false;
+
+    // don't remove the save if there are still players inside the map; a save a reset already took out of the
+    // manager is unreachable from that map, it goes as soon as nothing lists it. The map belongs to another thread:
+    // asked under its parent's lock (MapInstanced::m_lock takes no save lock, so this nesting is safe)
+    if (!m_toDelete)
+        if (sMapMgr->InstanceHavePlayers(GetMapId(), GetInstanceId()))
+            return true;
+
+    // The emptiness test and the removal from the manager happen under the same list locks, so no AddPlayer/AddGroup
+    // from another thread can slip in between them (lock order: players, groups, then the manager's save lock)
+    std::lock_guard<sf::contention_free_shared_mutex< >> playerGuard(_playerListLock);
+    std::lock_guard<sf::contention_free_shared_mutex< >> groupGuard(_groupListLock);
+    if (!m_playerList.empty() || !m_groupList.empty())
+        return true;
+
+    // only one caller may queue the save for deletion, two map threads (or a map thread and a reset) can get here together
+    if (m_deleteQueued)
+        return false;
+
+    if (m_toDelete)
+        removed = true;
+    else if (!sInstanceSaveMgr->lock_instLists)
+        removed = sInstanceSaveMgr->RemoveInstanceSave(this);
+
+    if (removed)
+        m_deleteQueued = true;
+
+    return false;
 }
 
 void InstanceSave::SetToDelete(bool toDelete)
@@ -299,7 +424,7 @@ InstanceSaveManager::InstResetEvent::InstResetEvent(): difficulty(DIFFICULTY_NOR
 {
 }
 
-InstanceSaveManager::InstResetEvent::InstResetEvent(uint8 t, uint32 _mapid, Difficulty d, uint16 _instanceid): difficulty(d), mapid(_mapid), instanceId(_instanceid), type(t)
+InstanceSaveManager::InstResetEvent::InstResetEvent(uint8 t, uint32 _mapid, Difficulty d, uint32 _instanceid): difficulty(d), mapid(_mapid), instanceId(_instanceid), type(t)
 {
 }
 
@@ -338,7 +463,7 @@ void InstanceSaveManager::LoadInstances()
 
 void InstanceSaveManager::ScheduleReset(bool add, time_t time, InstResetEvent event)
 {
-    _resetTimeLock.lock();
+    std::lock_guard<sf::contention_free_shared_mutex< >> guard(_resetTimeLock);
     if (!add)
     {
         // find the event in the queue and remove it
@@ -371,83 +496,116 @@ void InstanceSaveManager::ScheduleReset(bool add, time_t time, InstResetEvent ev
     }
     else
         m_resetTimeQueue.insert(std::make_pair(time, event));
-    _resetTimeLock.unlock();
 }
 
 void InstanceSaveManager::Update()
 {
     time_t now = GameTime::GetGameTime();
 
-    _resetTimeLock.lock();
-    while (!m_resetTimeQueue.empty())
+    for (;;)
     {
-        time_t t = m_resetTimeQueue.begin()->first;
-        if (t >= now)
-            break;
-
-        InstResetEvent &event = m_resetTimeQueue.begin()->second;
-        if (event.type == 0)
+        // _resetTimeLock is released before the reset, which reaches the maps and the groups
+        InstResetEvent event;
         {
-            // for individual normal instances, max creature respawn + X hours
-            _ResetInstance(event.mapid, event.instanceId);
+            std::lock_guard<sf::contention_free_shared_mutex< >> guard(_resetTimeLock);
+            if (m_resetTimeQueue.empty() || m_resetTimeQueue.begin()->first >= now)
+                break;
+
+            event = m_resetTimeQueue.begin()->second;
             m_resetTimeQueue.erase(m_resetTimeQueue.begin());
         }
+
+        // for individual normal instances, max creature respawn + X hours
+        if (event.type == 0)
+            _ResetInstance(event.mapid, event.instanceId);
     }
-    _resetTimeLock.unlock();
+
+    _DeleteQueuedSaves(false);
 }
 
-void InstanceSaveManager::_ResetSave(InstanceSaveHashMap::iterator &itr)
+/*
+    Runs in the world thread while the bound players and groups live in map threads. The save is taken out of the
+    manager first, so no lookup reaches it any more; it stays allocated while a player or group still lists it and is
+    queued for deletion by whoever empties its lists (UnloadIfEmpty).
+*/
+void InstanceSaveManager::_ResetSave(uint32 instanceId)
 {
-    // TC_LOG_INFO("server.loading", "InstanceSaveManager::_ResetSave GetMapId %u GetDifficultyID %u GetResetTime %u", itr->second->GetMapId(), itr->second->GetDifficultyID(), itr->second->GetResetTime());
-
-    // unbind all players bound to the instance
-    // do not allow UnbindInstance to automatically unload the InstanceSaves
-    lock_instLists = true;
-
-    InstanceSave::PlayerListType &pList = itr->second->m_playerList;
-    while (!pList.empty())
+    InstanceSave* save;
     {
-        Player* player = *(pList.begin());
-        player->UnbindInstance(itr->second->GetMapId(), itr->second->GetDifficultyID(), true);
+        std::lock_guard<sf::contention_free_shared_mutex< >> guard(_instanceSaveLock);
+        InstanceSaveHashMap::iterator itr = m_instanceSaveById.find(instanceId);
+        if (itr == m_instanceSaveById.end())
+            return;
+
+        save = itr->second;
+        save->SetToDelete(true);
+        m_instanceSaveById.erase(itr);
     }
 
-    InstanceSave::GroupListType &gList = itr->second->m_groupList;
-    while (!gList.empty())
+    uint32 mapId = save->GetMapId();
+    Difficulty difficulty = save->GetDifficultyID();
+
+    // Each player unbinds himself in his own thread. The list lock is held only to queue the calls: a listed player
+    // cannot be freed meanwhile (his logout removes him under this lock) and AddDelayedEvent only takes its queue mutex.
     {
-        Group* group = *(gList.begin());
-        group->UnbindInstance(itr->second->GetMapId(), itr->second->GetDifficultyID(), true);
+        std::lock_guard<sf::contention_free_shared_mutex< >> guard(save->_playerListLock);
+        for (Player* player : save->m_playerList)
+        {
+            player->AddDelayedEvent(0, [player, save, mapId, difficulty, instanceId]() -> void
+            {
+                // the bind may already point to another instance; the save is alive while this player still lists it
+                Player::BoundInstancesMap& binds = player->GetBoundInstances(difficulty);
+                auto itr = binds.find(mapId);
+                if (itr != binds.end() && itr->second.save == save && save->GetInstanceId() == instanceId)
+                    player->UnbindInstance(mapId, difficulty, true);
+            });
+        }
     }
 
-    _instanceSaveLock.lock();
-    delete itr->second;
-    m_instanceSaveById.erase(itr++);
-    _instanceSaveLock.unlock();
+    // Groups have no thread of their own (every member's map thread changes their binds under m_bound_lock), so
+    // they are unbound here. Looked up by guid, without the list lock: Group::UnbindInstance takes m_bound_lock
+    // then this save's group lock, the opposite order would deadlock with Group::BindToInstance.
+    std::vector<ObjectGuid> groupGuids;
+    {
+        std::lock_guard<sf::contention_free_shared_mutex< >> guard(save->_groupListLock);
+        for (Group* group : save->m_groupList)
+            groupGuids.push_back(group->GetGUID());
+    }
 
-    lock_instLists = false;
+    for (ObjectGuid const& groupGuid : groupGuids)
+    {
+        // a disbanding group is already out of GroupMgr and leaves the list itself (Group::Disband); a group found
+        // here stays allocated for this call (GroupMgr frees disbanded groups after a grace delay)
+        Group* group = sGroupMgr->GetGroupByGUID(groupGuid);
+        if (!group)
+            continue;
+
+        // unbinds only if the group's bind still points to this save, checked under its own bind lock
+        group->UnbindInstance(save, true);
+    }
+
+    // nothing bound to it any more (or it never was): free it now, otherwise the last unbind does
+    bool removed = false;
+    save->UnloadIfEmpty(removed);
+    if (removed)
+        QueueForDelete(save);
 }
 
 void InstanceSaveManager::_ResetInstance(uint32 mapid, uint32 instanceId)
 {
     // TC_LOG_DEBUG("server.loading", "InstanceSaveMgr::_ResetInstance mapid %u, instanceId %u", mapid, instanceId);
 
-    Map const* map = sMapMgr->CreateBaseMap(mapid);
+    Map* map = sMapMgr->CreateBaseMap(mapid);
     if (!map->Instanceable())
         return;
 
-    InstanceSaveHashMap::iterator itr = m_instanceSaveById.find(instanceId);
-    if (itr != m_instanceSaveById.end())
-        _ResetSave(itr);
+    _ResetSave(instanceId);
 
     DeleteInstanceFromDB(instanceId);                       // even if save not loaded
 
-    Map* iMap = ((MapInstanced*)map)->FindInstanceMap(instanceId);
-
-    if (iMap && iMap->IsDungeon())
-        dynamic_cast<InstanceMap*>(iMap)->Reset(INSTANCE_RESET_RESPAWN_DELAY);
-
-    if (iMap)
-        iMap->DeleteRespawnTimes();
-    else
+    // a loaded map resets and clears its respawn times itself, in its own thread (a live garrison is left alone,
+    // as before the lookup covered garrisons)
+    if (map->IsGarrison() || !static_cast<MapInstanced*>(map)->RequestInstanceReset(instanceId, INSTANCE_RESET_RESPAWN_DELAY))
         Map::DeleteRespawnTimesInDB(mapid, instanceId);
 }
 
@@ -458,25 +616,42 @@ void InstanceSaveManager::ResetOrWarnAll(uint32 mapid, Difficulty difficulty, Ch
     if (!mapEntry || !mapEntry->Instanceable() || difficulty == DIFFICULTY_LFR || difficulty == DIFFICULTY_HC_SCENARIO || difficulty == DIFFICULTY_N_SCENARIO || difficulty == DIFFICULTY_LFR_RAID)
         return;
 
-    // remove all binds to instances of the given map
-    for (InstanceSaveHashMap::iterator itr = m_instanceSaveById.begin(); itr != m_instanceSaveById.end();)
+    uint32 resetTime = 0;
+    if (MapDifficultyEntry const* mapDiff = sDB2Manager.GetMapDifficultyData(mapid, difficulty))
+        resetTime = sWorld->getInstanceResetTime(mapDiff->GetRaidDuration());
+
+    // map threads add and remove saves meanwhile: collect the ids under the lock, _ResetSave takes it again to erase
+    std::vector<uint32> instanceIds;
     {
-        if (itr->second && itr->second->GetMapId() == mapid && itr->second->GetDifficultyID() == difficulty)
+        std::shared_lock<sf::contention_free_shared_mutex< >> guard(_instanceSaveLock);
+        for (auto const& itr : m_instanceSaveById)
+            if (itr.second && itr.second->GetMapId() == mapid && itr.second->GetDifficultyID() == difficulty)
+                instanceIds.push_back(itr.first);
+    }
+
+    // remove all binds to instances of the given map
+    for (uint32 instanceId : instanceIds)
+    {
+        // the save is only touched under the lock: once out of the map it may be queued for deletion
+        bool reset = false;
         {
+            std::shared_lock<sf::contention_free_shared_mutex< >> guard(_instanceSaveLock);
+            InstanceSaveHashMap::iterator itr = m_instanceSaveById.find(instanceId);
+            if (itr == m_instanceSaveById.end())
+                continue;
+
             if (itr->second->GetExtended())
             {
+                // same values as CHAR_UPD_CHAR_INSTANCE_EXTENDED below, or online players keep the old reset time
                 itr->second->SetExtended(false);
-                ++itr;
+                itr->second->SetResetTime(resetTime);
             }
             else if ((itr->second->GetResetTime() + MONTH) <= GameTime::GetGameTime())
-                _ResetSave(itr);
-            else
-                ++itr;
-
-            // TC_LOG_DEBUG("server.loading", "InstanceSaveMgr::ResetOrWarnAll mapid %u, difficulty %u time %u GetResetTime %u", mapid, difficulty, GameTime::GetGameTime(), (itr->second->GetResetTime() + MONTH));
+                reset = true;
         }
-        else
-            ++itr;
+
+        if (reset)
+            _ResetSave(instanceId);
     }
 
     // delete them from the DB, even if not loaded
@@ -491,10 +666,6 @@ void InstanceSaveManager::ResetOrWarnAll(uint32 mapid, Difficulty difficulty, Ch
     stmt->setUInt8(1, uint8(difficulty));
     trans->Append(stmt);
 
-    uint32 resetTime = 0;
-    if (MapDifficultyEntry const* mapDiff = sDB2Manager.GetMapDifficultyData(mapid, difficulty))
-        resetTime = sWorld->getInstanceResetTime(mapDiff->GetRaidDuration());
-
     stmt = CharacterDatabase.GetPreparedStatement(CHAR_UPD_CHAR_INSTANCE_EXTENDED);
     stmt->setUInt32(0, resetTime);
     stmt->setUInt16(1, uint16(mapid));
@@ -502,17 +673,17 @@ void InstanceSaveManager::ResetOrWarnAll(uint32 mapid, Difficulty difficulty, Ch
     trans->Append(stmt);
 
     // note: this isn't fast but it's meant to be executed very rarely
-    Map const* map = sMapMgr->CreateBaseMap(mapid);          // _not_ include difficulty
-    InstancedMaps &instMaps = ((MapInstanced*)map)->GetInstancedMaps();
+    Map* map = sMapMgr->CreateBaseMap(mapid);                // _not_ include difficulty
 
-    for (auto & instMap : instMaps)
+    // only the reset difficulty: the other difficulties of the same map keep their own lockout. Players inside get
+    // the one-minute homebind timer; staying would let them kill the bosses twice. Each map applies the reset in its
+    // own thread, at its next update.
+    static_cast<MapInstanced*>(map)->ForEachInstancedMap([difficulty](Map* instance)
     {
-        Map* map2 = instMap.second;
-        if (!map2->IsDungeon())
-            continue;
-
-        dynamic_cast<InstanceMap*>(map2)->Reset(INSTANCE_RESET_GLOBAL);
-    }
+        if (InstanceMap* instanceMap = instance->ToInstanceMap())
+            if (instanceMap->GetDifficultyID() == difficulty)
+                instanceMap->RequestReset(INSTANCE_RESET_GLOBAL);
+    });
 
     // TODO: delete creature/gameobject respawn times even if the maps are not loaded
 }
@@ -520,6 +691,7 @@ void InstanceSaveManager::ResetOrWarnAll(uint32 mapid, Difficulty difficulty, Ch
 uint32 InstanceSaveManager::GetNumBoundPlayersTotal()
 {
     uint32 ret = 0;
+    std::shared_lock<sf::contention_free_shared_mutex< >> guard(_instanceSaveLock);
     for (auto & itr : m_instanceSaveById)
         ret += itr.second->GetPlayerCount();
 
@@ -529,6 +701,7 @@ uint32 InstanceSaveManager::GetNumBoundPlayersTotal()
 uint32 InstanceSaveManager::GetNumBoundGroupsTotal()
 {
     uint32 ret = 0;
+    std::shared_lock<sf::contention_free_shared_mutex< >> guard(_instanceSaveLock);
     for (auto & itr : m_instanceSaveById)
         ret += itr.second->GetGroupCount();
 

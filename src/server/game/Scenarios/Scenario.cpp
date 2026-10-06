@@ -19,6 +19,7 @@
 #include "ScenarioMgr.h"
 #include "LFGMgr.h"
 #include "InstanceSaveMgr.h"
+#include "MapInstanced.h"
 #include "WorldSession.h"
 #include "ScenarioPackets.h"
 #include "InstanceScript.h"
@@ -639,11 +640,19 @@ void Scenario::BroadCastPacket(const WorldPacket* data)
         return;
     }
 
-    Map* map = sMapMgr->FindMap(dungeonData->map, instanceId);
-    if (!map || map->IsMapUnload())
+    // scenarios built without dungeon data have no map to look up (the dereference crashed)
+    if (!dungeonData)
         return;
 
-    map->SendToPlayers(data);
+    // the instance may be destroyed meanwhile by its parent map's thread: sent under the instance list lock
+    Map* baseMap = sMapMgr->FindBaseMap(dungeonData->map);
+    if (!baseMap)
+        return;
+
+    if (baseMap->Instanceable() || baseMap->CanCreatedZone())
+        static_cast<MapInstanced*>(baseMap)->SendToInstancePlayers(instanceId, data);
+    else if (!instanceId && !baseMap->IsMapUnload())
+        baseMap->SendToPlayers(data);
 }
 
 bool Scenario::CanUpdateCriteria(uint32 criteriaId, uint32 recursTree /*=0*/) const

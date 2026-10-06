@@ -3649,20 +3649,35 @@ void Player::UninviteFromGroup()
     if (!group)
         return;
 
-    group->RemoveInvite(this);
-
-    if (group->GetMembersCount() <= 1)                       // group has just 1 member => disband
+    // decided under the invite lock, as an acceptance from another thread creates the group under it
+    bool disband = false;
+    bool dispose = false;
     {
-        if (group->IsCreated())
+        std::lock_guard<std::mutex> inviteGuard(group->m_inviteLock);
+        // dropped (already queued for deletion) or withdrawn by another thread since it was read
+        if (group->IsDisposed() || GetGroupInvite() != group)
+            return;
+
+        group->RemoveInvite(this);
+
+        if (group->GetMembersCount() <= 1)                   // group has just 1 member => disband
         {
-            group->Disband(true);
-        }
-        else
-        {
-            group->RemoveAllInvites();
-            delete group;
+            if (group->IsCreated())
+                disband = true;
+            else if (!group->IsDisbanding())                 // emptied by a Disband, which already queued it
+            {
+                group->RemoveAllInvites();
+                group->SetDisposed();
+                dispose = true;
+            }
         }
     }
+
+    // never deleted here: the other side of the invite may hold the pointer
+    if (disband)
+        group->Disband(true);
+    else if (dispose)
+        sGroupMgr->QueueForDelete(group);
 }
 
 void Player::RemoveFromGroup(Group* group, ObjectGuid guid, RemoveMethod method /* = GROUP_REMOVEMETHOD_DEFAULT*/, ObjectGuid kicker /* = 0 */, const char* reason /* = NULL */)
@@ -3676,13 +3691,11 @@ void Player::RemoveFromGroup(Group* group, ObjectGuid guid, RemoveMethod method 
                 if (guid == group->m_challengeOwner && !_challenge->_complete && _challenge->_run)
                 {
                     // the kicker may be on another map: the owner's item and key change on the owner's own thread
-                    if (Player* keyOwner = ObjectAccessor::FindPlayer(guid))
-                        keyOwner->AddDelayedEvent(1, [keyOwner]() -> void
+                    if (!ObjectAccessor::PostToPlayer(guid, [](Player* keyOwner) -> void
                         {
                             keyOwner->ChallengeKeyCharded(keyOwner->GetItemByEntry(138019, true), keyOwner->m_challengeKeyInfo.Level, false);
-                        });
-                    else
-                        CharacterDatabase.PQuery("UPDATE challenge_key SET KeyIsCharded = 0, InstanceID = 0 WHERE guid = %u", guid.GetGUIDLow());
+                        }, 1, ObjectAccessor::PlayerScope::InWorld))
+                        CharacterDatabase.PExecute("UPDATE challenge_key SET KeyIsCharded = 0, InstanceID = 0 WHERE guid = %u", guid.GetGUIDLow());
                 }
             }
         }
@@ -24601,8 +24614,11 @@ InstanceSave* Player::GetInstanceSave(uint32 mapid)
     InstanceSave* pSave = pBind ? pBind->save : NULL;
     if (!pBind || !pBind->perm)
         if (Group* group = GetGroup())
-            if (InstanceGroupBind* groupBind = group->GetBoundInstance(this))
-                pSave = groupBind->save;
+        {
+            InstanceGroupBind groupBind = group->GetBoundInstanceCopy(this);
+            if (groupBind.save)
+                pSave = groupBind.save;
+        }
 
     return pSave;
 }
@@ -26483,14 +26499,17 @@ void Player::ResetInstances(uint8 method, bool isRaid, bool isLegacy)
             }
         }
 
-        // if the map is loaded, reset it
-        Map* map = sMapMgr->FindMap(p->GetMapId(), p->GetInstanceId());
-        if (map && map->IsDungeon())
-            if (!(static_cast<InstanceMap*>(map))->Reset(method))
-            {
-                ++itr;
-                continue;
-            }
+        // if the map is loaded, reset it: it belongs to another thread, the reset is applied there at its next update,
+        // and the bind is kept while players are inside (what InstanceMap::Reset returned)
+        bool hadPlayers = false;
+        if (sMapMgr->RequestInstanceReset(p->GetMapId(), p->GetInstanceId(), method, &hadPlayers) && hadPlayers)
+        {
+            // as Group::ResetInstances; those inside are told by the map itself
+            if ((method == INSTANCE_RESET_ALL || method == INSTANCE_RESET_CHANGE_DIFFICULTY) && GetInstanceId() != p->GetInstanceId())
+                SendResetInstanceFailed(ResetFailedReason::FAILED, p->GetMapId());
+            ++itr;
+            continue;
+        }
 
         // since this is a solo instance there should not be any players inside
         if (method == INSTANCE_RESET_ALL || method == INSTANCE_RESET_CHANGE_DIFFICULTY)

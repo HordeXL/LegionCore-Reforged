@@ -95,7 +95,7 @@ typedef std::vector<LogsSystem::KillCreatureData*> KillCreatureList;
 struct GroupUpdateCounter
 {
     ObjectGuid GroupGuid;
-    int32 UpdateSequenceNumber;
+    std::atomic<int32> UpdateSequenceNumber{ 0 };   // taken by group updates built in other map threads
 };
 
 typedef std::deque<Mail*> PlayerMails;
@@ -3038,8 +3038,12 @@ class TC_GAME_API Player : public Unit, public GridObject<Player>
         /***                   GROUP SYSTEM                    ***/
         /*********************************************************/
 
-        Group* GetGroupInvite() { return m_groupInvite; }
-        void SetGroupInvite(Group* group) { m_groupInvite = group; }
+        // written by the inviter's and the group's threads, read by the invitee's
+        Group* GetGroupInvite() const { return m_groupInvite.load(); }
+        void SetGroupInvite(Group* group) { m_groupInvite.store(group); }
+        // invites are written from the inviter's thread: only take a free slot, only clear our own invite
+        bool TrySetGroupInvite(Group* group) { Group* expected = nullptr; return m_groupInvite.compare_exchange_strong(expected, group); }
+        bool ClearGroupInviteIf(Group* group) { Group* expected = group; return m_groupInvite.compare_exchange_strong(expected, nullptr); }
         Group* GetGroup() { return m_group.getTarget(); }
         const Group* GetGroup() const { return static_cast<const Group*>(m_group.getTarget()); }
         GroupReference& GetGroupRef() { return m_group; }
@@ -3627,7 +3631,7 @@ class TC_GAME_API Player : public Unit, public GridObject<Player>
         // Groups
         GroupReference m_group;
         GroupReference m_originalGroup;
-        Group* m_groupInvite;
+        std::atomic<Group*> m_groupInvite;
         uint32 m_groupUpdateMask;
         bool m_bPassOnGroupLoot;
         std::array<GroupUpdateCounter, 2> m_groupUpdateSequences;

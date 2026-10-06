@@ -23,6 +23,7 @@
 #include "GroupRefManager.h"
 #include "LootMgr.h"
 #include "SharedDefines.h"
+#include <functional>
 
 class Battlefield;
 class Battleground;
@@ -196,6 +197,7 @@ class Roll
             ObjectGuid itemGUID;
             uint32 ItemID = 0;
             uint32 RandomPropertiesSeed = 0;
+            uint32 UpgradeID = 0;
             ItemRandomEnchantmentId RandomPropertiesID;
 
             struct
@@ -217,6 +219,10 @@ class Roll
         uint8 itemSlot;
         uint8 aoeSlot;
         uint8 rollVoteMask;
+        bool canTradeToTapList;
+        // the loot and the winner's bags belong to this map: the roll is concluded only from its thread
+        uint32 mapId;
+        uint32 instanceId;
 };
 
 struct InstanceGroupBind
@@ -249,6 +255,7 @@ class TC_GAME_API Group
             uint8 Flags = 0;
             uint8 Roles = 0;
             bool fakeOnline = false;
+            bool ReadyChecked = false;
         };
         typedef std::list<MemberSlot> MemberSlotList;
         typedef MemberSlotList::const_iterator member_citerator;
@@ -263,8 +270,6 @@ class TC_GAME_API Group
     public:
         Group();
         ~Group();
-
-        void Update(uint32 diff);
 
         bool   Create(Player* leader, uint8 subType = 0, bool isLfg = false);
         void   LoadGroupFromDB(Field* field);
@@ -284,7 +289,12 @@ class TC_GAME_API Group
         void   SetLooterGuid(ObjectGuid const& guid);
         void   UpdateLooterGuid(WorldObject* pLootedObject, bool ifneed = false);
         void   SetLootThreshold(ItemQualities threshold);
+        // never deletes the group: GroupMgr frees it after a grace delay (QueueForDelete)
         void   Disband(bool hideDestroy=false);
+        bool   IsDisbanding() const;
+        // pending invite (group not created yet), both under m_inviteLock: a dropped group is already queued for deletion
+        bool   IsDisposed() const { return m_disposed; }
+        void   SetDisposed() { m_disposed = true; }
         void   SetLfgRoles(ObjectGuid guid, const uint8 roles);
         uint8  GetLfgRoles(ObjectGuid guid);
 
@@ -296,7 +306,6 @@ class TC_GAME_API Group
         bool isBFGroup() const;
         bool IsCreated() const;
 
-        bool IsHomeGroup() const;
         ObjectGuid GetLeaderGUID() const;
         ObjectGuid GetGUID() const;
         uint32 GetGUIDLow() const;
@@ -307,23 +316,23 @@ class TC_GAME_API Group
 
         uint32 GetDbStoreId() const;
 
+        // members stand on any map: the worker runs under the accessor lock and may only build and send packets
         template<class Worker>
         void BroadcastWorker(Worker& worker)
         {
-            for (GroupReference* itr = GetFirstMember(); itr != nullptr; itr = itr->next())
-                worker(itr->getSource());
+            ForEachLinkedMember([&worker](Player* player) { worker(player); });
         }
 
         template<class Worker>
         void BroadcastWorker(Worker const& worker) const
         {
-            for (GroupReference const* itr = GetFirstMember(); itr != nullptr; itr = itr->next())
-                worker(itr->getSource());
+            ForEachLinkedMember([&worker](Player* player) { worker(player); });
         }
+
+        void ForEachLinkedMember(std::function<void(Player*)> const& fn) const;
 
         bool IsMember(ObjectGuid guid) const;
         bool IsLeader(ObjectGuid guid) const;
-        ObjectGuid GetMemberGUID(std::string const& name);
         bool IsAssistant(ObjectGuid guid) const;
         bool IsGuildGroup(ObjectGuid const& guildId, bool AllInSameMap = false, bool AllInSameInstanceId = false);
         void UpdateGuildAchievementCriteria(CriteriaTypes type, uint32 miscValue1, uint32 miscValue2, uint32 miscValue3, Unit* unit, WorldObject* rewardSource);
@@ -336,7 +345,7 @@ class TC_GAME_API Group
         bool SameSubGroup(Player const* member1, Player const* member2) const;
         bool HasFreeSlotSubGroup(uint8 subgroup) const;
 
-        MemberSlotList const& GetMemberSlots() const;
+        MemberSlotList GetMemberSlots() const;
         GroupReference* GetFirstMember();
         GroupReference const* GetFirstMember() const;
         uint32 GetMembersCount() const;
@@ -354,6 +363,7 @@ class TC_GAME_API Group
         uint8 CanJoinBattlegroundQueue(Battleground const* bgOrTemplate, uint8 bgQueueTypeId, uint32 MinPlayerCount, bool isRated, uint32 arenaSlot, ObjectGuid& errorGuid);
 
         void ChangeMembersGroup(ObjectGuid guid, uint8 group);
+        void SwapMembersGroups(ObjectGuid firstGuid, ObjectGuid secondGuid);
         void SetTargetIcon(uint8 id, ObjectGuid whoGuid, ObjectGuid targetGuid, uint8 partyIndex);
         void SetGroupMemberFlag(ObjectGuid guid, bool apply, GroupMemberFlags flag);
         void setGroupMemberRole(ObjectGuid guid, uint32 role);
@@ -372,7 +382,6 @@ class TC_GAME_API Group
         void SendUpdate();
         void SendUpdateToPlayer(ObjectGuid playerGUID, MemberSlot* slot = nullptr);
         void SendUpdateDestroyGroupToPlayer(Player* player) const;
-        void ChangeLeaderOffline(ObjectGuid const& guid, std::string Name);
 
         void UpdatePlayerOutOfRange(Player* player);
 
@@ -380,13 +389,12 @@ class TC_GAME_API Group
         void BroadcastAddonMessagePacket(WorldPacket const* packet, std::string const& prefix, bool ignorePlayersInBGRaid, int group = -1, ObjectGuid ignore = ObjectGuid::Empty);
         void BroadcastReadyCheck(WorldPacket const* packet);
         void OfflineReadyCheck();
-        bool leaderInstanceCheckFail();
 
         void AddRaidMarker(uint8 markerID, uint32 mapID, float positionX, float positionY, float positionZ, ObjectGuid transportGuid = ObjectGuid::Empty);
         void DeleteRaidMarker(uint8 markerID);
         void SendRaidMarkersChanged(WorldSession* session = nullptr, int8 partyIndex = 0);
 
-        bool isRollLootActive() const { return !RollId.empty(); }
+        bool isRollLootActive() const { return RollIsActive(); }
         void SendLootStartRoll(uint32 mapid, const Roll &r);
         void SendLootStartRollToPlayer(uint32 mapId, Player* p, bool canNeed, Roll const& r);
         void SendLootRoll(ObjectGuid TargetGuid, uint8 RollNumber, uint8 RollType, const Roll &r);
@@ -395,23 +403,34 @@ class TC_GAME_API Group
         void SendLooter(Creature* creature, Player* pLooter);
         void GroupLoot(Loot* loot, WorldObject* pLootedObject);
         void MasterLoot(Loot* loot, WorldObject* pLootedObject);
-        Rolls::iterator GetRoll(uint8 slot);
+        Rolls::iterator GetRoll(uint8 slot, std::set<ObjectGuid> const& validLoots);
         void ErraseRollbyRealSlot(uint8 slot, Loot* loot);
-        void CountTheRoll(Rolls::iterator roll);
-        void CountRollVote(ObjectGuid playerGUID, uint8 slot, uint8 Choise);
+        void CountTheRoll(Roll* roll);
+        bool CountRollVote(Player* voter, uint8 slot, uint8 Choise);
         void DoRollForAllMembers(ObjectGuid guid, uint8 slot, uint32 mapid, Loot*, LootItem&, Player*);
         void EndRoll(Loot* loot);
+        void ConcludeRollOnMap(Player* onRollMap, ObjectGuid const& rollItemGuid);
         void ClearAoeSlots();
         bool isRolledSlot(uint8 _slot);
-        bool RollIsActive();
+        // only rolls whose loot still exists count: a roll whose loot vanished is never concluded
+        bool RollIsActive() const;
+        void PurgeStaleRolls();
 
         void ResetMaxEnchantingLevel();
 
         void LinkMember(GroupReference* pRef);
         void DelinkMember(ObjectGuid guid);
 
-        InstanceGroupBind* BindToInstance(InstanceSave* save, bool permanent, bool load = false);
+        InstanceGroupBind BindToInstance(InstanceSave* save, bool permanent, bool load = false);
         void UnbindInstance(uint32 mapid, uint8 difficulty, bool unload = false);
+        void UnbindInstance(InstanceSave* save, bool unload = true);
+        // Copies taken under m_bound_lock (save == nullptr: not bound). Use these from map threads.
+        InstanceGroupBind GetBoundInstanceCopy(Player* player);
+        InstanceGroupBind GetBoundInstanceCopy(Map* aMap);
+        InstanceGroupBind GetBoundInstanceCopy(MapEntry const* mapEntry);
+        InstanceGroupBind GetBoundInstanceCopy(Difficulty difficulty, uint32 mapId);
+        BoundInstancesMap GetBoundInstancesCopy(Difficulty difficulty);
+        // Pointer into m_boundInstances: erased by an unbind from another map thread. Kept until the callers move to the copies.
         InstanceGroupBind* GetBoundInstance(Player* player);
         InstanceGroupBind* GetBoundInstance(Map* aMap);
         InstanceGroupBind* GetBoundInstance(MapEntry const* mapEntry);
@@ -420,8 +439,13 @@ class TC_GAME_API Group
         void UpdateInstance(InstanceSave* save);
 
         void BroadcastGroupUpdate();
-        void SetReadyCheckCount(uint8 count);
-        uint8 GetReadyCheckCount() const;
+        bool StartReadyCheck(ObjectGuid starterGuid, int8 partyIndex);
+        bool IsReadyCheckActive() const;
+        bool SetMemberReadyChecked(ObjectGuid guid);
+        bool IsReadyCheckCompleted() const;
+        void EndReadyCheck();
+        void ReadyCheckTimeout(uint32 startTime);
+        uint32 GetReadyCheckStartTime() const { return m_readyCheckStartTime; }
         uint8 GetGroupFlags() const;
         GroupCategory GetGroupCategory() const;
 
@@ -429,8 +453,17 @@ class TC_GAME_API Group
         ItemQualities GetThreshold() const;
         uint32 GetTeam() const;
 
-        std::recursive_mutex m_lock;
-        std::recursive_mutex m_bound_lock;
+        // Members of one group act from several map threads at once.
+        // m_lock: m_memberSlots, m_subGroupsCounts, m_memberMgr links, m_invitees, RollId and the rolls.
+        // m_bound_lock: m_boundInstances.
+        // Both are leaves: only plain accessors are called under them (no other manager, no Player method that may lock,
+        // no database, no packet), and they are never nested. LFGListMgr may take m_lock under its own lock, not the reverse.
+        // m_inviteLock serialises the acceptances of one pending invite (group creation) and is taken first.
+        // A Group* looked up (GroupMgr, a player's invite) stays valid for the current call: Disband only queues the
+        // group, GroupMgr frees it from the world thread after a grace delay.
+        mutable std::recursive_mutex m_lock;
+        mutable std::recursive_mutex m_bound_lock;
+        std::mutex m_inviteLock;
 
         bool InChallenge();
         bool GetMaxCountOfRolesForArenaQueue(uint8 role);
@@ -459,6 +492,21 @@ class TC_GAME_API Group
         void SubGroupCounterDecrease(uint8 subgroup);
         static void ToggleGroupMemberFlag(member_witerator slot, uint8 flag, bool apply);
 
+        struct MemberRef
+        {
+            ObjectGuid Guid;
+            uint8 SubGroup;
+        };
+        std::vector<MemberRef> GetMemberRefs() const;
+        std::vector<ObjectGuid> GetMemberGuids() const;
+        Roll* DetachRoll(Rolls::iterator rollI);
+        std::set<ObjectGuid> GetValidRollLoots() const;
+        std::set<ObjectGuid> GetVanishedRollLoots() const;
+        void ArmRollTimer(WorldObject* lootedObject);
+        void PostRollConclusion(Roll const& roll);
+        void ConvertLeaderInstances(ObjectGuid const& leaderGuid, bool switchLeader);
+        void PostSubGroupChange(ObjectGuid const& guid, uint8 subGroup);
+
         MemberSlotList      m_memberSlots;
         GroupRefManager     m_memberMgr;
         InvitesList         m_invitees;
@@ -481,9 +529,13 @@ class TC_GAME_API Group
         ObjectGuid          m_guid;
         uint32              m_maxEnchantingLevel;
         uint32              m_dbStoreId;                    // Represents the ID used in database (Can be reused by other groups if group was disbanded)
-        uint8               m_readyCheckCount;
+        uint32              m_readyCheckStartTime;
+        int8                m_readyCheckPartyIndex;
         uint8               m_aoe_slots;                    // centrilize aoe loot method
         bool                m_readyCheck;
+        bool                m_disbanding;                   // m_lock: set once by the Disband call that owns the group's end
+        bool                m_disposed;                     // m_inviteLock
+        bool                m_bindsClosed = false;          // m_bound_lock: Disband has emptied the binds, no new one may appear
         uint32              _team;
 
         std::array<std::unique_ptr<RaidMarker>, RAID_MARKERS_COUNT> m_markers;

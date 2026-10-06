@@ -23,6 +23,11 @@
 #include "GameTime.h"
 #include "ObjectDefines.h"
 #include <safe_ptr.h>
+#include <atomic>
+#include <list>
+#include <mutex>
+#include <string>
+#include <vector>
 
 struct InstanceTemplate;
 struct MapEntry;
@@ -59,8 +64,6 @@ class InstanceSave
         uint32 GetInstanceId() const { return m_instanceid; }
         uint32 GetMapId() const { return m_mapid; }
 
-        /* Saved when the instance is generated for the first time */
-        void SaveToDB();
         /* When the instance is being reset (permanently deleted) */
         void DeleteFromDB();
 
@@ -87,8 +90,9 @@ class InstanceSave
         uint32 GetCompletedEncounterMask() const { return m_completedEncounter; }
         void SetCompletedEncountersMask(uint32 _mask) { m_completedEncounter = _mask; }
 
-        void SetData(std::string _data) { m_data = _data; }
-        std::string GetData() const { return m_data; }
+        // written by the instance map thread, read by every thread that writes a bind row
+        void SetData(std::string _data) { std::lock_guard<std::mutex> guard(_dataLock); m_data = std::move(_data); }
+        std::string GetData() const { std::lock_guard<std::mutex> guard(_dataLock); return m_data; }
 
         void SetResetTime(time_t _time) { m_resetTime = _time; }
         time_t GetResetTime() const { return m_resetTime; }
@@ -99,7 +103,10 @@ class InstanceSave
         void SetExtended(bool extended) { m_extended = extended; }
         bool GetExtended() const { return m_extended; }
 
-        bool SaveIsOld() const { return m_resetTime && m_resetTime <= GameTime::GetGameTime(); }
+        bool SaveIsOld() const { time_t resetTime = m_resetTime; return resetTime && resetTime <= GameTime::GetGameTime(); }
+
+        /* rewrites the character_instance / group_instance rows of everything bound to this save */
+        void SaveBindsToDB();
 
         /* currently it is possible to omit this information from this structure
            but that would depend on a lot of things that can easily change in future */
@@ -111,8 +118,10 @@ class InstanceSave
         GroupListType m_groupList;
 
     private:
-        bool UnloadIfEmpty();
-        /* used to flag the InstanceSave as to be deleted, so the caller can delete it */
+        /* removed is set when this call claimed the save for deletion: the caller must then hand it to
+           InstanceSaveManager::QueueForDelete (never delete it directly) */
+        bool UnloadIfEmpty(bool& removed);
+        /* set once the save is out of the manager: it is then freed as soon as nothing lists it */
         void SetToDelete(bool toDelete);
 
         /* the only reason the instSave-object links are kept is because
@@ -121,15 +130,18 @@ class InstanceSave
         uint32 m_instanceid;
         uint32 m_mapid;
         Difficulty m_difficulty;
-        bool m_canReset;
-        bool m_toDelete;
+        std::atomic<bool> m_canReset;
+        std::atomic<bool> m_toDelete;
         bool m_canBeSave;
-        bool m_perm;
-        bool m_extended;
-        uint32 m_completedEncounter;
+        std::atomic<bool> m_perm;
+        std::atomic<bool> m_extended;
+        std::atomic<uint32> m_completedEncounter;
         std::string m_data;
-        time_t m_resetTime;
+        std::atomic<time_t> m_resetTime;
+        // guarded by both list locks: only one thread may queue the save for deletion
+        bool m_deleteQueued;
 
+        mutable std::mutex _dataLock;
         sf::contention_free_shared_mutex< > _playerListLock;
         sf::contention_free_shared_mutex< > _groupListLock;
 };
@@ -152,11 +164,11 @@ class TC_GAME_API InstanceSaveManager
         {
             Difficulty difficulty:8;
             uint16 mapid;
-            uint16 instanceId;
+            uint32 instanceId;
             uint8 type;
 
             InstResetEvent();
-            InstResetEvent(uint8 t, uint32 _mapid, Difficulty d, uint16 _instanceid);
+            InstResetEvent(uint8 t, uint32 _mapid, Difficulty d, uint32 _instanceid);
             bool operator ==(const InstResetEvent& e) const;
         };
         typedef std::multimap<time_t /*resetTime*/, InstResetEvent> ResetTimeQueue;
@@ -168,10 +180,13 @@ class TC_GAME_API InstanceSaveManager
         void Update();
 
         InstanceSave* AddInstanceSave(uint32 mapId, uint32 instanceId, Difficulty difficulty, uint32 completedEncounter, std::string data, time_t resetTime, bool canReset, bool load = false);
-        void RemoveInstanceSave(uint32 InstanceId);
+        /* erases the save from the manager only if it is still the one registered under its id */
+        bool RemoveInstanceSave(InstanceSave* save);
         void UnloadInstanceSave(uint32 InstanceId);
         static void DeleteInstanceFromDB(uint32 instanceid);
 
+        /* Saves are freed one minute after they leave the manager (QueueForDelete), so a pointer returned here
+           stays valid for the short time a map thread uses it. Keep it no longer than the current call. */
         InstanceSave* GetInstanceSave(uint32 InstanceId);
 
         /* statistics */
@@ -184,9 +199,14 @@ class TC_GAME_API InstanceSaveManager
 
     private:
         void _ResetInstance(uint32 mapid, uint32 instanceId);
-        void _ResetSave(InstanceSaveHashMap::iterator &itr);
-        bool lock_instLists;
+        void _ResetSave(uint32 instanceId);
+        void QueueForDelete(InstanceSave* save);
+        void _DeleteQueuedSaves(bool all);
+
+        std::atomic<bool> lock_instLists;
         InstanceSaveHashMap m_instanceSaveById;
+        std::vector<std::pair<time_t, InstanceSave*>> _deleteQueue;
+        std::mutex _deleteQueueLock;
         ResetTimeQueue m_resetTimeQueue;
         sf::contention_free_shared_mutex< > _resetTimeLock;
         sf::contention_free_shared_mutex< > _instanceSaveLock;

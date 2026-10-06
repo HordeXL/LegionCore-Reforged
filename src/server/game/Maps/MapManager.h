@@ -43,6 +43,9 @@ class TC_GAME_API MapManager
         Map* FindBaseNonInstanceMap(uint32 mapId) const;
         Map* CreateMap(uint32 mapId, Player* player);
         Map* FindMap(uint32 mapId, uint32 instanceId) const;
+        // for threads other than the instance's own: the instance is used under its parent's lock, no Map* is returned
+        bool RequestInstanceReset(uint32 mapId, uint32 instanceId, uint8 method, bool* hadPlayers = nullptr);
+        bool InstanceHavePlayers(uint32 mapId, uint32 instanceId) const;
 
         uint32 GetAreaId(uint32 mapid, float x, float y, float z) const;
         uint32 GetZoneId(uint32 mapid, float x, float y, float z) const;
@@ -97,7 +100,7 @@ class TC_GAME_API MapManager
         uint32 i_gridCleanUpDelay;
         MapMapType i_maps;
 
-        uint32 _nextInstanceId;
+        std::atomic<uint32> _nextInstanceId; // map threads create instances in parallel
         uint8 _mapInfoCounter;
 
         // atomic op counter for active scripts amount

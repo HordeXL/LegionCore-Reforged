@@ -1393,8 +1393,9 @@ void Map::RemovePlayerFromMap(Player* player, bool remove)
     if (remove)
     {
         player->SetPreDelete();
-        DeleteFromWorld(player);
+        // DeleteFromWorld frees the player
         sScriptMgr->OnPlayerLeaveMap(this, player);
+        DeleteFromWorld(player);
     }
 }
 
@@ -3339,6 +3340,7 @@ InstanceMap::InstanceMap(uint32 id, time_t expiry, uint32 InstanceId, Difficulty
     m_unloadWhenEmpty = false;
     i_data = nullptr;
     i_script_id = 0;
+    m_pendingResets = 0;
 
     //lets initialize visibility distance for dungeons
     InstanceMap::InitVisibilityDistance();
@@ -3532,39 +3534,39 @@ bool InstanceMap::AddPlayerToMap(Player* player, bool initPlayer /*= true*/)
             if (group)
             {
                 // solo saves should be reset when entering a group
-                InstanceGroupBind* groupBind = group->GetBoundInstance(this);
+                InstanceGroupBind groupBind = group->GetBoundInstanceCopy(this);
                 if (playerBind && playerBind->save != mapSave && GetEntry()->ExpansionID <= EXPANSION_WARLORDS_OF_DRAENOR)
                 {
                     TC_LOG_ERROR("maps", "InstanceMap::Add: player %s(%d) is being put into instance %d, %d, %d, %d, %d, %d but he is in group %d and is bound to instance %d, %d, %d, %d, %d, %d!", player->GetName(), player->GetGUIDLow(), mapSave->GetMapId(), mapSave->GetInstanceId(), mapSave->GetDifficultyID(), mapSave->GetPlayerCount(), mapSave->GetGroupCount(), mapSave->CanReset(), group->GetLeaderGUID().GetGUIDLow(), playerBind->save->GetMapId(), playerBind->save->GetInstanceId(), playerBind->save->GetDifficultyID(), playerBind->save->GetPlayerCount(), playerBind->save->GetGroupCount(), playerBind->save->CanReset());
-                    if (groupBind)
-                        TC_LOG_ERROR("maps", "InstanceMap::Add: the group is bound to the instance %d, %d, %d, %d, %d, %d", groupBind->save->GetMapId(), groupBind->save->GetInstanceId(), groupBind->save->GetDifficultyID(), groupBind->save->GetPlayerCount(), groupBind->save->GetGroupCount(), groupBind->save->CanReset());
+                    if (groupBind.save)
+                        TC_LOG_ERROR("maps", "InstanceMap::Add: the group is bound to the instance %d, %d, %d, %d, %d, %d", groupBind.save->GetMapId(), groupBind.save->GetInstanceId(), groupBind.save->GetDifficultyID(), groupBind.save->GetPlayerCount(), groupBind.save->GetGroupCount(), groupBind.save->CanReset());
                     //ASSERT(false);
                     return false;
                 }
                 // bind to the group or keep using the group save
-                if (!groupBind)
+                if (!groupBind.save)
                     group->BindToInstance(mapSave, false);
                 else
                 {
                     // cannot jump to a different instance without resetting it
-                    if (groupBind->save != mapSave)
+                    if (groupBind.save != mapSave)
                     {
                         if (mapSave)
                         {
                             TC_LOG_ERROR("maps", "MapSave players: %d, group count: %d", mapSave->GetPlayerCount(), mapSave->GetGroupCount());
-                            TC_LOG_ERROR("maps", "InstanceMap::Add: player %s(%d) is being put into instance %d, %d, %d but he is in group %d which is bound to instance %d, %d, %d!", player->GetName(), player->GetGUIDLow(), mapSave->GetMapId(), mapSave->GetInstanceId(), mapSave->GetDifficultyID(), group->GetLeaderGUID().GetGUIDLow(), groupBind->save->GetMapId(), groupBind->save->GetInstanceId(), groupBind->save->GetDifficultyID());
+                            TC_LOG_ERROR("maps", "InstanceMap::Add: player %s(%d) is being put into instance %d, %d, %d but he is in group %d which is bound to instance %d, %d, %d!", player->GetName(), player->GetGUIDLow(), mapSave->GetMapId(), mapSave->GetInstanceId(), mapSave->GetDifficultyID(), group->GetLeaderGUID().GetGUIDLow(), groupBind.save->GetMapId(), groupBind.save->GetInstanceId(), groupBind.save->GetDifficultyID());
                         }
                         else
                             TC_LOG_ERROR("maps", "MapSave NULL");
-                        if (groupBind->save)
-                            TC_LOG_ERROR("maps", "GroupBind save players: %d, group count: %d", groupBind->save->GetPlayerCount(), groupBind->save->GetGroupCount());
+                        if (groupBind.save)
+                            TC_LOG_ERROR("maps", "GroupBind save players: %d, group count: %d", groupBind.save->GetPlayerCount(), groupBind.save->GetGroupCount());
                         else
                             TC_LOG_ERROR("maps", "GroupBind save NULL");
                         return false;
                     }
                     // if the group/leader is permanently bound to the instance
                     // players also become permanently bound when they enter
-                    if (groupBind->perm || mapSave->SaveIsOld() && mapSave->GetExtended())
+                    if (groupBind.perm || mapSave->SaveIsOld() && mapSave->GetExtended())
                     {
                         WorldPackets::Instance::PendingRaidLock lock;
                         lock.TimeUntilLock = i_data ? i_data->GetCompletedEncounterMask() : 0;
@@ -3645,6 +3647,19 @@ bool InstanceMap::AddPlayerToMap(Player* player, bool initPlayer /*= true*/)
 
 void InstanceMap::Update(const uint32 t_diff)
 {
+    if (uint32 pendingResets = TakePendingResets())
+    {
+        for (uint8 method = INSTANCE_RESET_ALL; method <= INSTANCE_RESET_RESPAWN_DELAY; ++method)
+        {
+            if (!(pendingResets & (1u << method)))
+                continue;
+
+            Reset(method);
+            if (method == INSTANCE_RESET_RESPAWN_DELAY)
+                DeleteRespawnTimes();
+        }
+    }
+
     Map::Update(t_diff);
 
     if (i_data)

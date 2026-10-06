@@ -2042,8 +2042,12 @@ void Garrison::SendGarrisonUpgradebleResult(Player* receiver, int32 garrSiteID) 
 //! ToDo: chesc for GARRISON_TYPE_CLASS_ORDER
 Map* Garrison::FindMap() const
 {
+    // Callers run in the owner's thread and spawn objects in the map: only while he is inside is that the map's
+    // own thread. Away, the map updates in parallel (or is being unloaded); its grids spawn the plots on reload.
     if (auto site = _siteLevel[GARRISON_TYPE_GARRISON])
-        return sMapMgr->FindMap(site->MapID, _owner->GetGUIDLow());
+        if (Map* map = _owner->FindMap())
+            if (map->IsGarrison() && map->GetId() == site->MapID && map->GetInstanceId() == uint32(_owner->GetGUIDLow()))
+                return map;
     return nullptr;
 }
 

@@ -19,6 +19,26 @@
 #include "Group.h"
 #include "GroupReference.h"
 
+void GroupReference::link(Group* toObj, Player* fromObj)
+{
+    unlink();
+    // targetObjectBuildLink inserts under the new group's lock
+    Reference<Group, Player>::link(toObj, fromObj);
+}
+
+void GroupReference::unlink()
+{
+    Group* group = getTarget();
+    if (!group)
+    {
+        Reference<Group, Player>::unlink();
+        return;
+    }
+
+    std::lock_guard<std::recursive_mutex> guard(group->m_lock);
+    Reference<Group, Player>::unlink();
+}
+
 void GroupReference::targetObjectBuildLink()
 {
     // called from link()

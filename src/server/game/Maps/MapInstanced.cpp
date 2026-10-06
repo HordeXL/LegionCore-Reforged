@@ -44,6 +44,9 @@ MapInstanced::MapInstanced(uint32 id, time_t expiry) : Map(id, expiry, 0, DIFFIC
 
 void MapInstanced::InitVisibilityDistance()
 {
+    // reached from the world thread on a config reload
+    std::lock_guard<std::recursive_mutex> guard(m_lock);
+
     //initialize visibility distances for all instance copies
     if (!m_InstancedMaps.empty())
         for (InstancedMaps::iterator i = m_InstancedMaps.begin(); i != m_InstancedMaps.end(); ++i)
@@ -75,53 +78,31 @@ void MapInstanced::Update(const uint32 t)
     Map::Update(t);
 
     // update the instanced maps
-    InstancedMaps::iterator i = m_InstancedMaps.begin();
-
-    while (i != m_InstancedMaps.end())
+    for (auto const& itr : _Snapshot(m_InstancedMaps))
     {
-        if (Map* const instanced = i->second)
-        {
-            if (instanced->CanCreatedZone())
-            {
-                ++i;
-                continue;
-            }
+        Map* const instanced = itr.second;
+        if (!instanced || instanced->CanCreatedZone())
+            continue;
 
-            if (instanced->CanUnload(t))
-            {
-                if (!DestroyInstance(i))                             // iterator incremented
-                {
-                    //m_unloadTimer
-                }
-            }
-            else
-            {
-                // update only here, because it may schedule some bad things before delete
-                if (threadPool)
-                    threadPool->schedule([instanced, t] { instanced->Update(t); });
-                else
-                    instanced->Update(t);
-                ++i;
-            }
-        }
+        if (instanced->CanUnload(t))
+            DestroyInstance(itr.first, instanced);
         else
-            DestroyInstance(i);
+        {
+            // update only here, because it may schedule some bad things before delete
+            if (threadPool)
+                threadPool->schedule([instanced, t] { instanced->Update(t); });
+            else
+                instanced->Update(t);
+        }
     }
 
     // update the Garrisoned maps
-    i = m_GarrisonedMaps.begin();
-
-    while (i != m_GarrisonedMaps.end())
+    for (auto const& itr : _Snapshot(m_GarrisonedMaps))
     {
-        if (Map* const instanced = i->second)
+        if (Map* const instanced = itr.second)
         {
             if (instanced->CanUnload(t))
-            {
-                if (!DestroyGarrison(i))                             // iterator incremented
-                {
-                    //m_unloadTimer
-                }
-            }
+                DestroyGarrison(itr.first, instanced);
             else
             {
                 // update only here, because it may schedule some bad things before delete
@@ -129,8 +110,14 @@ void MapInstanced::Update(const uint32 t)
                     threadPool->schedule([instanced, t] { instanced->Update(t); });
                 else
                     instanced->Update(t);
-                ++i;
             }
+        }
+        else
+        {
+            std::lock_guard<std::recursive_mutex> guard(m_lock);
+            auto found = m_GarrisonedMaps.find(itr.first);
+            if (found != m_GarrisonedMaps.end() && !found->second)
+                m_GarrisonedMaps.erase(found);
         }
     }
 
@@ -143,13 +130,13 @@ void MapInstanced::UpdateSessions(const uint32 diff)
     volatile uint32 _mapId = GetId();
 
     // Session not need thread
-    for (InstancedMaps::iterator i = m_InstancedMaps.begin(); i != m_InstancedMaps.end(); ++i)
-        if (Map* const instanced = i->second)
+    for (auto const& i : _Snapshot(m_InstancedMaps))
+        if (Map* const instanced = i.second)
             if (!instanced->IsMapUnload() && !instanced->CanCreatedZone())
                 instanced->UpdateSessions(diff);
 
-    for (InstancedMaps::iterator i = m_GarrisonedMaps.begin(); i != m_GarrisonedMaps.end(); ++i)
-        if (Map* const instanced = i->second)
+    for (auto const& i : _Snapshot(m_GarrisonedMaps))
+        if (Map* const instanced = i.second)
             if (!instanced->IsMapUnload())
                     instanced->UpdateSessions(diff);
 }
@@ -158,9 +145,9 @@ void MapInstanced::DelayedUpdate(const uint32 diff)
 {
     volatile uint32 _mapId = GetId();
 
-    for (InstancedMaps::iterator i = m_InstancedMaps.begin(); i != m_InstancedMaps.end(); ++i)
+    for (auto const& i : _Snapshot(m_InstancedMaps))
     {
-        if (Map* const instanced = i->second)
+        if (Map* const instanced = i.second)
         {
             if (!instanced->IsMapUnload() && !instanced->CanCreatedZone())
             {
@@ -177,8 +164,8 @@ void MapInstanced::DelayedUpdate(const uint32 diff)
         }
     }
 
-    for (InstancedMaps::iterator i = m_GarrisonedMaps.begin(); i != m_GarrisonedMaps.end(); ++i)
-        if (Map* const instanced = i->second)
+    for (auto const& i : _Snapshot(m_GarrisonedMaps))
+        if (Map* const instanced = i.second)
             if (!instanced->IsMapUnload())
                 instanced->DelayedUpdate(diff);
 
@@ -189,13 +176,13 @@ void MapInstanced::UpdateTransport(uint32 diff)
 {
     volatile uint32 _mapId = GetId();
 
-    for (InstancedMaps::iterator i = m_InstancedMaps.begin(); i != m_InstancedMaps.end(); ++i)
-        if (Map* instanced = i->second)
+    for (auto const& i : _Snapshot(m_InstancedMaps))
+        if (Map* instanced = i.second)
             if (!instanced->IsMapUnload() && !instanced->CanCreatedZone())
                 instanced->UpdateTransport(diff);
 
-    for (InstancedMaps::iterator i = m_GarrisonedMaps.begin(); i != m_GarrisonedMaps.end(); ++i)
-        if (Map* instanced = i->second)
+    for (auto const& i : _Snapshot(m_GarrisonedMaps))
+        if (Map* instanced = i.second)
             if (!instanced->IsMapUnload())
                 instanced->UpdateTransport(diff);
 
@@ -236,9 +223,72 @@ void MapInstanced::StopInstance()
     volatile uint32 _mapId = GetId();
 
     // Session not need thread
-    for (InstancedMaps::iterator i = m_InstancedMaps.begin(); i != m_InstancedMaps.end(); ++i)
-        if (Map* const instanced = i->second)
+    for (auto const& i : _Snapshot(m_InstancedMaps))
+        if (Map* const instanced = i.second)
             instanced->SetMapStop();
+}
+
+MapInstanced::MapSnapshot MapInstanced::_Snapshot(InstancedMaps const& maps) const
+{
+    std::lock_guard<std::recursive_mutex> guard(m_lock);
+    return MapSnapshot(maps.begin(), maps.end());
+}
+
+void MapInstanced::ForEachInstancedMap(std::function<void(Map*)> const& fn) const
+{
+    std::lock_guard<std::recursive_mutex> guard(m_lock);
+    for (auto const& itr : m_InstancedMaps)
+        if (itr.second)
+            fn(itr.second);
+}
+
+Map* MapInstanced::_FindInstance(uint32 instanceId) const
+{
+    InstancedMaps const& maps = IsGarrison() ? m_GarrisonedMaps : m_InstancedMaps;
+    auto itr = maps.find(instanceId);
+    return itr == maps.end() ? nullptr : itr->second;
+}
+
+bool MapInstanced::RequestInstanceReset(uint32 instanceId, uint8 method, bool* hadPlayers /*= nullptr*/)
+{
+    // under m_lock: DestroyInstance erases under it before deleting, so the map is alive while flagged
+    std::lock_guard<std::recursive_mutex> guard(m_lock);
+    Map* map = _FindInstance(instanceId);
+    InstanceMap* instance = map ? map->ToInstanceMap() : nullptr;
+    if (!instance)
+        return false;
+
+    if (hadPlayers)
+        *hadPlayers = instance->HavePlayers();
+
+    instance->RequestReset(method);
+    return true;
+}
+
+bool MapInstanced::InstanceHavePlayers(uint32 instanceId) const
+{
+    std::lock_guard<std::recursive_mutex> guard(m_lock);
+    Map* map = _FindInstance(instanceId);
+    return map && map->HavePlayers();
+}
+
+// CanEnter only sends the player his own transfer error: a leaf call, as m_lock must stay
+bool MapInstanced::CanEnterInstance(uint32 instanceId, Player* player)
+{
+    std::lock_guard<std::recursive_mutex> guard(m_lock);
+    Map* map = _FindInstance(instanceId);
+    return !map || map->CanEnter(player);
+}
+
+bool MapInstanced::SendToInstancePlayers(uint32 instanceId, WorldPacket const* data) const
+{
+    std::lock_guard<std::recursive_mutex> guard(m_lock);
+    Map* map = _FindInstance(instanceId);
+    if (!map || map->IsMapUnload())
+        return false;
+
+    map->SendToPlayers(data);
+    return true;
 }
 
 /*
@@ -325,13 +375,13 @@ Map* MapInstanced::CreateInstanceForPlayer(const uint32 mapId, Player* player)
         // then the player's group bind and finally the solo bind.
         if (!pBind || !pBind->perm || GetEntry()->ExpansionID >= EXPANSION_WARLORDS_OF_DRAENOR)
         {
-            InstanceGroupBind* groupBind = nullptr;
+            InstanceGroupBind groupBind;
             // use the player's difficulty setting (it may not be the same as the group's)
             if (group)
             {
-                groupBind = group->GetBoundInstance(this);
-                if (groupBind)
-                    pSave = groupBind->save;
+                groupBind = group->GetBoundInstanceCopy(this);
+                if (groupBind.save)
+                    pSave = groupBind.save;
                 if (pSave && pSave->SaveIsOld() && !pSave->GetExtended())
                 {
                     group->UnbindInstance(GetId(), diff);
@@ -409,6 +459,12 @@ InstanceMap* MapInstanced::CreateInstance(uint32 InstanceId, InstanceSave* save,
     // load/create a map
     std::lock_guard<std::recursive_mutex> _lock(m_lock);
 
+    // two players teleporting from two maps may both have missed it: the second one joins the first one's map
+    auto existing = m_InstancedMaps.find(InstanceId);
+    if (existing != m_InstancedMaps.end())
+        if (InstanceMap* instance = existing->second->ToInstanceMap())
+            return instance;
+
     // make sure we have a valid map id
     const MapEntry* entry = sMapStore.LookupEntry(GetId());
     if (!entry)
@@ -445,6 +501,10 @@ GarrisonMap* MapInstanced::CreateGarrison(uint32 instanceId, Player* owner)
     // load/create a map
     std::lock_guard<std::recursive_mutex> _lock(m_lock);
 
+    auto existing = m_GarrisonedMaps.find(instanceId);
+    if (existing != m_GarrisonedMaps.end())
+        return static_cast<GarrisonMap*>(existing->second);
+
     GarrisonMap* map = new GarrisonMap(GetId(), GetGridExpiry(), instanceId, this, owner->GetGUID());
     ASSERT(map->IsGarrison());
     map->CreateInstanceData(nullptr);
@@ -468,14 +528,17 @@ Map* MapInstanced::CreateZoneForPlayer(const uint32 mapId, Player* player)
     return map;
 }
 
+// the lookup itself is locked: Create* insert from the threads of the players entering
 Map* MapInstanced::FindInstanceMap(uint32 instanceId) const
 {
+    std::lock_guard<std::recursive_mutex> guard(m_lock);
     InstancedMaps::const_iterator i = m_InstancedMaps.find(instanceId);
     return (i == m_InstancedMaps.end() ? nullptr : i->second);
 }
 
 Map* MapInstanced::FindGarrisonMap(uint32 instanceId) const
 {
+    std::lock_guard<std::recursive_mutex> guard(m_lock);
     InstancedMaps::const_iterator i = m_GarrisonedMaps.find(instanceId);
     return (i == m_GarrisonedMaps.end() ? nullptr : i->second);
 }
@@ -484,6 +547,12 @@ ZoneMap* MapInstanced::CreateZoneMap(uint32 zoneId, Player* player)
 {
     // load/create a map
     std::lock_guard<std::recursive_mutex> _lock(m_lock);
+
+    // two zone threads may enter the same zone at once: a second map would orphan the first and its update thread
+    auto existing = m_InstancedMaps.find(zoneId);
+    if (existing != m_InstancedMaps.end())
+        if (ZoneMap* zone = dynamic_cast<ZoneMap*>(existing->second))
+            return zone;
 
     ZoneMap* map = new ZoneMap(GetId(), GetGridExpiry(), zoneId, this, DIFFICULTY_NONE);
     map->LoadRespawnTimes();
@@ -514,26 +583,35 @@ BattlegroundMap* MapInstanced::CreateBattleground(uint32 InstanceId, Battlegroun
     return map;
 }
 
-// increments the iterator after erase
-bool MapInstanced::DestroyInstance(InstancedMaps::iterator &itr)
+// only called by this map's own thread
+bool MapInstanced::DestroyInstance(uint32 instanceId, Map* uMap)
 {
-    Map* uMap = itr->second;
     if (!uMap)
-    {
-        ++itr;
         return false;
-    }
 
     uMap->RemoveAllPlayers();
     if (uMap->HavePlayers())
-    {
-        ++itr;
         return false;
+
+    // a reset requested since the last update is applied now (no player left), before UnloadAll which acts on it
+    if (InstanceMap* instance = uMap->ToInstanceMap())
+    {
+        uint32 pendingResets = instance->TakePendingResets();
+        for (uint8 method = INSTANCE_RESET_ALL; method <= INSTANCE_RESET_RESPAWN_DELAY; ++method)
+            if (pendingResets & (1u << method))
+                instance->Reset(method);
     }
 
     uMap->UnloadAll();
+
+    size_t instanceCount;
+    {
+        std::lock_guard<std::recursive_mutex> guard(m_lock);
+        instanceCount = m_InstancedMaps.size();
+    }
+
     // should only unload VMaps if this is the last instance and grid unloading is enabled
-    if (m_InstancedMaps.size() <= 1 && CanUnloadMap())
+    if (instanceCount <= 1 && CanUnloadMap())
     {
         VMAP::VMapFactory::createOrGetVMapManager()->unloadMap(uMap->GetId());
         MMAP::MMapFactory::createOrGetMMapManager()->unloadMap(uMap->GetId());
@@ -546,27 +624,41 @@ bool MapInstanced::DestroyInstance(InstancedMaps::iterator &itr)
 
     sWorldStateMgr.DeleteInstanceState(uMap->GetInstanceId());
 
-    // erase map
-    delete itr->second;
-    m_InstancedMaps.erase(itr++);
+    // erased under m_lock before the delete: ForEachInstancedMap / RequestInstanceReset never see a freed map
+    {
+        std::lock_guard<std::recursive_mutex> guard(m_lock);
+        auto itr = m_InstancedMaps.find(instanceId);
+        if (itr != m_InstancedMaps.end() && itr->second == uMap)
+            m_InstancedMaps.erase(itr);
+    }
+
+    // a reset requested after UnloadAll, up to the erasure, leaves with the map: keep its database part
+    if (InstanceMap* instance = uMap->ToInstanceMap())
+        if (instance->TakePendingResets())
+            DeleteRespawnTimesInDB(GetId(), instanceId);
+
+    delete uMap;
 
     return true;
 }
 
-// increments the iterator after erase
-bool MapInstanced::DestroyGarrison(InstancedMaps::iterator &itr)
+// only called by this map's own thread
+bool MapInstanced::DestroyGarrison(uint32 instanceId, Map* uMap)
 {
-    Map* uMap = itr->second;
     uMap->RemoveAllPlayers();
     if (uMap->HavePlayers())
-    {
-        ++itr;
         return false;
-    }
 
     uMap->UnloadAll();
+
+    size_t garrisonCount;
+    {
+        std::lock_guard<std::recursive_mutex> guard(m_lock);
+        garrisonCount = m_GarrisonedMaps.size();
+    }
+
     // should only unload VMaps if this is the last instance and grid unloading is enabled
-    if (m_GarrisonedMaps.size() <= 1 && CanUnloadMap())
+    if (garrisonCount <= 1 && CanUnloadMap())
     {
         VMAP::VMapFactory::createOrGetVMapManager()->unloadMap(uMap->GetId());
         MMAP::MMapFactory::createOrGetMMapManager()->unloadMap(uMap->GetId());
@@ -577,9 +669,14 @@ bool MapInstanced::DestroyGarrison(InstancedMaps::iterator &itr)
 
     sWorldStateMgr.DeleteInstanceState(uMap->GetInstanceId());
 
-    // erase map
-    delete itr->second;
-    m_GarrisonedMaps.erase(itr++);
+    {
+        std::lock_guard<std::recursive_mutex> guard(m_lock);
+        auto itr = m_GarrisonedMaps.find(instanceId);
+        if (itr != m_GarrisonedMaps.end() && itr->second == uMap)
+            m_GarrisonedMaps.erase(itr);
+    }
+
+    delete uMap;
 
     return true;
 }

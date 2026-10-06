@@ -22,6 +22,9 @@
 #include "Map.h"
 #include "InstanceSaveMgr.h"
 #include "DBCEnums.h"
+#include <functional>
+#include <mutex>
+#include <vector>
 
 class GarrisonMap;
 
@@ -48,16 +51,30 @@ class MapInstanced : public Map
 
         Map* CreateInstanceForPlayer(const uint32 mapId, Player* player);
         Map* CreateZoneForPlayer(const uint32 mapId, Player* player);
+        // the pointer is only safe in this map's own thread (instances are destroyed there): other threads use the
+        // locked helpers below, which never let a Map* out
         Map* FindInstanceMap(uint32 instanceId) const;
         Map* FindGarrisonMap(uint32 instanceId) const;
 
-        bool DestroyInstance(InstancedMaps::iterator &itr);
-        bool DestroyGarrison(InstancedMaps::iterator &itr);
+        bool DestroyInstance(uint32 instanceId, Map* uMap);
+        bool DestroyGarrison(uint32 instanceId, Map* uMap);
 
         void AddGridMapReference(const GridCoord& p);
         void RemoveGridMapReference(GridCoord const& p);
 
+        // Only for this map's own thread (or shutdown): other threads insert instances meanwhile, use ForEachInstancedMap
         InstancedMaps &GetInstancedMaps() { return m_InstancedMaps; }
+        // fn runs under m_lock, so no instance is destroyed meanwhile; it must only read or flag the map (no lock,
+        // packet, DB or teleport): Create* hold m_lock while they load a new instance
+        void ForEachInstancedMap(std::function<void(Map*)> const& fn) const;
+        // hands a reset to the instance's own thread; false when that instance is not loaded. hadPlayers: whether
+        // players were inside when it was requested (what InstanceMap::Reset returns). Same lookup as MapManager::FindMap.
+        bool RequestInstanceReset(uint32 instanceId, uint8 method, bool* hadPlayers = nullptr);
+        bool InstanceHavePlayers(uint32 instanceId) const;
+        // Same lookup, the map kept alive by m_lock while used; true when the instance is not loaded. The check and the
+        // broadcast still read the instance's player list from the caller's thread: safe from the instance's own thread.
+        bool CanEnterInstance(uint32 instanceId, Player* player);
+        bool SendToInstancePlayers(uint32 instanceId, WorldPacket const* data) const;
         void InitVisibilityDistance() override;
 
         void TerminateThread();
@@ -74,7 +91,16 @@ class MapInstanced : public Map
         BattlegroundMap* CreateBattleground(uint32 InstanceId, Battleground* bg);
         ZoneMap* CreateZoneMap(uint32 zoneId, Player* player);
 
-        std::recursive_mutex m_lock;
+        // m_lock held
+        Map* _FindInstance(uint32 instanceId) const;
+
+        typedef std::vector<std::pair<uint32, Map*>> MapSnapshot;
+        // this map's own thread iterates a copy: other threads insert under m_lock, only this thread erases
+        MapSnapshot _Snapshot(InstancedMaps const& maps) const;
+
+        // guards insertion, lookup and erasure in m_InstancedMaps / m_GarrisonedMaps. Leaf for the save and group locks:
+        // InstanceSave::_playerListLock -> m_lock (UnloadIfEmpty), never the reverse; Create* hold it while loading.
+        mutable std::recursive_mutex m_lock;
 
         uint16 GridMapReference[MAX_NUMBER_OF_GRIDS][MAX_NUMBER_OF_GRIDS];
 };

@@ -1099,6 +1099,16 @@ void Creature::Update(uint32 diff)
                 {
                     if (Group* group = sGroupMgr->GetGroupByGUID(lootingGroupLowGUID))
                         group->EndRoll(&loot);
+                    else
+                    {
+                        // the group was disbanded with its rolls: the items they blocked become lootable again
+                        for (LootItem& item : loot.items)
+                            if (!item.is_looted)
+                                item.is_blocked = false;
+                        for (LootItem& item : loot.quest_items)
+                            if (!item.is_looted)
+                                item.is_blocked = false;
+                    }
 
                     m_groupLootTimer = 0;
                     lootingGroupLowGUID.Clear();

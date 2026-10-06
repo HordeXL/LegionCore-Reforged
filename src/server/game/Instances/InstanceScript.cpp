@@ -62,7 +62,6 @@ InstanceScript::InstanceScript(InstanceMap* map) : initDamageManager(false), _ma
     scenarioStep = 0;
     _challenge = nullptr;
     _inCombatResCount = 0;
-    _challengeChestGuids.assign(3, ObjectGuid::Empty);
     _challengeDoorGuids.clear();
     m_DisabledMask = 0;
     _logData = {};
@@ -78,8 +77,6 @@ InstanceScript::~InstanceScript()
     }
 }
 
-void InstanceScript::DestroyInstance() {}
-
 void InstanceScript::CreateInstance()
 {
     initDamageManager = false;
@@ -91,17 +88,20 @@ void InstanceScript::SaveToDB()
     if (data.empty())
         return;
 
-    if (InstanceSave* save = sInstanceSaveMgr->GetInstanceSave(instance->GetInstanceId()))
-    {
-        save->SetData(data);
-        save->SetCompletedEncountersMask(GetCompletedEncounterMask());
+    InstanceSave* save = sInstanceSaveMgr->GetInstanceSave(instance->GetInstanceId());
+    if (!save)
+        return;
 
-        for (auto itr = save->m_groupList.begin(); itr != save->m_groupList.end(); ++itr)
-            (*itr)->UpdateInstance(save);
+    // every bind row is rewritten below, so skip the calls that change nothing
+    uint32 completedMask = GetCompletedEncounterMask();
+    if (save->GetData() == data && save->GetCompletedEncounterMask() == completedMask)
+        return;
 
-        for (auto itr = save->m_playerList.begin(); itr != save->m_playerList.end(); ++itr)
-            (*itr)->UpdateInstance(save);
-    }
+    save->SetData(data);
+    save->SetCompletedEncountersMask(completedMask);
+
+    // binds are added and removed from other map threads: the rows are written from ids taken under the list locks
+    save->SaveBindsToDB();
 }
 
 void InstanceScript::HandleGameObject(ObjectGuid GUID, bool open, GameObject* go)
@@ -303,31 +303,15 @@ bool InstanceScript::SetBossState(uint32 id, EncounterState state)
                 break;
             case DONE:
             {
-                ResetCombatResurrection();
-                DoRemovePlayeresCooldownAndDebuff(false);
-
+                // the kill is refused while a world boss minion lives: nothing may change before this
                 for (auto i : bossInfo->minion)
                     if (i->isWorldBoss() && i->IsAlive())
                         return false;
 
-                for (auto const& s : instance->GetPlayers())
-                {
-                    if (auto player = s.getSource())
-                    {
-                        if (!player->GetGroup() || !player->GetMap()|| !player->GetGroup()->IsGuildGroup(player->GetGuildGUID(), true, true))
-                            continue;
+                ResetCombatResurrection();
+                DoRemovePlayeresCooldownAndDebuff(false);
 
-                        if (auto guild = player->GetGuild())
-                        {
-                            if (instance->IsRaid())
-                                guild->CompleteGuildChallenge(ChallengeRaid);
-                                //else if (instance->isChallenge()) @TODO
-                                //    guild->CompleteGuildChallenge(ChallengeDungeonChallenge);
-                            else if (instance->IsDungeon() && !instance->IsEventScenario())
-                                guild->CompleteGuildChallenge(ChallengeDungeon);
-                        }
-                    }
-                }
+                // guild challenges (CompleteGuildChallenge) do not exist in 7.3.5
 
                 dungeonEncounter = bossInfo->GetDungeonEncounterForDifficulty(instance->GetDifficultyID());
                 if (dungeonEncounter)
@@ -668,11 +652,15 @@ void InstanceScript::DoRemovePlayeresCooldownAndDebuff(bool wipe)
                     player->RemoveSpellCooldown(itr->first, true);
         }
 
-        auto& Auras = player->GetAppliedAuras();
-        for (auto itr = Auras.begin(); itr != Auras.end(); ++itr)
-            if (auto aura = itr->second->GetBase()->GetSpellInfo())
-                if (aura->GetMisc()->MiscData.Attributes[0] & (SPELL_ATTR0_UNAFFECTED_BY_INVULNERABILITY | SPELL_ATTR0_DEBUFF) && aura->HasAttribute(SPELL_ATTR5_UNK2) || (wipe && aura->HasAttribute(SPELL_ATTR10_UNK13)))
-                    player->RemoveAura(itr);
+        // removing an aura can remove others (linked auras, procs): collect first, then remove
+        std::set<uint32> spellIds;
+        for (auto const& itr : player->GetAppliedAuras())
+            if (auto aura = itr.second->GetBase()->GetSpellInfo())
+                if (((aura->GetMisc()->MiscData.Attributes[0] & (SPELL_ATTR0_UNAFFECTED_BY_INVULNERABILITY | SPELL_ATTR0_DEBUFF)) && aura->HasAttribute(SPELL_ATTR5_UNK2)) || (wipe && aura->HasAttribute(SPELL_ATTR10_UNK13)))
+                    spellIds.insert(itr.first);
+
+        for (uint32 spellId : spellIds)
+            player->RemoveAurasDueToSpell(spellId);
     });
 }
 
@@ -720,9 +708,10 @@ bool InstanceScript::CheckAchievementCriteriaMeet(uint32 criteria_id, Player con
     return false;
 }
 
-bool InstanceScript::CheckRequiredBosses(uint32 /*bossId*/, uint32 entry, Player const* /*player*/) const
+bool InstanceScript::CheckRequiredBosses(uint32 bossId, uint32 entry, Player const* /*player*/) const
 {
-    if (m_DisabledMask & (1 << entry))
+    // SetDisabledBosses builds the mask from boss ids, not creature entries
+    if (bossId < 32 && (m_DisabledMask & (1u << bossId)))
         return false;
 
     if (auto aiinstdata = sObjectMgr->GetCreatureAIInstaceData(entry))
@@ -796,7 +785,7 @@ void InstanceScript::SendEncounterUnit(uint32 type, Unit* unit /*= nullptr*/, ui
 //                if (param2)
 //                    instance->SendToPlayers(WorldPackets::Instance::BossKillCredit(encounterId).Write());
 
-                LogCompletedEncounter(true);
+                LogCompletedEncounter(end.Success);
             }
 
             instance->SendToPlayers(WorldPackets::Instance::NullSmsg(SMSG_INSTANCE_ENCOUNTER_END).Write());
@@ -898,29 +887,8 @@ bool InstanceScript::IsWipe() const
 
 void InstanceScript::UpdatePhasing()
 {
-    if (!instance)
-        return;
-
-    int8 step = -1;
     if (instance)
-        if (uint32 instanceId = instance->GetInstanceId())
-            if (Scenario* progress = sScenarioMgr->GetScenario(instanceId))
-                step = progress->GetCurrentStep();
-
-    instance->ApplyOnEveryPlayer([&](Player* player)
-    {
-        if (player->CanContact())
-        {
-            player->AddDelayedEvent(100, [player, step]() -> void
-            {
-                PhaseUpdateData phaseUdateData;
-                phaseUdateData.AddConditionType(CONDITION_INSTANCE_INFO);
-                if (step >= 0)
-                    phaseUdateData.AddScenarioUpdate(step);
-                player->GetPhaseMgr().NotifyConditionChanged(phaseUdateData);
-            });
-        }
-    });
+        instance->UpdatePhasing();
 }
 
 void InstanceScript::SetBossNumber(uint32 number)
@@ -1070,7 +1038,14 @@ void InstanceScript::AddObject(Creature* obj, bool add)
     if (j != _creatureInfo.end())
         AddObject(obj, j->second, add);
 
-    _creatureData[obj->GetEntry()] = obj->GetGUID();
+    if (add)
+        _creatureData[obj->GetEntry()] = obj->GetGUID();
+    else
+    {
+        auto i = _creatureData.find(obj->GetEntry());
+        if (i != _creatureData.end() && i->second == obj->GetGUID())
+            _creatureData.erase(i);
+    }
 }
 
 void InstanceScript::AddObject(GameObject* obj, bool add)
@@ -1079,7 +1054,14 @@ void InstanceScript::AddObject(GameObject* obj, bool add)
     if (j != _gameObjectInfo.end())
         AddObject(obj, j->second, add);
 
-    _gameObjectData[obj->GetEntry()] = obj->GetGUID();
+    if (add)
+        _gameObjectData[obj->GetEntry()] = obj->GetGUID();
+    else
+    {
+        auto i = _gameObjectData.find(obj->GetEntry());
+        if (i != _gameObjectData.end() && i->second == obj->GetGUID())
+            _gameObjectData.erase(i);
+    }
 }
 
 void InstanceScript::AddObject(WorldObject* obj, uint32 type, bool add)
@@ -1116,16 +1098,6 @@ void InstanceScript::ResetChallengeMode()
     instance->m_respawnChallenge = GameTime::GetGameTime(); // For respawn all mobs
     RepopPlayersAtGraveyard();
     instance->SetSpawnMode(DIFFICULTY_MYTHIC_DUNGEON);
-}
-
-void InstanceScript::AddChallengeModeChests(ObjectGuid chestGuid, uint8 chestLevel)
-{
-    _challengeChestGuids[chestLevel] = chestGuid;
-}
-
-ObjectGuid InstanceScript::GetChellngeModeChests(uint8 chestLevel)
-{
-    return _challengeChestGuids[chestLevel];
 }
 
 void InstanceScript::AddChallengeModeDoor(ObjectGuid doorGuid)
@@ -1222,7 +1194,8 @@ void InstanceScript::ResetCombatResurrection()
 
 void InstanceScript::StartCombatResurrection()
 {
-    if (!instance->IsDungeon() || IsChallenge())
+    // shared charges exist only in raids and keystones (SetChallenge), as on retail 7.3.5
+    if (!instance->IsRaid() || IsChallenge())
         return;
 
     _inCombatResCount = 1;
@@ -1239,14 +1212,14 @@ void InstanceScript::StartCombatResurrection()
     value *= static_cast<float>(MINUTE) / 100.0f * static_cast<float>(IN_MILLISECONDS);
     timer += uint32(value);
 
-    _maxInCombatResCount = instance->IsRaid() ? 9 : 0;
+    _maxInCombatResCount = 9;
     _combatResChargeTime = timer;
     _nextCombatResChargeTime = timer;
 }
 
 bool InstanceScript::CanUseCombatResurrection() const
 {
-    if (!instance->IsDungeon())
+    if (!instance->IsRaid() && !IsChallenge())
         return true;
 
     if (!IsEncounterInProgress() && !IsChallenge())
@@ -1413,7 +1386,13 @@ void InstanceScript::LogCompletedEncounter(bool success)
     if (instance->IsLfr())
         return;
 
-    _logData.Encounter.emplace();
+    // the start data (encounter, difficulty, start time) come from StartEncounterLogging, which skips other expansions
+    if (!_logData.Encounter.has_value() || !_logData.Encounter->EncounterStarded)
+    {
+        _logData = {};
+        return;
+    }
+
     _logData.Encounter->CombatDuration = uint32(GameTime::GetGameTime()) - _logData.Encounter->StartTime;
     _logData.Encounter->EndTime = uint32(GameTime::GetGameTime());
     _logData.Encounter->Success = success;

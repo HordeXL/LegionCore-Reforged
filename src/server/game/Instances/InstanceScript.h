@@ -170,8 +170,6 @@ class TC_GAME_API InstanceScript : public ZoneScript
         // KEEPING THIS METHOD ONLY FOR BACKWARD COMPATIBILITY !!!
         virtual void Initialize() { }
 
-        // On delete InstanceScript
-        static void DestroyInstance();
         void CreateInstance();
 
         // On instance load, exactly ONE of these methods will ALWAYS be called:
@@ -348,13 +346,10 @@ class TC_GAME_API InstanceScript : public ZoneScript
         bool IsChallenge() const;
         void ResetChallengeMode();
 
-        void AddChallengeModeChests(ObjectGuid chestGuid, uint8 chestLevel);
-        ObjectGuid GetChellngeModeChests(uint8 chestLevel);
         void AddChallengeModeDoor(ObjectGuid doorGuid);
         void AddChallengeModeOrb(ObjectGuid orbGuid);
 
         std::vector<ObjectGuid> _challengeDoorGuids;
-        std::vector<ObjectGuid> _challengeChestGuids;
         ObjectGuid _challengeOrbGuid;
         ObjectGuid _challengeChest;
 
