@@ -294,8 +294,9 @@ void WorldSession::DoLootRelease(ObjectGuid lguid)
                     lootPesonal->AutoStoreItems(true);
 
                 sChallengeMgr->DeleteOploteLoot(player->GetGUID());
-                go->DestroyForPlayer(player);
-                go->UpdateObjectVisibility();
+                // as on retail the chest stays, closed and no longer usable: its model and state are per viewer
+                go->ForceValuesUpdateAtIndex(GAMEOBJECT_FIELD_DISPLAY_ID);
+                go->ForceValuesUpdateAtIndex(OBJECT_FIELD_DYNAMIC_FLAGS);
             }
             else if (go->GetGoType() == GAMEOBJECT_TYPE_FISHINGHOLE)
             {                                               // The fishing hole used once more
@@ -332,7 +333,11 @@ void WorldSession::DoLootRelease(ObjectGuid lguid)
                 go->UpdateObjectVisibility();
 
                 if (go->GetGoType() == GAMEOBJECT_TYPE_CHALLENGE_MODE_REWARD)
+                {
                     sChallengeMgr->DeleteOploteLoot(player->GetGUID());
+                    go->ForceValuesUpdateAtIndex(GAMEOBJECT_FIELD_DISPLAY_ID);
+                    go->ForceValuesUpdateAtIndex(OBJECT_FIELD_DYNAMIC_FLAGS);
+                }
             }
             else
             {

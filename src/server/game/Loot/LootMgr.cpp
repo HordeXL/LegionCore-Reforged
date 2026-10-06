@@ -3303,8 +3303,14 @@ void LootTemplate::ProcessOploteChest(Loot& loot) const
         loot.AddItem(item);
     }
 
-    LootStoreItem item = LootStoreItem(sWorld->getIntConfig(CONFIG_CHALLENGE_ADD_ITEM) > 0 ? sWorld->getIntConfig(CONFIG_CHALLENGE_ADD_ITEM) : 0, sWorld->getIntConfig(CONFIG_CHALLENGE_ADD_ITEM) < 0 ? sWorld->getIntConfig(CONFIG_CHALLENGE_ADD_ITEM) * -1 : 0, 0, 0.0f, false, 0, 0, sWorld->getIntConfig(CONFIG_CHALLENGE_ADD_ITEM_COUNT), sWorld->getIntConfig(CONFIG_CHALLENGE_ADD_ITEM_COUNT));
-    loot.AddItem(item);
+    // Challenge.AddItemType 1: Challenge.AddItem is a currency (1533, Wakening Essence, by default). The config is
+    // unsigned, the old sign test never matched: a non-existent item 1533 was put in the chest and auto loot failed on it.
+    if (uint32 addId = sWorld->getIntConfig(CONFIG_CHALLENGE_ADD_ITEM))
+    {
+        bool const addCurrency = sWorld->getIntConfig(CONFIG_CHALLENGE_ADD_ITEM_TYPE) == 1;
+        uint32 const addCount = sWorld->getIntConfig(CONFIG_CHALLENGE_ADD_ITEM_COUNT);
+        loot.AddItem(LootStoreItem(addCurrency ? 0 : addId, addCurrency ? addId : 0, 0, 0.0f, false, 0, 0, addCount, addCount));
+    }
 
     for (LootStoreItemList::const_iterator i = OtherPossibleDrops.begin(); i != OtherPossibleDrops.end(); ++i)
     {
