@@ -50,6 +50,9 @@
 #include "SystemPackets.h"
 #include "TokenPackets.h"
 #include "WorldStateMgr.h"
+#include <mutex>
+#include <unordered_map>
+#include <unordered_set>
 
 void WorldSession::HandleCharEnum(PreparedQueryResult result, bool isDeleted)
 {
@@ -590,7 +593,7 @@ void WorldSession::HandleCharDeleteOpcode(WorldPackets::Character::DeleteChar& c
             sLog->outCharDump(dump.c_str(), GetAccountId(), charDelete.Guid.GetCounter(), name.c_str());
     }
 
-    sGuildFinderMgr->RemoveMembershipRequest(charDelete.Guid, ObjectGuid::Create<HighGuid::Guild>(guildId));
+    sGuildFinderMgr->RemoveAllMembershipRequestsFromPlayer(charDelete.Guid);
     Player::DeleteFromDB(charDelete.Guid, GetAccountId());
     sWorld->DeleteCharName(name);
 
@@ -641,6 +644,10 @@ void WorldSession::HandleLoadScreenOpcode(WorldPackets::Character::LoadingScreen
     {
         if (auto player = GetPlayer())
         {
+            // The counter only guards against floods: a login that reached the world no longer counts.
+            if (!m_playerLoading.IsEmpty())
+                playerLoginCounter = 0;
+
             player->SendInitialPacketsAfterAddToMap(true);
             player->CastPendingCreateSpells();
         }
@@ -1191,7 +1198,7 @@ void WorldSession::HandleCharacterRenameRequest(WorldPackets::Character::Charact
     const CharacterInfo* nameData = sWorld->GetCharacterInfo(packet.RenameInfo->Guid);
     const CharacterInfo* newNameData = sWorld->GetCharacterInfo(packet.RenameInfo->NewName);
 
-    if (newNameData || !nameData)
+    if (newNameData || !nameData || nameData->AccountId != GetAccountId())
     {
         WorldPackets::Character::CharacterRenameResult result;
         result.Result = CHAR_NAME_NO_NAME;
@@ -1200,40 +1207,60 @@ void WorldSession::HandleCharacterRenameRequest(WorldPackets::Character::Charact
         return;
     }
 
-    ObjectGuid::LowType guidLow = packet.RenameInfo->Guid.GetCounter();
-    std::string oldName = nameData->Name;
+    // The cache knows neither at_login nor characters not loaded yet: the database decides (owner, rename flag, free name).
+    auto renameInfo = packet.RenameInfo;
+    CharacterDatabasePreparedStatement* stmt = CharacterDatabase.GetPreparedStatement(CHAR_SEL_FREE_NAME);
+    stmt->setUInt64(0, renameInfo->Guid.GetCounter());
+    stmt->setUInt32(1, GetAccountId());
+    stmt->setUInt16(2, AT_LOGIN_RENAME);
+    stmt->setUInt16(3, AT_LOGIN_RENAME);
+    stmt->setString(4, renameInfo->NewName);
 
-    ObjectGuid guid = packet.RenameInfo->Guid;
+    _queryProcessor.AddCallback(CharacterDatabase.AsyncQuery(stmt).WithPreparedCallback([this, renameInfo](PreparedQueryResult result)
+    {
+        if (!result)
+        {
+            WorldPackets::Character::CharacterRenameResult failed;
+            failed.Result = CHAR_NAME_NO_NAME;
+            failed.Name = renameInfo->NewName;
+            failed.Guid = renameInfo->Guid;
+            SendPacket(failed.Write());
+            return;
+        }
 
-    // Update name and at_login flag in the db
-    CharacterDatabasePreparedStatement* stmt = CharacterDatabase.GetPreparedStatement(CHAR_UPD_NAME);
+        ObjectGuid::LowType guidLow = renameInfo->Guid.GetCounter();
+        std::string oldName = result->Fetch()[1].GetString();
 
-    stmt->setString(0, packet.RenameInfo->NewName);
-    stmt->setUInt16(1, AT_LOGIN_RENAME);
-    stmt->setUInt64(2, guidLow);
+        // Update name and at_login flag in the db
+        CharacterDatabasePreparedStatement* updStmt = CharacterDatabase.GetPreparedStatement(CHAR_UPD_NAME);
 
-    CharacterDatabase.Execute(stmt);
+        updStmt->setString(0, renameInfo->NewName);
+        updStmt->setUInt16(1, AT_LOGIN_RENAME);
+        updStmt->setUInt64(2, guidLow);
 
-    // Removed declined name from db
-    stmt = CharacterDatabase.GetPreparedStatement(CHAR_DEL_CHAR_DECLINED_NAME);
-    stmt->setUInt64(0, guidLow);
-    CharacterDatabase.Execute(stmt);
+        CharacterDatabase.Execute(updStmt);
 
-    // Logging
-    stmt = CharacterDatabase.GetPreparedStatement(CHAR_UPD_NAME_LOG);
+        // Removed declined name from db
+        updStmt = CharacterDatabase.GetPreparedStatement(CHAR_DEL_CHAR_DECLINED_NAME);
+        updStmt->setUInt64(0, guidLow);
+        CharacterDatabase.Execute(updStmt);
 
-    stmt->setUInt64(0, guidLow);
-    stmt->setString(1, oldName);
-    stmt->setString(2, packet.RenameInfo->NewName);
+        // Logging
+        updStmt = CharacterDatabase.GetPreparedStatement(CHAR_UPD_NAME_LOG);
 
-    CharacterDatabase.Execute(stmt);
+        updStmt->setUInt64(0, guidLow);
+        updStmt->setString(1, oldName);
+        updStmt->setString(2, renameInfo->NewName);
 
-    WorldPackets::Character::CharacterRenameResult packetResult;
-    packetResult.Result = RESPONSE_SUCCESS;
-    packetResult.Name = packet.RenameInfo->NewName;
-    packetResult.Guid = guid;
-    SendPacket(packetResult.Write());
-    sWorld->UpdateCharacterInfo(guid, packet.RenameInfo->NewName);
+        CharacterDatabase.Execute(updStmt);
+
+        WorldPackets::Character::CharacterRenameResult packetResult;
+        packetResult.Result = RESPONSE_SUCCESS;
+        packetResult.Name = renameInfo->NewName;
+        packetResult.Guid = renameInfo->Guid;
+        SendPacket(packetResult.Write());
+        sWorld->UpdateCharacterInfo(renameInfo->Guid, renameInfo->NewName);
+    }));
 }
 
 void WorldSession::HandleSetPlayerDeclinedNames(WorldPackets::Character::SetPlayerDeclinedNames& packet)
@@ -1241,6 +1268,13 @@ void WorldSession::HandleSetPlayerDeclinedNames(WorldPackets::Character::SetPlay
     if (!sWorld->getBoolConfig(CONFIG_DECLINED_NAMES_USED))
     {
         SendSetPlayerDeclinedNamesResult(DECLINED_NAMES_RESULT_SUCCESS, packet.Player);
+        return;
+    }
+
+    CharacterInfo const* charInfo = sWorld->GetCharacterInfo(packet.Player);
+    if (!charInfo || charInfo->AccountId != GetAccountId())
+    {
+        SendSetPlayerDeclinedNamesResult(DECLINED_NAMES_RESULT_ERROR, packet.Player);
         return;
     }
 
@@ -1379,6 +1413,16 @@ void WorldSession::HandleAlterAppearance(WorldPackets::Character::AlterApperance
 
 void WorldSession::HandleCharCustomize(WorldPackets::Character::CharCustomize& packet)
 {
+    CharacterInfo const* charInfo = sWorld->GetCharacterInfo(packet.CustomizeInfo->CharGUID);
+    if (!charInfo || charInfo->AccountId != GetAccountId())
+    {
+        WorldPackets::Character::CharCustomizeFailed failed;
+        failed.Result = CHAR_CREATE_ERROR;
+        failed.CharGUID = packet.CustomizeInfo->CharGUID;
+        SendPacket(failed.Write());
+        return;
+    }
+
     auto stmt = CharacterDatabase.GetPreparedStatement(CHAR_SEL_CHAR_CUSTOMIZE_INFO);
     stmt->setUInt64(0, packet.CustomizeInfo->CharGUID.GetCounter());
     _queryProcessor.AddCallback(CharacterDatabase.AsyncQuery(stmt).WithPreparedCallback(std::bind(&WorldSession::HandleCharCustomizeCallback, this, packet.CustomizeInfo, std::placeholders::_1)));
@@ -1509,6 +1553,13 @@ void WorldSession::HandleCharRaceOrFactionChange(WorldPackets::Character::CharRa
     auto info = packet.RaceOrFactionChangeInfo.get();
     auto lowGuid = info->Guid.GetCounter();
 
+    CharacterInfo const* charInfo = sWorld->GetCharacterInfo(info->Guid);
+    if (!charInfo || charInfo->AccountId != GetAccountId())
+    {
+        SendCharFactionChange(CHAR_CREATE_ERROR, info);
+        return;
+    }
+
     auto stmt = CharacterDatabase.GetPreparedStatement(CHAR_SEL_CHAR_CLASS_LVL_AT_LOGIN);
     stmt->setUInt64(0, lowGuid);
     auto result = CharacterDatabase.Query(stmt);
@@ -1568,6 +1619,26 @@ void WorldSession::HandleCharRaceOrFactionChange(WorldPackets::Character::CharRa
     if (!(at_loginFlags & used_loginFlag))
     {
         SendCharFactionChange(CHAR_CREATE_ERROR, info);
+        return;
+    }
+
+    // A race change keeps the faction and a faction change must cross it: the cleanup below only runs for the latter.
+    if (info->FactionChange == (Player::TeamForRace(oldRace) == Player::TeamForRace(info->RaceID)))
+    {
+        SendCharFactionChange(info->FactionChange ? CHAR_CREATE_CHARACTER_SWAP_FACTION : CHAR_CREATE_CHARACTER_RACE_ONLY, info);
+        return;
+    }
+
+    RaceUnlockRequirement const* raceExpansionRequirement = sObjectMgr->GetRaceUnlockRequirement(info->RaceID);
+    if (!raceExpansionRequirement)
+    {
+        SendCharFactionChange(CHAR_CREATE_ERROR, info);
+        return;
+    }
+
+    if (raceExpansionRequirement->Expansion > GetAccountExpansion())
+    {
+        SendCharFactionChange(CHAR_CREATE_EXPANSION, info);
         return;
     }
 
@@ -2261,6 +2332,38 @@ void WorldSession::HandleSetSavedInstanceExtend(WorldPackets::Calendar::SetSaved
     _player->UpdateInstance(instanceSave);
 }
 
+namespace
+{
+    // The cooldown is read before it is written: parallel requests of one account would all pass it.
+    std::mutex UndeletePendingLock;
+    std::unordered_set<uint32> UndeletePendingAccounts;
+
+    struct UndeletePendingGuard
+    {
+        explicit UndeletePendingGuard(uint32 accountId) : AccountId(accountId) { }
+        ~UndeletePendingGuard()
+        {
+            std::lock_guard<std::mutex> lock(UndeletePendingLock);
+            UndeletePendingAccounts.erase(AccountId);
+        }
+
+        uint32 AccountId;
+    };
+
+    // LastCharacterUndelete is stored on every character of the account; characters created later keep 0.
+    uint32 GetLastCharacterUndelete(PreparedQueryResult const& result)
+    {
+        uint32 lastUndelete = 0;
+        if (result)
+        {
+            do
+                lastUndelete = std::max(lastUndelete, result->Fetch()[0].GetUInt32());
+            while (result->NextRow());
+        }
+        return lastUndelete;
+    }
+}
+
 void WorldSession::HandleUndeleteCharacter(WorldPackets::Character::UndeleteCharacter& packet)
 {
     auto SendUndeleteCharacterResponse = [this](CharacterUndeleteResult result, WorldPackets::Character::CharacterUndeleteInfo const* undeleteInfo) -> void
@@ -2271,19 +2374,32 @@ void WorldSession::HandleUndeleteCharacter(WorldPackets::Character::UndeleteChar
         SendPacket(response.Write());
     };
 
+    auto undeleteInfo = packet.UndeleteInfo;
+
+    {
+        std::lock_guard<std::mutex> lock(UndeletePendingLock);
+        if (!UndeletePendingAccounts.insert(GetAccountId()).second)
+        {
+            SendUndeleteCharacterResponse(CHARACTER_UNDELETE_RESULT_ERROR_COOLDOWN, undeleteInfo.get());
+            return;
+        }
+    }
+
+    // Released when the query chain ends or is dropped with the session.
+    auto pendingGuard = std::make_shared<UndeletePendingGuard>(GetAccountId());
+
     // BattlePay bypass: if the player purchased a restoration, skip the cooldown
     bool hasBattlePayBypass = HasAuthFlag(AT_AUTH_FLAG_RESTORE_DELETED_CHARACTER);
 
     auto stmt = CharacterDatabase.GetPreparedStatement(CHAR_SEL_LAST_CHAR_UNDELETE);
     stmt->setUInt32(0, GetAccountId());
 
-    auto undeleteInfo = packet.UndeleteInfo;
     _queryProcessor.AddCallback(CharacterDatabase.AsyncQuery(stmt).WithChainingPreparedCallback([undeleteInfo, SendUndeleteCharacterResponse, hasBattlePayBypass](QueryCallback& queryCallback, PreparedQueryResult result)
     {
         // Skip cooldown check if player has a BattlePay bypass
-        if (!hasBattlePayBypass && result)
+        if (!hasBattlePayBypass)
         {
-            auto lastUndelete = result->Fetch()[0].GetUInt32();
+            auto lastUndelete = GetLastCharacterUndelete(result);
             if (lastUndelete && (lastUndelete + uint32(6 * MONTH) > GameTime::GetGameTime()))
             {
                 SendUndeleteCharacterResponse(CHARACTER_UNDELETE_RESULT_ERROR_COOLDOWN, undeleteInfo.get());
@@ -2324,7 +2440,7 @@ void WorldSession::HandleUndeleteCharacter(WorldPackets::Character::UndeleteChar
         auto stmt = CharacterDatabase.GetPreparedStatement(CHAR_SEL_SUM_CHARS);
         stmt->setUInt32(0, GetAccountId());
         queryCallback.SetNextQuery(CharacterDatabase.AsyncQuery(stmt));
-    }).WithPreparedCallback([this, undeleteInfo, SendUndeleteCharacterResponse, hasBattlePayBypass](PreparedQueryResult result)
+    }).WithPreparedCallback([this, undeleteInfo, SendUndeleteCharacterResponse, hasBattlePayBypass, pendingGuard](PreparedQueryResult result)
     {
         if (result)
         {
@@ -2368,10 +2484,11 @@ void WorldSession::HandleUndeleteCooldownStatusCallback(PreparedQueryResult cons
     uint32 cooldown = 0;
     bool hasBattlePayBypass = HasAuthFlag(AT_AUTH_FLAG_RESTORE_DELETED_CHARACTER);
 
-    if (!hasBattlePayBypass && result)
+    uint32 lastUndelete = GetLastCharacterUndelete(result);
+    if (!hasBattlePayBypass && lastUndelete)
     {
         auto now = uint32(GameTime::GetGameTime());
-        auto undeleteTime = result->Fetch()[0].GetUInt32() + maxCooldown;
+        auto undeleteTime = lastUndelete + maxCooldown;
         if (undeleteTime > now)
             cooldown = std::max<uint32>(0, undeleteTime - now);
     }
@@ -2407,6 +2524,20 @@ void WorldSession::HandleEngineSurvey(WorldPackets::Character::EngineSurvey& pac
     if (_hwid == str_hash) // Not need update
         return;
 
+    // The client sends one survey per login; a client cycling its values would otherwise write the login database per packet.
+    // The first survey of a session always goes through, it is the one the HWID penalties are checked on.
+    if (_hwid)
+    {
+        static std::mutex lastSurveyLock;
+        static std::unordered_map<uint32, time_t> lastSurveyByAccount;
+        std::lock_guard<std::mutex> lock(lastSurveyLock);
+        time_t now = GameTime::GetGameTime();
+        time_t& lastSurvey = lastSurveyByAccount[GetAccountId()];
+        if (lastSurvey && now < lastSurvey + MINUTE)
+            return;
+        lastSurvey = now;
+    }
+
     _hwid = str_hash;
 
     LoginDatabase.PExecute("UPDATE account SET hwid = " UI64FMTD " WHERE id = %u;", _hwid, GetAccountId());
@@ -2414,8 +2545,13 @@ void WorldSession::HandleEngineSurvey(WorldPackets::Character::EngineSurvey& pac
     if (!_hwid)
         return;
 
-    if (auto result = LoginDatabase.PQuery("SELECT penalties, last_reason from hwid_penalties where hwid = " UI64FMTD, _hwid))
+    uint64 hwid = _hwid;
+    std::string query = Trinity::StringFormat("SELECT penalties, last_reason from hwid_penalties where hwid = " UI64FMTD, hwid);
+    _queryProcessor.AddCallback(LoginDatabase.AsyncQuery(query.c_str()).WithCallback([this, hwid](QueryResult result)
     {
+        if (!result || _hwid != hwid)
+            return;
+
         auto fields = result->Fetch();
         _countPenaltiesHwid = fields[0].GetInt32();
 
@@ -2431,5 +2567,5 @@ void WorldSession::HandleEngineSurvey(WorldPackets::Character::EngineSurvey& pac
             else if (sWorld->getBoolConfig(CONFIG_ANTI_FLOOD_HWID_KICK_ALLOW))
                 KickPlayer();
         }
-    }
+    }));
 }
