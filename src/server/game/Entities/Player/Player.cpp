@@ -26473,8 +26473,9 @@ void Player::ResetInstances(uint8 method, bool isRaid, bool isLegacy)
 
         if (method == INSTANCE_RESET_ALL)
         {
-            // the "reset all instances" method can only reset normal maps
-            if (entry->IsRaid() || diff == DIFFICULTY_HEROIC)
+            // "reset all instances" leaves raids and mythic dungeons alone: since Legion only those keep a lockout,
+            // normal and heroic dungeons reset freely (heroic was a daily lockout up to Wrath)
+            if (entry->IsRaid() || diff == DIFFICULTY_MYTHIC_DUNGEON || diff == DIFFICULTY_MYTHIC_KEYSTONE)
             {
                 ++itr;
                 continue;
