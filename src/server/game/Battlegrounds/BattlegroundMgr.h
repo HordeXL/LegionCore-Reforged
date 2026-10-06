@@ -23,6 +23,8 @@
 #include "BattlegroundQueue.h"
 #include "Common.h"
 #include "FunctionProcessor.h"
+#include <mutex>
+#include <shared_mutex>
 
 namespace WorldPackets
 {
@@ -166,8 +168,12 @@ public:
 
     BattlegroundQueue& GetBattlegroundQueue(uint8 bgQueueTypeId);
 
+    // Changed by the battlegrounds' map threads, walked by the world thread (BattlegroundQueueUpdate, on a copy).
+    // Terminal lock: nothing is called while it is held.
     std::list<Battleground*> BGFreeSlotQueue;
+    std::mutex& GetFreeSlotQueueLock() { return _freeSlotQueueLock; }
 
+    // Takes ownership of data; callable from any thread
     void ScheduleQueueUpdate(QueueSchedulerItem* data);
     uint32 GetMaxRatingDifference() const;
     uint32 GetRatingDiscardTimer()  const;
@@ -208,12 +214,17 @@ private:
     FunctionProcessor m_Functions;
     BattlegroundQueue _battlegroundQueues[MS::Battlegrounds::BattlegroundQueueTypeId::Max];
     std::map<uint32, std::list <ObjectGuid>> _spectatorData;
+    mutable std::mutex _spectatorLock;
+    std::mutex _freeSlotQueueLock;
+    // Written by the world thread only (Update, StartBattleground), read from map threads: leaf lock, nothing called under it
+    mutable std::shared_mutex _battlegroundsLock;
     std::map<uint32, Battleground*> _battlegrounds[MS::Battlegrounds::BattlegroundTypeId::Max];
     std::map<uint16, uint8> _selectionWeights[MS::Battlegrounds::IternalPvpTypes::Max];
     std::map<uint32, CreateBattlegroundData> _battlegroundData;
     std::unordered_map<uint8 /*Type*/, PvpReward> _pvpRewardsContainer;
     std::unordered_map<uint32, uint16> _battleMastersMap;
-    std::vector<QueueSchedulerItem*> _queueUpdateScheduler;
+    std::mutex _queueUpdateLock;
+    std::vector<QueueSchedulerItem> _queueUpdateScheduler;
     std::set<uint32> _clientBattlegroundIDs[MS::Battlegrounds::BattlegroundTypeId::Max][MS::Battlegrounds::MaxBrackets];
     std::unordered_map<uint8, BrawlData> _brawlTemplatesContainer;
     uint32 _nextRatedArenaUpdate;

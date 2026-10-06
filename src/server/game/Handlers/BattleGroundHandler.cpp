@@ -34,7 +34,7 @@ void WorldSession::HandleBattlemasterHello(WorldPackets::NPC::Hello& packet)
     if (!player)
         return;
 
-    Creature* unit = player->GetMap()->GetCreature(packet.Unit);
+    Creature* unit = player->GetNPCIfCanInteractWith(packet.Unit, UNIT_NPC_FLAG_BATTLEMASTER);
     if (!unit)
         return;
 
@@ -82,15 +82,19 @@ void WorldSession::HandleBattlemasterJoin(WorldPackets::Battleground::Join& pack
     if (player->InBattleground())
         return;
 
+    // Arenas, rated battlegrounds and brawls have their own join opcodes, with the checks this path lacks
+    uint8 bgQueueTypeId = MS::Battlegrounds::GetBgQueueTypeIdByBgTypeID(queueID);
+    bool const normalQueue = (bgQueueTypeId >= MS::Battlegrounds::BattlegroundQueueTypeId::BattlegroundAlteracValley && bgQueueTypeId <= MS::Battlegrounds::BattlegroundQueueTypeId::BattlegroundRandom);
+    if (!normalQueue || queueID == MS::Battlegrounds::BattlegroundTypeId::BattlegroundRatedEyeOfTheStorm)
+        return;
+
     Battleground* bg = sBattlegroundMgr->GetBattlegroundTemplate(queueID);
-    if (!bg)
+    if (!bg || bg->IsArena())
         return;
 
     PVPDifficultyEntry const* bracketEntry = sDB2Manager.GetBattlegroundBracketByLevel(bg->GetMapId(), player->getLevel());
     if (!bracketEntry)
         return;
-
-    uint8 bgQueueTypeId = MS::Battlegrounds::GetBgQueueTypeIdByBgTypeID(queueID);
 
     if (!packet.JoinAsGroup )
     {
@@ -138,12 +142,22 @@ void WorldSession::HandleBattlemasterJoin(WorldPackets::Battleground::Join& pack
         }
 
         BattlegroundQueue& bgQueue = sBattlegroundMgr->GetBattlegroundQueue(bgQueueTypeId);
-        GroupQueueInfo* ginfo = bgQueue.AddGroup(player, nullptr, queueID, bracketEntry, 0, false, false, packet.BlacklistMap);
+        uint32 joinTime = 0;
+        uint32 avgWaitTime = 0;
+        uint8 joinType = 0;
+        {
+            // the world thread may free the entry: read it under the queue lock
+            std::lock_guard<std::recursive_mutex> queueGuard(bgQueue.GetLock());
+            GroupQueueInfo* ginfo = bgQueue.AddGroup(player, nullptr, queueID, bracketEntry, 0, false, false, packet.BlacklistMap);
+            joinTime = ginfo->JoinTime;
+            joinType = ginfo->JoinType;
+            avgWaitTime = bgQueue.GetAverageQueueWaitTime(ginfo, bracketEntry->RangeIndex);
+        }
 
         player->SetQueueRoleMask(bracketEntry->RangeIndex, packet.RolesMask);
 
         WorldPackets::Battleground::BattlefieldStatusQueued queued;
-        sBattlegroundMgr->BuildBattlegroundStatusQueued(&queued, bg, player, player->AddBattlegroundQueueId(bgQueueTypeId), ginfo->JoinTime, bgQueue.GetAverageQueueWaitTime(ginfo, bracketEntry->RangeIndex), ginfo->JoinType, false);
+        sBattlegroundMgr->BuildBattlegroundStatusQueued(&queued, bg, player, player->AddBattlegroundQueueId(bgQueueTypeId), joinTime, avgWaitTime, joinType, false);
         SendPacket(queued.Write());
     }
     else
@@ -382,31 +396,30 @@ void WorldSession::HandleBattleFieldPort(WorldPackets::Battleground::Port& packe
     }
     else // leave queue
     {
-        if (Group * group = player->GetGroup()) // leave group of leaver too
+        // The leader takes out the members queued with him; anyone else leaves alone
+        Group* group = player->GetGroup();
+        if (group && group->GetLeaderGUID() == player->GetGUID())
         {
-            if (group->GetLeaderGUID() == player->GetGUID())
+            for (auto itr = group->GetFirstMember(); itr != nullptr; itr = itr->next())
             {
-                for (auto itr = group->GetFirstMember(); itr != nullptr; itr = itr->next())
-                {
-                    auto member = itr->getSource();
-                    if (!member)
-                        continue;
+                auto member = itr->getSource();
+                if (!member || !ginfo.Players.count(member->GetGUID()))
+                    continue;
 
-                    WorldPackets::Battleground::BattlefieldStatusNone none;
-                    sBattlegroundMgr->BuildBattlegroundStatusNone(&none, member, packet.Ticket.Id, member->GetBattlegroundQueueJoinTime(bgQueueTypeId));
-                    member->GetSession()->SendPacket(none.Write());
+                WorldPackets::Battleground::BattlefieldStatusNone none;
+                sBattlegroundMgr->BuildBattlegroundStatusNone(&none, member, packet.Ticket.Id, member->GetBattlegroundQueueJoinTime(bgQueueTypeId));
+                member->GetSession()->SendPacket(none.Write());
 
-                    WorldPackets::Battleground::BattlefieldStatusFailed failed;
-                    sBattlegroundMgr->BuildBattlegroundStatusFailed(&failed, bg, member, packet.Ticket.Id, MS::Battlegrounds::GroupJoinBattlegroundResult::ERR_LEAVE_QUEUE);
-                    member->GetSession()->SendPacket(failed.Write());
+                WorldPackets::Battleground::BattlefieldStatusFailed failed;
+                sBattlegroundMgr->BuildBattlegroundStatusFailed(&failed, bg, member, packet.Ticket.Id, MS::Battlegrounds::GroupJoinBattlegroundResult::ERR_LEAVE_QUEUE);
+                member->GetSession()->SendPacket(failed.Write());
 
-                    if (bg && bg->IsArena() && bg->IsRated() && bg->GetJoinType() != MS::Battlegrounds::JoinType::Arena1v1)
-                        if (bg->GetStatus() == STATUS_WAIT_JOIN || bg->GetStatus() == STATUS_IN_PROGRESS)
-                            member->SendOperationsAfterDelay(OAD_ARENA_DESERTER);
+                if (bg && bg->IsArena() && bg->IsRated() && bg->GetJoinType() != MS::Battlegrounds::JoinType::Arena1v1)
+                    if (bg->GetStatus() == STATUS_WAIT_JOIN || bg->GetStatus() == STATUS_IN_PROGRESS)
+                        member->SendOperationsAfterDelay(OAD_ARENA_DESERTER);
 
-                    member->RemoveBattlegroundQueueId(bgQueueTypeId);  // must be called this way, because if you move this call to queue->removeplayer, it causes bugs
-                    bgQueue.RemovePlayer(member->GetGUID(), true);
-                }
+                member->RemoveBattlegroundQueueId(bgQueueTypeId);  // must be called this way, because if you move this call to queue->removeplayer, it causes bugs
+                bgQueue.RemovePlayer(member->GetGUID(), true);
             }
         }
         else
@@ -568,9 +581,16 @@ void WorldSession::JoinBracket(uint8 bracketType, uint8 rolesMask /*= ROLES_DEFA
         }
 
         uint32 matchmakerRating = grp->GetAverageMMR(bracketType);
-        GroupQueueInfo* ginfo = bgQueue.AddGroup(player, grp, bgTypeId, bracketEntry, jointype, true, false, WorldPackets::Battleground::IgnorMapInfo(), matchmakerRating);
-        uint32 avgTime = bgQueue.GetAverageQueueWaitTime(ginfo, bracketEntry->RangeIndex);
-        uint32 joinTime = ginfo->JoinTime;
+        uint32 avgTime = 0;
+        uint32 joinTime = 0;
+        uint8 joinType = 0;
+        {
+            std::lock_guard<std::recursive_mutex> queueGuard(bgQueue.GetLock());
+            GroupQueueInfo* ginfo = bgQueue.AddGroup(player, grp, bgTypeId, bracketEntry, jointype, true, false, WorldPackets::Battleground::IgnorMapInfo(), matchmakerRating);
+            avgTime = bgQueue.GetAverageQueueWaitTime(ginfo, bracketEntry->RangeIndex);
+            joinTime = ginfo->JoinTime;
+            joinType = ginfo->JoinType;
+        }
 
         for (auto itr = grp->GetFirstMember(); itr != nullptr; itr = itr->next())
         {
@@ -579,7 +599,7 @@ void WorldSession::JoinBracket(uint8 bracketType, uint8 rolesMask /*= ROLES_DEFA
                 continue;
 
             WorldPackets::Battleground::BattlefieldStatusQueued queued;
-            sBattlegroundMgr->BuildBattlegroundStatusQueued(&queued, bg, member, member->AddBattlegroundQueueId(bgQueueTypeId), joinTime, avgTime, ginfo->JoinType, true);
+            sBattlegroundMgr->BuildBattlegroundStatusQueued(&queued, bg, member, member->AddBattlegroundQueueId(bgQueueTypeId), joinTime, avgTime, joinType, true);
             member->SendDirectMessage(queued.Write());
         }
 
@@ -642,10 +662,17 @@ void WorldSession::JoinBracket(uint8 bracketType, uint8 rolesMask /*= ROLES_DEFA
 
         player->SetQueueRoleMask(bracketEntry->RangeIndex, rolesMask);
 
-        auto ginfo = bgQueue.AddGroup(player, nullptr, bgTypeId, bracketEntry);
+        uint32 joinTime = 0;
+        uint32 avgWaitTime = 0;
+        {
+            std::lock_guard<std::recursive_mutex> queueGuard(bgQueue.GetLock());
+            auto ginfo = bgQueue.AddGroup(player, nullptr, bgTypeId, bracketEntry);
+            joinTime = ginfo->JoinTime;
+            avgWaitTime = bgQueue.GetAverageQueueWaitTime(ginfo, bracketEntry->RangeIndex);
+        }
 
         WorldPackets::Battleground::BattlefieldStatusQueued battlefieldStatus;
-        sBattlegroundMgr->BuildBattlegroundStatusQueued(&battlefieldStatus, bg, player, player->AddBattlegroundQueueId(bgQueueTypeId), ginfo->JoinTime, bgQueue.GetAverageQueueWaitTime(ginfo, bracketEntry->RangeIndex), 0, false);
+        sBattlegroundMgr->BuildBattlegroundStatusQueued(&battlefieldStatus, bg, player, player->AddBattlegroundQueueId(bgQueueTypeId), joinTime, avgWaitTime, 0, false);
         SendPacket(battlefieldStatus.Write());
     }
 
@@ -828,10 +855,17 @@ void WorldSession::HandleJoinSkirmish(WorldPackets::Battleground::JoinSkirmish& 
         player->SetQueueRoleMask(bracketEntry->RangeIndex, packet.RolesMask);
 
         BattlegroundQueue& bgQueue = sBattlegroundMgr->GetBattlegroundQueue(bgQueueTypeId);
-        GroupQueueInfo* ginfo = bgQueue.AddGroup(player, nullptr, bgTypeId, bracketEntry, jointype);
+        uint32 joinTime = 0;
+        uint32 avgWaitTime = 0;
+        {
+            std::lock_guard<std::recursive_mutex> queueGuard(bgQueue.GetLock());
+            GroupQueueInfo* ginfo = bgQueue.AddGroup(player, nullptr, bgTypeId, bracketEntry, jointype);
+            joinTime = ginfo->JoinTime;
+            avgWaitTime = bgQueue.GetAverageQueueWaitTime(ginfo, bracketEntry->RangeIndex);
+        }
 
         WorldPackets::Battleground::BattlefieldStatusQueued battlefieldStatus;
-        sBattlegroundMgr->BuildBattlegroundStatusQueued(&battlefieldStatus, bg, player, player->AddBattlegroundQueueId(bgQueueTypeId), ginfo->JoinTime, bgQueue.GetAverageQueueWaitTime(ginfo, bracketEntry->RangeIndex), jointype, false);
+        sBattlegroundMgr->BuildBattlegroundStatusQueued(&battlefieldStatus, bg, player, player->AddBattlegroundQueueId(bgQueueTypeId), joinTime, avgWaitTime, jointype, false);
         SendPacket(battlefieldStatus.Write());
     }
     else
@@ -929,6 +963,10 @@ void WorldSession::HandleHearthAndResurrect(WorldPackets::Battleground::HearthAn
     if (_player->isInFlight())
         return;
 
+    // Offered on the release spirit dialog: alive, it would be a free heal and hearthstone
+    if (_player->IsAlive())
+        return;
+
     AreaTableEntry const* atEntry = sAreaTableStore.LookupEntry(_player->GetCurrentAreaID());
     if (!atEntry || !(atEntry->Flags[0] & AREA_FLAG_CAN_HEARTH_AND_RESURRECT))
         return;
@@ -1001,6 +1039,9 @@ void WorldSession::HandleStartWarGame(WorldPackets::Battleground::StartWargame& 
         return;
 
     if (opposingPartyLeader->GetGroup()->GetLeaderGUID() != opposingPartyLeader->GetGUID())
+        return;
+
+    if (opposingPartyLeader->GetGroup() == _player->GetGroup())
         return;
 
     if (_player->HasWargameRequest())

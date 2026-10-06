@@ -795,10 +795,6 @@ void Battleground::EndBattleground(uint32 winner)
 
             if (bracket)
                 player->UpdateAchievementCriteria(CRITERIA_TYPE_REACH_RBG_RATING, std::max<uint32>(bracket->getRating(), 1));
-
-            if (player->GetGroup() && player->GetGroup()->IsGuildGroup(player->GetGuildGUID(), true, true))
-                if (auto guild = player->GetGuild())
-                    guild->CompleteGuildChallenge(ChallengeRatedBG);
         }
 
         auto queueTypeID = MS::Battlegrounds::GetBgQueueTypeIdByBgTypeID(GetTypeID(), GetJoinType());
@@ -1627,6 +1623,7 @@ void Battleground::EventPlayerLoggedOut(Player* player)
 
 void Battleground::AddToBGFreeSlotQueue()
 {
+    std::lock_guard<std::mutex> guard(sBattlegroundMgr->GetFreeSlotQueueLock());
     if (!m_InBGFreeSlotQueue && IsBattleground() && !IsRBG() /*&& !IsBrawl()*/ && !IsWargame())
     {
         sBattlegroundMgr->BGFreeSlotQueue.push_front(this);
@@ -1636,6 +1633,7 @@ void Battleground::AddToBGFreeSlotQueue()
 
 void Battleground::RemoveFromBGFreeSlotQueue()
 {
+    std::lock_guard<std::mutex> guard(sBattlegroundMgr->GetFreeSlotQueueLock());
     m_InBGFreeSlotQueue = false;
     for (auto itr = sBattlegroundMgr->BGFreeSlotQueue.begin(); itr != sBattlegroundMgr->BGFreeSlotQueue.end(); ++itr)
         if ((*itr)->GetInstanceID() == m_InstanceID)

@@ -91,17 +91,24 @@ BattlegroundMgr* BattlegroundMgr::instance()
 
 void BattlegroundMgr::DeleteAllBattlegrounds()
 {
-    for (uint16 i = MS::Battlegrounds::BattlegroundTypeId::None; i < MS::Battlegrounds::BattlegroundTypeId::Max; ++i)
+    std::vector<Battleground*> toDelete;
     {
-        for (auto itr = _battlegrounds[i].begin(); itr != _battlegrounds[i].end();)
+        std::unique_lock<std::shared_mutex> guard(_battlegroundsLock);
+        for (uint16 i = MS::Battlegrounds::BattlegroundTypeId::None; i < MS::Battlegrounds::BattlegroundTypeId::Max; ++i)
         {
-            Battleground* bg = itr->second;
-            _battlegrounds[i].erase(itr++);
-            if (!_clientBattlegroundIDs[i][bg->GetBracketId()].empty())
-                _clientBattlegroundIDs[i][bg->GetBracketId()].erase(bg->GetClientInstanceID());
-            delete bg;
+            for (auto itr = _battlegrounds[i].begin(); itr != _battlegrounds[i].end();)
+            {
+                Battleground* bg = itr->second;
+                _battlegrounds[i].erase(itr++);
+                if (!_clientBattlegroundIDs[i][bg->GetBracketId()].empty())
+                    _clientBattlegroundIDs[i][bg->GetBracketId()].erase(bg->GetClientInstanceID());
+                toDelete.push_back(bg);
+            }
         }
     }
+
+    for (Battleground* bg : toDelete)
+        delete bg;
 
     while (!BGFreeSlotQueue.empty())
         delete BGFreeSlotQueue.front();
@@ -127,9 +134,12 @@ void BattlegroundMgr::Update(uint32 diff)
             if (bg && bg->ToBeDeleted())
             {
                 std::lock_guard<std::recursive_mutex> _bg_lock(bg->m_bg_lock);
-                _battlegrounds[i].erase(itr);
-                if (!_clientBattlegroundIDs[i][bg->GetBracketId()].empty())
-                    _clientBattlegroundIDs[i][bg->GetBracketId()].erase(bg->GetClientInstanceID());
+                {
+                    std::unique_lock<std::shared_mutex> guard(_battlegroundsLock);
+                    _battlegrounds[i].erase(itr);
+                    if (!_clientBattlegroundIDs[i][bg->GetBracketId()].empty())
+                        _clientBattlegroundIDs[i][bg->GetBracketId()].erase(bg->GetClientInstanceID());
+                }
 
                 delete bg;
             }
@@ -139,14 +149,15 @@ void BattlegroundMgr::Update(uint32 diff)
     for (uint16 qtype = MS::Battlegrounds::BattlegroundQueueTypeId::None; qtype < MS::Battlegrounds::BattlegroundQueueTypeId::Max; ++qtype)
         _battlegroundQueues[qtype].UpdateEvents(diff);
 
-    if (!_queueUpdateScheduler.empty())
+    std::vector<QueueSchedulerItem> scheduled;
     {
-        auto scheduled = std::vector<QueueSchedulerItem*>();
+        std::lock_guard<std::mutex> guard(_queueUpdateLock);
         std::swap(scheduled, _queueUpdateScheduler);
-
-        for (auto const& v : scheduled)
-            _battlegroundQueues[v->BgQueueTypeID].BattlegroundQueueUpdate(diff, v->BgTypeID, v->BracketID, v->JoinType, v->MatchMakingRating > 0, v->_role, v->BracketMinLevel);
     }
+
+    for (auto const& v : scheduled)
+        if (v.BgQueueTypeID < MS::Battlegrounds::BattlegroundQueueTypeId::Max)
+            _battlegroundQueues[v.BgQueueTypeID].BattlegroundQueueUpdate(diff, v.BgTypeID, v.BracketID, v.JoinType, v.MatchMakingRating > 0, v._role, v.BracketMinLevel);
 
     if (sWorld->getIntConfig(CONFIG_ARENA_MAX_RATING_DIFFERENCE) && sWorld->getIntConfig(CONFIG_ARENA_RATED_UPDATE_TIMER))
     {
@@ -192,8 +203,11 @@ void BattlegroundMgr::SendBattlegroundList(Player* player, ObjectGuid const& gui
     if (bgTypeId != MS::Battlegrounds::BattlegroundTypeId::ArenaAll && bgTypeId != MS::Battlegrounds::BattlegroundTypeId::BrawlArenaAll && bgTypeId != MS::Battlegrounds::BattlegroundTypeId::BattlegroundRatedEyeOfTheStorm && bgTypeId != MS::Battlegrounds::BattlegroundTypeId::BrawlAllSix)
         if (Battleground* bgtemplate_ = GetBattlegroundTemplate(bgTypeId))
             if (PVPDifficultyEntry const* v = sDB2Manager.GetBattlegroundBracketByLevel(bgtemplate_->GetMapId(), player->getLevel()))
+            {
+                std::shared_lock<std::shared_mutex> guard(_battlegroundsLock);
                 for (auto const& x : _clientBattlegroundIDs[bgTypeId][v->RangeIndex])
                     battlefieldList.Battlefields.push_back(x);
+            }
 
     player->SendDirectMessage(battlefieldList.Write());
 }
@@ -270,6 +284,7 @@ Battleground* BattlegroundMgr::GetBattlegroundThroughClientInstance(uint32 insta
     if (bg->IsArena())
         return GetBattleground(instanceId, bgTypeId);
 
+    std::shared_lock<std::shared_mutex> guard(_battlegroundsLock);
     for (auto itr : _battlegrounds[bgTypeId])
         if (itr.second->GetClientInstanceID() == instanceId)
             return itr.second;
@@ -282,6 +297,7 @@ Battleground* BattlegroundMgr::GetBattleground(uint32 InstanceID, uint16 bgTypeI
     if (!InstanceID)
         return nullptr;
 
+    std::shared_lock<std::shared_mutex> guard(_battlegroundsLock);
     if (bgTypeId == MS::Battlegrounds::BattlegroundTypeId::None)
     {
         for (uint16 i = MS::Battlegrounds::BattlegroundTypeId::BattlegroundAlteracValley; i < MS::Battlegrounds::BattlegroundTypeId::Max; i++)
@@ -302,6 +318,7 @@ Battleground* BattlegroundMgr::GetBattlegroundTemplate(uint16 bgTypeId)
     if (bgTypeId >= MS::Battlegrounds::BattlegroundTypeId::Max)
         return nullptr;
 
+    std::shared_lock<std::shared_mutex> guard(_battlegroundsLock);
     return _battlegrounds[bgTypeId].empty() ? nullptr : _battlegrounds[bgTypeId].begin()->second;
 }
 
@@ -310,6 +327,7 @@ uint32 BattlegroundMgr::CreateClientVisibleInstanceId(uint16 bgTypeId, uint8 bra
     if (MS::Battlegrounds::CheckIsArenaTypeByBgTypeID(bgTypeId))
         return 0;
 
+    std::unique_lock<std::shared_mutex> guard(_battlegroundsLock);
     uint32 lastId = 0;
     for (auto itr = _clientBattlegroundIDs[bgTypeId][bracketID].begin(); itr != _clientBattlegroundIDs[bgTypeId][bracketID].end();)
     {
@@ -583,11 +601,13 @@ void BattlegroundMgr::CreateBattleground(CreateBattlegroundData& data)
 
 void BattlegroundMgr::AddBattleground(uint32 InstanceID, uint16 bgTypeId, Battleground* BG)
 {
+    std::unique_lock<std::shared_mutex> guard(_battlegroundsLock);
     _battlegrounds[bgTypeId][InstanceID] = BG;
 }
 
 void BattlegroundMgr::RemoveBattleground(uint32 instanceID, uint16 bgTypeId)
 {
+    std::unique_lock<std::shared_mutex> guard(_battlegroundsLock);
     _battlegrounds[bgTypeId].erase(instanceID);
 }
 
@@ -739,18 +759,18 @@ void BattlegroundMgr::ToggleTesting()
 
 void BattlegroundMgr::ScheduleQueueUpdate(QueueSchedulerItem* data)
 {
-    bool found = false;
-    for (auto const& v : _queueUpdateScheduler)
-    {
-        if (v->MatchMakingRating == data->MatchMakingRating && v->JoinType == data->JoinType && v->BgQueueTypeID == data->BgQueueTypeID && v->BgTypeID == data->BgTypeID && v->BracketID == data->BracketID)
-        {
-            found = true;
-            break;
-        }
-    }
+    if (!data)
+        return;
 
-    if (!found)
-        _queueUpdateScheduler.push_back(data);
+    QueueSchedulerItem const item = *data;
+    delete data;
+
+    std::lock_guard<std::mutex> guard(_queueUpdateLock);
+    for (auto const& v : _queueUpdateScheduler)
+        if (v.MatchMakingRating == item.MatchMakingRating && v.JoinType == item.JoinType && v.BgQueueTypeID == item.BgQueueTypeID && v.BgTypeID == item.BgTypeID && v.BracketID == item.BracketID)
+            return;
+
+    _queueUpdateScheduler.push_back(item);
 }
 
 uint32 BattlegroundMgr::GetMaxRatingDifference() const
@@ -963,16 +983,20 @@ CreateBattlegroundData const* BattlegroundMgr::GetBattlegroundData(uint32 type)
 
 bool BattlegroundMgr::HaveSpectatorData() const
 {
+    std::lock_guard<std::mutex> guard(_spectatorLock);
     return !_spectatorData.empty();
 }
 
+// Battleground maps update in parallel and all write here
 void BattlegroundMgr::EraseSpectatorData(uint32 instanceID)
 {
+    std::lock_guard<std::mutex> guard(_spectatorLock);
     _spectatorData.erase(instanceID);
 }
 
 void BattlegroundMgr::AddSpectatorData(uint32 instanceID, ObjectGuid const& guid)
 {
+    std::lock_guard<std::mutex> guard(_spectatorLock);
     _spectatorData[instanceID].push_back(guid);
 }
 
@@ -990,18 +1014,28 @@ void BattlegroundMgr::InitWargame(Player* player, ObjectGuid opposingPartyMember
     if (!group || !group->IsLeader(player->GetGUID()))
         return;
 
-    auto opposingPartyLeader = sObjectAccessor->FindPlayer(opposingPartyMember);
-    if (!opposingPartyLeader)
+    // the opposing leader may stand on another map: his group and request are copied under the accessor lock
+    Group* opposingGroup = nullptr;
+    bool hasRequest = false;
+    WargameRequest requestCopy;
+    if (!ObjectAccessor::WithPlayer(opposingPartyMember, [&](Player* opposingPartyLeader)
+    {
+        opposingGroup = opposingPartyLeader->GetGroup();
+        if (WargameRequest const* opposingRequest = opposingPartyLeader->GetWargameRequest())
+        {
+            hasRequest = true;
+            requestCopy = *opposingRequest;
+        }
+    }))
         return;
 
-    auto opposingGroup = opposingPartyLeader->GetGroup();
-    if (!opposingGroup || !opposingGroup->IsLeader(opposingPartyLeader->GetGUID()))
+    if (!opposingGroup || !opposingGroup->IsLeader(opposingPartyMember) || opposingGroup == group)
         return;
 
-    if (!opposingPartyLeader->HasWargameRequest())
+    if (!hasRequest)
         return;
 
-    auto request = opposingPartyLeader->GetWargameRequest();
+    WargameRequest const* request = &requestCopy;
     if (request->QueueID != queueID || request->OpposingPartyMemberGUID != player->GetGUID())
         return;
 
@@ -1049,6 +1083,9 @@ void BattlegroundMgr::InitWargame(Player* player, ObjectGuid opposingPartyMember
     auto bGQueueTypeID = MS::Battlegrounds::GetBgQueueTypeIdByBgTypeID(bgTypeId, arenaType);
     auto& bGQueue = _battlegroundQueues[bGQueueTypeID];
 
+    // the queue's entries are read and invited under its lock, as map threads join it meanwhile
+    std::unique_lock<std::recursive_mutex> queueGuard(bGQueue.GetLock());
+
     uint16 map = bgTypeId;
 
     if (bgTypeId == MS::Battlegrounds::BattlegroundTypeId::ArenaAll)
@@ -1058,20 +1095,39 @@ void BattlegroundMgr::InitWargame(Player* player, ObjectGuid opposingPartyMember
     if (!battlegroundInstance)
         return;
 
+    // Both groups have members on other maps: the leader is read under the accessor lock, each member's queue slot
+    // is taken in his own thread
     auto prepareGroupToWargame = [&](Group* group1, uint32 team) -> void
     {
-        auto groupQueueInfo = bGQueue.AddGroup(sObjectAccessor->FindPlayer(group1->GetLeaderGUID()), group1, battlegroundTemplate->GetTypeID(), bracketEntry, arenaType, false, false, WorldPackets::Battleground::IgnorMapInfo(), 0, team);
+        ObjectGuid const leaderGuid = group1->GetLeaderGUID();
+        uint32 leaderTeam = 0;
+        uint8 leaderRoleSoloQ = 0;
+        if (!ObjectAccessor::WithPlayer(leaderGuid, [&leaderTeam, &leaderRoleSoloQ](Player* leader1)
+        {
+            leaderTeam = leader1->GetBgQueueTeam();
+            leaderRoleSoloQ = leader1->GetRoleForSoloQ();
+        }))
+            return;
+
+        auto groupQueueInfo = bGQueue.AddGroup(leaderGuid, leaderTeam, leaderRoleSoloQ, group1, battlegroundTemplate->GetTypeID(), bracketEntry, arenaType, false, false, WorldPackets::Battleground::IgnorMapInfo(), 0, team);
         auto avgTime = bGQueue.GetAverageQueueWaitTime(groupQueueInfo, bracketEntry->RangeIndex);
 
-        for (auto itr = group1->GetFirstMember(); itr != nullptr; itr = itr->next())
+        uint32 const instanceId = battlegroundInstance->GetInstanceID();
+        uint16 const instanceTypeId = battlegroundInstance->GetTypeID();
+        uint32 const joinTime = groupQueueInfo->JoinTime;
+        uint8 const joinType = groupQueueInfo->JoinType;
+        for (auto const& slot : group1->GetMemberSlots())
         {
-            auto member = itr->getSource();
-            if (!member)
-                continue;
+            ObjectAccessor::PostToPlayer(slot.Guid, [instanceId, instanceTypeId, bGQueueTypeID, joinTime, avgTime, joinType](Player* member) -> void
+            {
+                Battleground* bg = sBattlegroundMgr->GetBattleground(instanceId, instanceTypeId);
+                if (!bg)
+                    return;
 
-            WorldPackets::Battleground::BattlefieldStatusQueued battlefieldStatus;
-            BuildBattlegroundStatusQueued(&battlefieldStatus, battlegroundInstance, member, member->AddBattlegroundQueueId(bGQueueTypeID), groupQueueInfo->JoinTime, avgTime, groupQueueInfo->JoinType, true);
-            member->SendDirectMessage(battlefieldStatus.Write());
+                WorldPackets::Battleground::BattlefieldStatusQueued battlefieldStatus;
+                sBattlegroundMgr->BuildBattlegroundStatusQueued(&battlefieldStatus, bg, member, member->AddBattlegroundQueueId(bGQueueTypeID), joinTime, avgTime, joinType, true);
+                member->SendDirectMessage(battlefieldStatus.Write());
+            }, 0, ObjectAccessor::PlayerScope::InWorld);
         }
 
         bGQueue.InviteGroupToBG(groupQueueInfo, battlegroundInstance, team);
@@ -1079,6 +1135,7 @@ void BattlegroundMgr::InitWargame(Player* player, ObjectGuid opposingPartyMember
 
     prepareGroupToWargame(group, HORDE);
     prepareGroupToWargame(opposingGroup, ALLIANCE);
+    queueGuard.unlock();
 
     battlegroundInstance->StartBattleground();
 }

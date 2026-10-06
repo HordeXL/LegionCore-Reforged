@@ -23,6 +23,7 @@
 #include "EventProcessor.h"
 #include "FunctionProcessor.h"
 #include "Packets/BattlegroundPackets.h"
+#include <mutex>
 
 struct GroupQueueInfo;                                      // type predefinition
 struct PlayerQueueInfo                                      // stores information for players in queue
@@ -70,6 +71,8 @@ public:
     bool TryChooseCommandWithRoles(uint8 bracketID, uint8 teamId, uint8 healers, uint8 tanks, uint8 dd, uint8 teamIdPool);
     bool CheckSkirmishOrLFGBrawl(uint8 bracketID, bool isSkirmish = true);
     GroupQueueInfo* AddGroup(Player* leader, Group* group, uint16 bgTypeId, PVPDifficultyEntry const* bracketEntry, uint8 ArenaType = 0, bool isRated = false, bool isPremade = false, WorldPackets::Battleground::IgnorMapInfo ignore = WorldPackets::Battleground::IgnorMapInfo(), uint32 mmr = 0, uint32 _Team = 0);
+    // for a leader of another map: his queue team and solo queue role read by the caller under the accessor lock
+    GroupQueueInfo* AddGroup(ObjectGuid const& leaderGuid, uint32 leaderTeam, uint8 leaderRoleSoloQ, Group* group, uint16 bgTypeId, PVPDifficultyEntry const* bracketEntry, uint8 ArenaType = 0, bool isRated = false, bool isPremade = false, WorldPackets::Battleground::IgnorMapInfo ignore = WorldPackets::Battleground::IgnorMapInfo(), uint32 mmr = 0, uint32 _Team = 0);
     void RemovePlayer(ObjectGuid guid, bool decreaseInvitedCount);
     void RemovePlayerQueue(ObjectGuid guid, bool decreaseInvitedCount);
     bool IsPlayerInvited(ObjectGuid pl_guid, uint32 const bgInstanceGuid, uint32 const removeTime);
@@ -113,7 +116,15 @@ public:
     bool InviteGroupToBG(GroupQueueInfo* ginfo, Battleground* bg, uint32 side);
     void AddDelayedEvent(uint64 timeOffset, std::function<void()>&& function);
     void KillAllDelayedEvents();
+
+    // Guards the queued players and groups, the selection pools, the wait times and m_events. Map threads take it
+    // (joins, status) with no other lock held and reach only leaf locks under it (group slots, template lookup,
+    // posting); the world thread holds it for a whole queue update and its events, calling out (it alone may reach
+    // another queue's lock under it). So it is never taken under any other lock. A GroupQueueInfo* from AddGroup is
+    // read under it: RemovePlayerQueue (world thread) may free it.
+    std::recursive_mutex& GetLock() const { return m_lock; }
 private:
+    mutable std::recursive_mutex m_lock;
 
     std::map<ObjectGuid, PlayerQueueInfo> _queuedPlayers;
     std::list<GroupQueueInfo*> _queuedGroups[MS::Battlegrounds::MaxBrackets][MS::Battlegrounds::QueueGroupTypes::Max];
