@@ -59,6 +59,10 @@ void WorldPackets::ClientConfig::UserClientUpdateAccountData::Read()
     DataType = _worldPacket.ReadBits(3);
 
     uint32 compressedSize = _worldPacket.read<uint32>();
+    // The handler caps the uncompressed data at 0xFFFF; zlib never needs much more than that once compressed.
+    if (compressedSize > 0x20000 || compressedSize > _worldPacket.size() - _worldPacket.rpos())
+        throw ByteBufferPositionException(_worldPacket.rpos(), _worldPacket.size(), compressedSize);
+
     if (compressedSize)
     {
         CompressedData.resize(compressedSize);

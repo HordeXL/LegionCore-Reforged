@@ -111,9 +111,9 @@ void WorldSession::SendBattlenetResponse(uint32 serviceHash, uint32 methodId, ui
     SendPacket(bnetResponse.Write());
 }
 
-void WorldSession::SendBattlenetRequest(uint32 serviceHash, uint32 methodId, pb::Message const* request, std::function<void(MessageBuffer)> callback)
+void WorldSession::SendBattlenetRequest(uint32 serviceHash, uint32 methodId, pb::Message const* request, std::function<void(MessageBuffer)> /*callback*/)
 {
-    _battlenetResponseCallbacks[_battlenetRequestToken] = std::move(callback);
+    // No opcode delivers the client's answer to a server request, so a stored callback would never run and only pile up.
     SendBattlenetRequest(serviceHash, methodId, request);
 }
 

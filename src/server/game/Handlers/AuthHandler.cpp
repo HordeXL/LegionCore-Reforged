@@ -149,7 +149,7 @@ void WorldSession::SendFeatureSystemStatusGlueScreen()
 
 void WorldSession::HandleWowTokenMarketPrice(WorldPackets::Token::RequestWowTokenMarketPrice& packet)
 {
-    TC_LOG_ERROR("network", "HandleWowTokenMarketPrice: UnkInt=%u", packet.UnkInt);
+    TC_LOG_DEBUG("network", "HandleWowTokenMarketPrice: UnkInt=%u", packet.UnkInt);
     WorldPackets::Token::WowTokenMarketPriceResponse response;
     response.CurrentMarketPrice = static_cast<uint64>(sWorld->getIntConfig(CONFIG_WOW_TOKEN_MARKET_PRICE)) * GOLD;
     response.Result = sWorld->getBoolConfig(CONFIG_WOW_TOKEN_ENABLED) ? TOKEN_RESULT_SUCCESS : TOKEN_RESULT_ERROR_DISABLED;
@@ -160,7 +160,7 @@ void WorldSession::HandleWowTokenMarketPrice(WorldPackets::Token::RequestWowToke
 
 void WorldSession::HandleUpdateListedAuctionableTokens(WorldPackets::Token::UpdateListedAuctionableTokens& packet)
 {
-    TC_LOG_ERROR("network", "HandleUpdateListedAuctionableTokens: Type=%u", packet.Type);
+    TC_LOG_DEBUG("network", "HandleUpdateListedAuctionableTokens: Type=%u", packet.Type);
     WorldPackets::Token::UpdateListedAuctionableTokensResponse response;
     response.UnkInt = packet.Type;
 
@@ -186,7 +186,7 @@ void WorldSession::HandleUpdateListedAuctionableTokens(WorldPackets::Token::Upda
 
 void WorldSession::HandleCheckVeteranTokenEligibility(WorldPackets::Token::CheckVeteranTokenEligibility& packet)
 {
-    TC_LOG_ERROR("network", "HandleCheckVeteranTokenEligibility: UnkInt=%u", packet.UnkInt);
+    TC_LOG_DEBUG("network", "HandleCheckVeteranTokenEligibility: UnkInt=%u", packet.UnkInt);
     WorldPackets::Token::WowTokenCanVeteranBuyResult result;
     result.UnkLong = 0;
     result.UnkInt = packet.UnkInt;
@@ -196,7 +196,7 @@ void WorldSession::HandleCheckVeteranTokenEligibility(WorldPackets::Token::Check
 
 void WorldSession::HandleBuyWowTokenStart(WorldPackets::Token::BuyWowTokenStart& packet)
 {
-    TC_LOG_ERROR("network", "HandleBuyWowTokenStart: UnkInt=%u, Price=%llu", packet.UnkInt, packet.CurrentMarketPrice);
+    TC_LOG_DEBUG("network", "HandleBuyWowTokenStart: UnkInt=%u, Price=%llu", packet.UnkInt, packet.CurrentMarketPrice);
     WorldPackets::Token::WowTokenBuyRequestConfirmation response;
 
     if (!sWorld->getBoolConfig(CONFIG_WOW_TOKEN_ENABLED))
@@ -218,7 +218,7 @@ void WorldSession::HandleBuyWowTokenStart(WorldPackets::Token::BuyWowTokenStart&
 
     if (static_cast<uint64>(player->GetMoney()) < price)
     {
-        TC_LOG_ERROR("network", "HandleBuyWowTokenStart: not enough gold (%llu < %llu)", static_cast<uint64>(player->GetMoney()), price);
+        TC_LOG_DEBUG("network", "HandleBuyWowTokenStart: not enough gold (%llu < %llu)", static_cast<uint64>(player->GetMoney()), price);
         response.Result = TOKEN_RESULT_ERROR_OTHER;
         SendPacket(response.Write());
         return;
@@ -232,7 +232,7 @@ void WorldSession::HandleBuyWowTokenStart(WorldPackets::Token::BuyWowTokenStart&
 
 void WorldSession::HandleBuyWowTokenConfirm(WorldPackets::Token::BuyWowTokenConfirm& packet)
 {
-    TC_LOG_ERROR("network", "HandleBuyWowTokenConfirm: UnkInt=%u, Confirmed=%u, Price=%llu", packet.UnkInt, packet.Confirmed ? 1 : 0, packet.GuaranteedPrice);
+    TC_LOG_DEBUG("network", "HandleBuyWowTokenConfirm: UnkInt=%u, Confirmed=%u, Price=%llu", packet.UnkInt, packet.Confirmed ? 1 : 0, packet.GuaranteedPrice);
     WorldPackets::Token::WowTokenBuyResultConfirmation response;
     response.UnkInt = packet.UnkInt;
 
@@ -251,9 +251,8 @@ void WorldSession::HandleBuyWowTokenConfirm(WorldPackets::Token::BuyWowTokenConf
         return;
     }
 
-    uint64 price = packet.GuaranteedPrice;
-    if (price == 0)
-        price = static_cast<uint64>(sWorld->getIntConfig(CONFIG_WOW_TOKEN_MARKET_PRICE)) * GOLD;
+    // The price the client echoes back is not trusted: the market price is the server's
+    uint64 price = static_cast<uint64>(sWorld->getIntConfig(CONFIG_WOW_TOKEN_MARKET_PRICE)) * GOLD;
 
     if (static_cast<uint64>(player->GetMoney()) < price)
     {
@@ -272,13 +271,13 @@ void WorldSession::HandleBuyWowTokenConfirm(WorldPackets::Token::BuyWowTokenConf
 
     player->ModifyMoney(-static_cast<int64>(price));
     response.Result = TOKEN_RESULT_SUCCESS;
-    TC_LOG_ERROR("network", "HandleBuyWowTokenConfirm: SUCCESS, item %u added, gold deducted %llu", tokenItemId, price);
+    TC_LOG_DEBUG("network", "HandleBuyWowTokenConfirm: SUCCESS, item %u added, gold deducted %llu", tokenItemId, price);
     SendPacket(response.Write());
 }
 
 void WorldSession::HandleSellWowTokenStart(WorldPackets::Token::SellWowTokenStart& packet)
 {
-    TC_LOG_ERROR("network", "HandleSellWowTokenStart: UnkInt64=%llu, Price=%llu, UnkInt=%u", packet.UnkInt64, packet.CurrentMarketPrice, packet.UnkInt);
+    TC_LOG_DEBUG("network", "HandleSellWowTokenStart: UnkInt64=%llu, Price=%llu, UnkInt=%u", packet.UnkInt64, packet.CurrentMarketPrice, packet.UnkInt);
     WorldPackets::Token::WowTokenSellRequestConfirmation response;
 
     if (!sWorld->getBoolConfig(CONFIG_WOW_TOKEN_ENABLED))
@@ -312,7 +311,7 @@ void WorldSession::HandleSellWowTokenStart(WorldPackets::Token::SellWowTokenStar
 
 void WorldSession::HandleSellWowTokenConfirm(WorldPackets::Token::SellWowTokenConfirm& packet)
 {
-    TC_LOG_ERROR("network", "HandleSellWowTokenConfirm: UnkInt=%u, Confirmed=%u, Price=%llu", packet.UnkInt, packet.Confirmed ? 1 : 0, packet.GuaranteedPrice);
+    TC_LOG_DEBUG("network", "HandleSellWowTokenConfirm: UnkInt=%u, Confirmed=%u, Price=%llu", packet.UnkInt, packet.Confirmed ? 1 : 0, packet.GuaranteedPrice);
     WorldPackets::Token::WowTokenSellResultConfirmation response;
     response.UnkInt = packet.UnkInt;
 
@@ -341,19 +340,18 @@ void WorldSession::HandleSellWowTokenConfirm(WorldPackets::Token::SellWowTokenCo
 
     player->DestroyItemCount(tokenItemId, 1, true);
 
-    uint64 price = packet.GuaranteedPrice;
-    if (price == 0)
-        price = static_cast<uint64>(sWorld->getIntConfig(CONFIG_WOW_TOKEN_MARKET_PRICE)) * GOLD;
+    // The price the client echoes back is not trusted: the market price is the server's
+    uint64 price = static_cast<uint64>(sWorld->getIntConfig(CONFIG_WOW_TOKEN_MARKET_PRICE)) * GOLD;
 
     player->ModifyMoney(static_cast<int64>(price));
     response.Result = TOKEN_RESULT_SUCCESS;
-    TC_LOG_ERROR("network", "HandleSellWowTokenConfirm: SUCCESS, item destroyed, gold added %llu", price);
+    TC_LOG_DEBUG("network", "HandleSellWowTokenConfirm: SUCCESS, item destroyed, gold added %llu", price);
     SendPacket(response.Write());
 }
 
 void WorldSession::HandleRedeemWowTokenStart(WorldPackets::Token::RedeemWowTokenStart& packet)
 {
-    TC_LOG_ERROR("network", "HandleRedeemWowTokenStart: Count=%llu, UnkInt=%u, UnkInt2=%u", packet.Count, packet.UnkInt, packet.UnkInt2);
+    TC_LOG_DEBUG("network", "HandleRedeemWowTokenStart: Count=%llu, UnkInt=%u, UnkInt2=%u", packet.Count, packet.UnkInt, packet.UnkInt2);
     WorldPackets::Token::WowTokenRedeemRequestConfirmation response;
 
     if (!sWorld->getBoolConfig(CONFIG_WOW_TOKEN_ENABLED))
@@ -387,7 +385,7 @@ void WorldSession::HandleRedeemWowTokenStart(WorldPackets::Token::RedeemWowToken
 
 void WorldSession::HandleRedeemWowTokenConfirm(WorldPackets::Token::RedeemWowTokenConfirm& packet)
 {
-    TC_LOG_ERROR("network", "HandleRedeemWowTokenConfirm: UnkInt=%u, Count=%llu, UnkInt2=%u, Confirm=%u", packet.UnkInt, packet.Count, packet.UnkInt2, packet.Confirm ? 1 : 0);
+    TC_LOG_DEBUG("network", "HandleRedeemWowTokenConfirm: UnkInt=%u, Count=%llu, UnkInt2=%u, Confirm=%u", packet.UnkInt, packet.Count, packet.UnkInt2, packet.Confirm ? 1 : 0);
     WorldPackets::Token::WowTokenRedeemResult response;
     response.UnkInt = packet.UnkInt;
 
@@ -420,7 +418,7 @@ void WorldSession::HandleRedeemWowTokenConfirm(WorldPackets::Token::RedeemWowTok
     ChangeTokenBalance(1, redeemAmount);
 
     response.Result = TOKEN_RESULT_SUCCESS;
-    TC_LOG_ERROR("network", "HandleRedeemWowTokenConfirm: SUCCESS, item destroyed, balance +%lld", static_cast<long long>(redeemAmount));
+    TC_LOG_DEBUG("network", "HandleRedeemWowTokenConfirm: SUCCESS, item destroyed, balance +%lld", static_cast<long long>(redeemAmount));
     SendPacket(response.Write());
 
     SendFeatureSystemStatusGlueScreen();
@@ -428,15 +426,15 @@ void WorldSession::HandleRedeemWowTokenConfirm(WorldPackets::Token::RedeemWowTok
 
 void WorldSession::HandleUpdateWowTokenCount(WorldPackets::Token::UpdateWowTokenCount& packet)
 {
-    TC_LOG_ERROR("network", "HandleUpdateWowTokenCount: UnkInt=%u (no-op)", packet.UnkInt);
+    TC_LOG_DEBUG("network", "HandleUpdateWowTokenCount: UnkInt=%u (no-op)", packet.UnkInt);
 }
 
 void WorldSession::HandleCanRedeemWowTokenForBalance(WorldPackets::Token::CanRedeemWowTokenForBalance& packet)
 {
-    TC_LOG_ERROR("network", "HandleCanRedeemWowTokenForBalance: UnkInt=%u", packet.UnkInt);
+    TC_LOG_DEBUG("network", "HandleCanRedeemWowTokenForBalance: UnkInt=%u", packet.UnkInt);
     WorldPackets::Token::WowTokenCanRedeemForBalanceResult response;
     response.UnkInt = packet.UnkInt;
     response.Result = sWorld->getBoolConfig(CONFIG_WOW_TOKEN_ENABLED) ? TOKEN_RESULT_SUCCESS : TOKEN_RESULT_ERROR_DISABLED;
-    TC_LOG_ERROR("network", "HandleCanRedeemWowTokenForBalance: responding Result=%u", response.Result);
+    TC_LOG_DEBUG("network", "HandleCanRedeemWowTokenForBalance: responding Result=%u", response.Result);
     SendPacket(response.Write());
 }

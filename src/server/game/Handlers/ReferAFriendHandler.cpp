@@ -24,7 +24,39 @@
 #include "ChatPackets.h"
 #include "Chat.h"
 #include "Config.h"
+#include "Timer.h"
 #include <algorithm>
+#include <mutex>
+#include <unordered_map>
+
+// Each invitation costs several synchronous login database queries
+static bool RafInviteAllowed(uint32 accountId)
+{
+    static std::mutex lock;
+    static std::unordered_map<uint32, uint32> lastInvite;
+
+    uint32 const cooldown = 5 * IN_MILLISECONDS;
+    uint32 const now = getMSTime();
+
+    std::lock_guard<std::mutex> guard(lock);
+    auto itr = lastInvite.find(accountId);
+    if (itr != lastInvite.end() && getMSTimeDiff(itr->second, now) < cooldown)
+        return false;
+
+    lastInvite[accountId] = now;
+    return true;
+}
+
+// Level grants proposed and not yet answered, by recipient. Without it the recruiter could accept a
+// grant the recruit never offered and drain the recruit's grantable levels.
+struct RafPendingGrant
+{
+    ObjectGuid Granter;
+    uint32 Time;
+};
+
+static std::mutex RafPendingGrantsLock;
+static std::unordered_map<ObjectGuid, RafPendingGrant> RafPendingGrants;
 
 // Days an unanswered invitation stays valid. The config documents 0 as "never expires", which the
 // queries express by reaching further back than any realm could possibly have existed.
@@ -82,16 +114,32 @@ void WorldSession::HandleRecruitAFriend(WorldPackets::ReferAFriend::RecruitAFrie
         return;
     }
 
+    if (!RafInviteAllowed(GetAccountId()))
+    {
+        sendFailure(ERR_REFER_A_FRIEND_NOT_NOW, email, "Veuillez patienter quelques secondes avant une nouvelle invitation.");
+        return;
+    }
+
+    // Unknown, already recruited or already invited addresses all get the answer of a sent invitation:
+    // a distinct answer would let anyone test which e-mail addresses own an account here.
+    auto sendGenericAnswer = [this]()
+    {
+        SendRafAddonMessage("SENT");
+
+        WorldPackets::ReferAFriend::RecruitAFriendResponse response;
+        response.Result = 0;
+        SendPacket(response.Write());
+    };
+
     std::string escapedEmail = email;
     LoginDatabase.EscapeString(escapedEmail);
 
     QueryResult target = LoginDatabase.PQuery("SELECT id, recruiter FROM account WHERE LOWER(email) = '%s'",
         escapedEmail.c_str());
 
-    // Unknown address: nobody registered with it.
     if (!target)
     {
-        sendFailure(ERR_REFER_A_FRIEND_NO_TARGET, email, "Aucun compte n est inscrit avec cette adresse e-mail.");
+        sendGenericAnswer();
         return;
     }
 
@@ -108,7 +156,7 @@ void WorldSession::HandleRecruitAFriend(WorldPackets::ReferAFriend::RecruitAFrie
     // Already recruited: the link is permanent, it is never replaced.
     if (existingRecruiter)
     {
-        sendFailure(ERR_REFER_A_FRIEND_NOT_REFERRED_BY, email, "Ce compte a deja un parrain.");
+        sendGenericAnswer();
         return;
     }
 
@@ -116,7 +164,7 @@ void WorldSession::HandleRecruitAFriend(WorldPackets::ReferAFriend::RecruitAFrie
     if (LoginDatabase.PQuery("SELECT 1 FROM account_raf_invite WHERE recruiter_id = %u AND recruited_id = %u AND status = 0",
         GetAccountId(), recruitedId))
     {
-        sendFailure(ERR_REFER_A_FRIEND_NOT_NOW, email, "Une invitation est deja en attente pour ce compte.");
+        sendGenericAnswer();
         return;
     }
 
@@ -138,7 +186,7 @@ void WorldSession::HandleRecruitAFriend(WorldPackets::ReferAFriend::RecruitAFrie
     {
         if (recruit->GetPlayer())
         {
-            recruit->SendRafInviteReceived(GetAccountName());
+            recruit->SendRafInviteReceived(GetPlayer() ? std::string(GetPlayer()->GetName()) : std::string("?"));
             LoginDatabase.PExecute("UPDATE account_raf_invite SET notified = 1 WHERE recruited_id = %u AND status = 0",
                 recruitedId);
         }
@@ -146,11 +194,7 @@ void WorldSession::HandleRecruitAFriend(WorldPackets::ReferAFriend::RecruitAFrie
 
     // Nothing is shown to the sender on success: the client already confirms the send on its own.
     // The acknowledgement goes over the addon channel instead, where it stays invisible.
-    SendRafAddonMessage("SENT");
-
-    WorldPackets::ReferAFriend::RecruitAFriendResponse response;
-    response.Result = 0;
-    SendPacket(response.Write());
+    sendGenericAnswer();
 }
 
 void WorldSession::HandleGrantLevel(WorldPackets::ReferAFriend::GrantLevel& packet)
@@ -159,7 +203,9 @@ void WorldSession::HandleGrantLevel(WorldPackets::ReferAFriend::GrantLevel& pack
     if (!player)
         return;
 
-    Player* target = ObjectAccessor::GetObjectInWorld(packet.Target, player);
+    // Same map only, as in TrinityCore: the target must be in the granter's group anyway, and a player on
+    // another map belongs to another map thread
+    Player* target = ObjectAccessor::GetPlayer(*player, packet.Target);
 
     // check cheating
     uint8 levels = player->GetGrantableLevels();
@@ -189,6 +235,11 @@ void WorldSession::HandleGrantLevel(WorldPackets::ReferAFriend::GrantLevel& pack
         return;
     }
 
+    {
+        std::lock_guard<std::mutex> guard(RafPendingGrantsLock);
+        RafPendingGrants[target->GetGUID()] = { player->GetGUID(), getMSTime() };
+    }
+
     WorldPackets::ReferAFriend::ProposeLevelGrant grant;
     grant.Sender = player->GetGUID();
     target->SendDirectMessage(grant.Write());
@@ -200,11 +251,29 @@ void WorldSession::HandleAcceptGrantLevel(WorldPackets::ReferAFriend::AcceptLeve
     if (!player)
         return;
 
-    Player* other = ObjectAccessor::GetObjectInWorld(packet.Granter, player);
+    {
+        std::lock_guard<std::mutex> guard(RafPendingGrantsLock);
+        auto itr = RafPendingGrants.find(player->GetGUID());
+        if (itr == RafPendingGrants.end())
+            return;
+
+        RafPendingGrant const offer = itr->second;
+        RafPendingGrants.erase(itr);
+
+        if (offer.Granter != packet.Granter || getMSTimeDiff(offer.Time, getMSTime()) > 2 * MINUTE * IN_MILLISECONDS)
+            return;
+    }
+
+    Player* other = ObjectAccessor::GetPlayer(*player, packet.Granter);
     if (!(other && other->GetSession()))
         return;
 
     if (GetAccountId() != other->GetSession()->GetRecruiterId())
+        return;
+
+    // The situation may have changed since the offer: check again what HandleGrantLevel checked
+    if (player->getLevel() >= other->getLevel() || player->getLevel() >= sWorld->getIntConfig(CONFIG_MAX_RECRUIT_A_FRIEND_BONUS_PLAYER_LEVEL)
+        || player->GetGroup() != other->GetGroup() || player->GetTeamId() != other->GetTeamId())
         return;
 
     if (other->GetGrantableLevels())

@@ -67,6 +67,11 @@ void WorldSession::HandleBattlePayTrialBoostCharacter(WorldPackets::BattlePay::B
     if (charInfo->AccountId != GetAccountId())
         return;
 
+    // Same rule as a paid boost: a character already at the trial level (boosted, levelled, or a previous trial)
+    // would otherwise be set back to 100 with a fresh set of gear, as often as asked.
+    if (charInfo->Level >= 100)
+        return;
+
     // Boost to 100 with class trial teleport (all in one transaction)
     uint8 charRace = charInfo->Race;
     bool isAlliance = ((1 << (charRace - 1)) & RACEMASK_ALLIANCE) != 0;

@@ -21,14 +21,20 @@
 #include "GameTime.h"
 #include "HotfixPackets.h"
 #include "WorldSession.h"
+#include <unordered_set>
 
 void WorldSession::HandleHotfixRequest(WorldPackets::Hotfix::HotfixRequest& packet)
 {
     auto const& hotfixes = sDB2Manager.GetHotfixData();
     WorldPackets::Hotfix::HotfixResponse hotfixQueryResponse;
     hotfixQueryResponse.Hotfixes.reserve(packet.Hotfixes.size());
+    // The count is only capped by the number of hotfixes: repeating one ID would have the records serialized again and again.
+    std::unordered_set<uint64> answered;
     for (auto hotfixId : packet.Hotfixes)
     {
+        if (!answered.insert(hotfixId).second)
+            continue;
+
         if (auto hotfix = Trinity::Containers::MapGetValuePtr(hotfixes, hotfixId))
         {
             auto storage = sDB2Manager.GetStorage(PAIR64_HIPART(hotfixId));
@@ -60,8 +66,12 @@ void WorldSession::HandleDBQueryBulk(WorldPackets::Hotfix::DBQueryBulk& packet)
         return;
     }
 
+    std::unordered_set<uint32> answered;
     for (auto const& rec : packet.Queries)
     {
+        if (!answered.insert(rec.RecordID).second)
+            continue;
+
         WorldPackets::Hotfix::DBReply response;
         response.TableHash = packet.TableHash;
         response.RecordID = rec.RecordID;
