@@ -88,7 +88,7 @@ namespace WorldPackets
 
             void Read() override;
 
-            std::vector<LootRequest> Loot;
+            Array<LootRequest, 1000> Loot;   // an area loot can gather many corpses
         };
 
         class LootRemoved final : public ServerPacket

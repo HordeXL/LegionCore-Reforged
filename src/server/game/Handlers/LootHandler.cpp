@@ -20,6 +20,25 @@
 #include "Corpse.h"
 #include "ChallengeMgr.h"
 
+// A loot GUID sent by the client resolves through the global LootMgr: the creature, object or
+// corpse the loot was generated from must be on the player's map and within reach. Other or
+// unknown sources are left as they were.
+static bool IsLootSourceInReach(Player* player, Loot const* loot)
+{
+    ObjectGuid const& source = loot->objGuid;
+    if (source.IsEmpty())
+        return true;
+
+    if (source.IsItem())
+        return player->GetItemByGuid(source) != nullptr;
+
+    if (!source.IsCreatureOrVehicle() && !source.IsGameObject() && !source.IsCorpse())
+        return true;
+
+    WorldObject* object = ObjectAccessor::GetWorldObject(*player, source);
+    return object && object->IsWithinDistInMap(player, sWorld->getFloatConfig(CONFIG_GROUP_XP_DISTANCE));
+}
+
 void WorldSession::HandleAutostoreLootItemOpcode(WorldPackets::Loot::AutoStoreLootItem& packet)
 {
     Player* player = GetPlayer();
@@ -60,7 +79,7 @@ void WorldSession::HandleAutostoreLootItemOpcode(WorldPackets::Loot::AutoStoreLo
         else if (lguid.IsCorpse())
         {
             Corpse* bones = ObjectAccessor::GetCorpse(*player, lguid);
-            if (!bones)
+            if (!bones || !bones->IsWithinDistInMap(player, LOOT_DISTANCE))
             {
                 player->SendLootRelease(lguid);
                 return;
@@ -71,7 +90,7 @@ void WorldSession::HandleAutostoreLootItemOpcode(WorldPackets::Loot::AutoStoreLo
         else if (lguid.IsLoot())
         {
             loot = sLootMgr->GetLoot(lguid);
-            if(!loot)
+            if (!loot || !IsLootSourceInReach(player, loot))
             {
                 player->SendLootRelease(lguid);
                 return;
@@ -507,7 +526,7 @@ void WorldSession::HandleLootRoll(WorldPackets::Loot::LootRoll& packet)
 
 void WorldSession::HandleDoMasterLootRoll(WorldPackets::Loot::DoMasterLootRoll& packet)
 {
-    if (!_player->GetGroup() || _player->GetGroup()->GetLooterGuid() != _player->GetGUID())
+    if (!_player->GetGroup() || _player->GetGroup()->GetLootMethod() != MASTER_LOOT || _player->GetGroup()->GetLooterGuid() != _player->GetGUID())
     {
         _player->SendLootRelease(packet.LootObj);
         return;
@@ -529,7 +548,7 @@ void WorldSession::HandleDoMasterLootRoll(WorldPackets::Loot::DoMasterLootRoll& 
     else if (packet.LootObj.IsLoot())
     {
         loot = sLootMgr->GetLoot(packet.LootObj);
-        if (!loot)
+        if (!loot || !IsLootSourceInReach(_player, loot))
             return;
     }
 
@@ -546,25 +565,30 @@ void WorldSession::HandleDoMasterLootRoll(WorldPackets::Loot::DoMasterLootRoll& 
     }
 
     LootItem& item = packet.LootListID >= loot->items.size() ? loot->quest_items[packet.LootListID - loot->items.size()] : loot->items[packet.LootListID];
+    if (item.is_looted)
+        return;
+
     _player->GetGroup()->DoRollForAllMembers(packet.LootObj, packet.LootListID, _player->GetMapId(), loot, item, _player);
 }
 
 void WorldSession::HandleMasterLootItem(WorldPackets::Loot::MasterLootItem& packet)
 {
     Group* group = _player->GetGroup();
-    if (!group || group->isLFGGroup() || group->GetLooterGuid() != _player->GetGUID())
+    if (!group || group->isLFGGroup() || group->GetLootMethod() != MASTER_LOOT || group->GetLooterGuid() != _player->GetGUID())
     {
         _player->SendLootRelease(GetPlayer()->GetLootGUID());
         return;
     }
 
+    // the target must be a member on the master looter's map, as in the candidate list (Group::MasterLoot)
+    Player* target = ObjectAccessor::GetPlayer(*_player, packet.Target);
+    if (!target || !group->IsMember(target->GetGUID()))
+        return;
+
     for (auto const& lootData : packet.Loot)
     {
-        Player* target = ObjectAccessor::FindPlayer(packet.Target);
-        if (!target)
-            continue;
-
         Loot* loot = nullptr;
+        WorldObject* lootSource = nullptr;
         if (lootData.Object.IsCreatureOrVehicle())
         {
             Creature* creature = GetPlayer()->GetMap()->GetCreature(lootData.Object);
@@ -572,6 +596,7 @@ void WorldSession::HandleMasterLootItem(WorldPackets::Loot::MasterLootItem& pack
                 continue;
 
             loot = &creature->loot;
+            lootSource = creature;
         }
         else if (lootData.Object.IsGameObject())
         {
@@ -580,26 +605,42 @@ void WorldSession::HandleMasterLootItem(WorldPackets::Loot::MasterLootItem& pack
                 continue;
 
             loot = &pGO->loot;
+            lootSource = pGO;
         }
         else if (lootData.Object.IsLoot())
         {
             loot = sLootMgr->GetLoot(lootData.Object);
             if (!loot)
                 continue;
+
+            if (loot->objGuid.IsCreatureOrVehicle() || loot->objGuid.IsGameObject())
+                lootSource = ObjectAccessor::GetWorldObject(*_player, loot->objGuid);
         }
 
-        if (!loot)
+        if (!loot || !lootSource)
             continue;
 
-        uint8 _LootListID = lootData.LootListID - 1;    //restore slot index; WTF?
+        // only a corpse the master looter's group may loot
+        if (Creature* creature = lootSource->ToCreature())
+            if (creature->IsAlive() || creature->GetLootRecipientGroup() != group)
+                continue;
+
+        float const maxDistance = sWorld->getFloatConfig(CONFIG_GROUP_XP_DISTANCE);
+        if (!lootSource->IsWithinDistInMap(_player, maxDistance) || !lootSource->IsWithinDistInMap(target, maxDistance))
+            continue;
+
+        uint32 _LootListID = uint32(lootData.LootListID) - 1;    //restore slot index; WTF?
         if (_LootListID >= loot->items.size() + loot->quest_items.size())
         {
-            TC_LOG_DEBUG("loot", "MasterLootItem: Player %s might be using a hack! (slot %d, size %zu)",
+            TC_LOG_DEBUG("loot", "MasterLootItem: Player %s might be using a hack! (slot %u, size %zu)",
                 GetPlayer()->GetName(), _LootListID, loot->items.size());
             return;
         }
 
-        LootItem& item = _LootListID >= static_cast<uint8>(loot->items.size()) ? loot->quest_items[_LootListID - static_cast<uint8>(loot->items.size())] : loot->items[_LootListID];
+        LootItem& item = _LootListID >= loot->items.size() ? loot->quest_items[_LootListID - loot->items.size()] : loot->items[_LootListID];
+        if (item.is_looted)
+            continue;
+
         if (item.currency)
         {
             TC_LOG_DEBUG("loot", "WorldSession::HandleMasterLootItem: player %s tried to give currency via master loot! Hack alert! Slot %u, currency id %u",
@@ -609,7 +650,7 @@ void WorldSession::HandleMasterLootItem(WorldPackets::Loot::MasterLootItem& pack
 
         ItemPosCountVec dest;
         InventoryResult msg = target->CanStoreNewItem(NULL_BAG, NULL_SLOT, dest, item.item.ItemID, item.count);
-        if (item.follow_loot_rules && !loot->AllowedForPlayer(target, item.item.ItemID, item.type, item.needs_quest, &item))
+        if (item.follow_loot_rules && !loot->AllowedForPlayer(target, item.item.ItemID, item.item.CurrencyID, item.type, item.needs_quest, &item))
             msg = EQUIP_ERR_CANT_EQUIP_EVER;
         if (msg != EQUIP_ERR_OK)
         {
