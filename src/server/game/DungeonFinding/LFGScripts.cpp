@@ -83,9 +83,9 @@ void LFGPlayerScript::OnMapChanged(Player* player)
             return;
         }
 
-        for (GroupReference* itr = group->GetFirstMember(); itr != nullptr; itr = itr->next())
-            if (Player* member = itr->getSource())
-                player->GetSession()->SendNameQueryOpcode(member->GetGUID());
+        for (Group::MemberSlot const& slot : group->GetMemberSlots())
+            if (ObjectAccessor::IsPlayerOnline(slot.Guid))
+                player->GetSession()->SendNameQueryOpcode(slot.Guid);
 
         if (sLFGMgr->selectedRandomLfgDungeon(player->GetGUID(), queueId))
             player->CastSpell(player, LFG_SPELL_LUCK_OF_THE_DRAW, true);
@@ -172,22 +172,34 @@ void LFGGroupScript::OnRemoveMember(Group* group, ObjectGuid const& guid, Remove
     sLFGMgr->SetGroup(guid, ObjectGuid::Empty, queueId);
     uint8 players = sLFGMgr->RemovePlayerFromGroup(gguid, guid);
 
-    if (Player* player = ObjectAccessor::FindPlayer(guid))
+    // the leaver and the leader may stand on other maps: their part runs in their own threads
+    if (ObjectAccessor::IsPlayerOnline(guid))
     {
-        if (method == GROUP_REMOVEMETHOD_LEAVE && state == LFG_STATE_DUNGEON && players >= sLFGMgr->GetVotesNeededForKick(group->GetGUID()))
-            player->CastSpell(player, LFG_SPELL_DUNGEON_DESERTER, true);
+        bool const deserter = method == GROUP_REMOVEMETHOD_LEAVE && state == LFG_STATE_DUNGEON && players >= sLFGMgr->GetVotesNeededForKick(group->GetGUID());
         //else if (state == LFG_STATE_BOOT)
             // Update internal kick cooldown of kicked
 
+        ObjectAccessor::PostToPlayer(guid, [deserter](Player* player) -> void
+        {
+            if (deserter)
+                player->CastSpell(player, LFG_SPELL_DUNGEON_DESERTER, true);
+        }, 0, ObjectAccessor::PlayerScope::InWorld);
+
         sLFGMgr->SendLfgUpdateParty(guid, LfgUpdateData(LFG_UPDATETYPE_LEADER_UNK1, sLFGMgr->GetSelectedDungeons(guid, queueId)));
-        if (player->GetMap()->IsDungeon())            // Teleport player out the dungeon
-            sLFGMgr->TeleportPlayer(player, true);
+
+        ObjectAccessor::PostToPlayer(guid, [](Player* player) -> void
+        {
+            if (player->GetMap()->IsDungeon())            // Teleport player out the dungeon
+                sLFGMgr->TeleportPlayer(player, true);
+        }, 0, ObjectAccessor::PlayerScope::InWorld);
     }
 
     ObjectGuid lguid = sLFGMgr->GetLeader(gguid);
     if (state != LFG_STATE_FINISHED_DUNGEON && lguid != guid) // Need more players to finish the dungeon
-        if (Player* leader = ObjectAccessor::FindPlayer(sLFGMgr->GetLeader(gguid)))
-            leader->SendLfgOfferContinue(sLFGMgr->GetDungeon(gguid, false));
+    {
+        uint32 const dungeonId = sLFGMgr->GetDungeon(gguid, false);
+        ObjectAccessor::PostToPlayer(lguid, [dungeonId](Player* leader) -> void { leader->SendLfgOfferContinue(dungeonId); }, 0, ObjectAccessor::PlayerScope::InWorld);
+    }
 
     sLFGMgr->SetLfgGroup(guid, ObjectGuid::Empty, queueId);
 }

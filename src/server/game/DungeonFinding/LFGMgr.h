@@ -432,7 +432,8 @@ private:
     void SetState(ObjectGuid guid, LfgState state, uint32 queueId);
     void SetEligibleForCTAReward(ObjectGuid guid, uint8 roles);
     void RemovePlayerData(ObjectGuid guid, uint32 queueId);
-    void GetCompatibleDungeons(LfgDungeonSet& dungeons, GuidSet const& players, LfgLockPartyMap& lockMap);
+    void GetCompatibleDungeons(LfgDungeonSet& dungeons, GuidSet const& players, LfgLockPartyMap& lockMap, LfgLockPartyMap const& lockedByPlayer);
+    void RewardDungeonDone(Player* player, ObjectGuid gguid, uint32 rDungeonId, uint32 dungeonId);
     void _SaveToDB(ObjectGuid guid, uint32 db_guid);
     void SetQueueId(ObjectGuid guid, uint32 queueId);
 
@@ -459,8 +460,11 @@ private:
     LfgCompletedMaskContainer CompletedMaskStore;      ///< Instance Completed Encounter Mask
     DungeonSet PlayerDungeons;
     DungeonSet GroupDungeons;
-    // Taken by every function that touches the stores below: the world thread runs Update while
-    // each map thread calls in (finished encounters, group changes, packets of its players)
+    // Taken by every function that touches the stores below and the queues (LFGQueue has no lock of its
+    // own): the world thread runs Update while each map thread calls in. Always taken through LfgGuard
+    // (LFGMgr.cpp), which keeps it a leaf: packets, player, group and other manager calls made under it
+    // are queued and run by the same thread after release. Only leaf locks are taken under it: SocialMgr
+    // (ignore checks), LfgPlayerData, ObjectAccessor lookups, the logger.
     mutable std::recursive_mutex m_lock;
     bool m_Testing = false;
 

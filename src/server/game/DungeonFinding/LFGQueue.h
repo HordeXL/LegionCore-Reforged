@@ -167,7 +167,7 @@ class LFGQueue
         LfgWaitTimesContainer waitTimesDpsStore;           ///< Average wait time to find a group queuing as dps
         GuidList currentQueueStore;                        ///< Ordered list. Used to find groups
         GuidList newToQueueStore;                          ///< New groups to add to queue
-        std::recursive_mutex m_lock;
+        // No lock here: only reached through LFGMgr, with LFGMgr::m_lock held
 };
 
 } // namespace lfg
