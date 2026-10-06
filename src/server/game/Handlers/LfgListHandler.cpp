@@ -36,62 +36,54 @@ void WorldSession::HandleLfgListSearch(WorldPackets::LfgList::LfgListSearch& pac
         return;
     }
 
+    // copies: the listings stay inside LFGListMgr, under its lock
     auto list = sLFGListMgr->GetFilteredList(packet.CategoryID, packet.SearchTerms, packet.LanguageSearchFilter, GetPlayer());
     results.AppicationsCount = list.size();
 
-    for (auto& lfgEntry : list)
+    for (auto const& lfgEntry : list)
     {
-        WorldPackets::LfgList::ListSearchResult result;
-        auto group = lfgEntry->ApplicationGroup;
-        if (!group)
+        // the leader may stand on another map: only his guild id is read, under the accessor lock
+        ObjectGuid::LowType leaderGuildId = 0;
+        if (!ObjectAccessor::WithPlayer(lfgEntry.LeaderGuid, [&leaderGuildId](Player* leader) { leaderGuildId = leader->GetGuildId(); }))
             continue;
 
-        auto leader = ObjectAccessor::FindPlayer(group->GetLeaderGUID());
-        if (!leader)
-            continue;
-
-        if (lfgEntry->PrivateGroup)
-            if ((!sSocialMgr->HasInFriendsList(GetPlayer(), group->GetLeaderGUID()) || 
-                !sSocialMgr->HasInFriendsList(leader, GetPlayer()->GetGUID())) && 
-                (GetPlayer()->GetGuildId() == 0 ||GetPlayer()->GetGuildId() != leader->GetGuildId()))
+        if (lfgEntry.PrivateGroup)
+            if ((!sSocialMgr->HasInFriendsList(GetPlayer(), lfgEntry.LeaderGuid) ||
+                !sSocialMgr->HasContact(GetPlayer()->GetGUID(), lfgEntry.LeaderGuid, SOCIAL_FLAG_FRIEND)) &&
+                (GetPlayer()->GetGuildId() == 0 ||GetPlayer()->GetGuildId() != leaderGuildId))
                 continue;
 
-        auto activityID = lfgEntry->GroupFinderActivityData->ID;
+        auto activityID = lfgEntry.ActivityID;
 
-        result.ApplicationTicket.RequesterGuid = group->GetGUID();
-        result.ApplicationTicket.Id = group->GetGUIDLow();
+        WorldPackets::LfgList::ListSearchResult result;
+        result.ApplicationTicket.RequesterGuid = lfgEntry.GroupGuid;
+        result.ApplicationTicket.Id = lfgEntry.GroupGuid.GetGUIDLow();
         result.ApplicationTicket.Type = WorldPackets::LFG::RideType::LfgListApplication;
-        result.ApplicationTicket.Time = lfgEntry->CreationTime;
-        result.UnkGuid1 = group->GetLeaderGUID();
-        result.UnkGuid2 = group->GetLeaderGUID();
-        result.UnkGuid3 = group->GetLeaderGUID();
-        result.UnkGuid4 = group->GetLeaderGUID();
+        result.ApplicationTicket.Time = lfgEntry.CreationTime;
+        result.UnkGuid1 = lfgEntry.LeaderGuid;
+        result.UnkGuid2 = lfgEntry.LeaderGuid;
+        result.UnkGuid3 = lfgEntry.LeaderGuid;
+        result.UnkGuid4 = lfgEntry.LeaderGuid;
         result.BNetFriendsGuids = sSocialMgr->GetBNetFriendsGuids(activityID);
         result.NumCharFriendsGuids = sSocialMgr->GetCharFriendsGuids(GetPlayer(), activityID);
         result.NumGuildMateGuids = sSocialMgr->GetGuildMateGuids(activityID);
         result.VirtualRealmAddress = GetVirtualRealmAddress();
         result.CompletedEncounters = 0;
-        result.Age = lfgEntry->CreationTime;
+        result.Age = lfgEntry.CreationTime;
         result.ResultID = 3;
         result.ApplicationStatus = AsUnderlyingType(LFGListApplicationStatus::None);
 
-        for (auto const& member : group->GetMemberSlots())
-        {
-            uint8 role = member.Roles >= 2 ? std::log2(member.Roles) - 1 : member.Roles;
-            result.Members.emplace_back(member.Class, role);
-        }
-        //for (auto const& member : lfgEntry->ApplicationsContainer)
-        //    if (auto applicant = member.second.GetPlayer())
-        //        result.Members.emplace_back(applicant->getClass(), member.second.RoleMask);
+        for (auto const& member : lfgEntry.Members)
+            result.Members.emplace_back(member.first, member.second);
 
         result.JoinRequest.ActivityID = activityID;
-        result.JoinRequest.ItemLevel = lfgEntry->ItemLevel;
-        result.JoinRequest.HonorLevel = lfgEntry->HonorLevel;
-        result.JoinRequest.GroupName = lfgEntry->GroupName;
-        result.JoinRequest.Comment = lfgEntry->Comment;
-        result.JoinRequest.VoiceChat = lfgEntry->VoiceChat;
-        result.JoinRequest.AutoAccept = lfgEntry->AutoAccept;
-        result.JoinRequest.QuestID = lfgEntry->QuestID;
+        result.JoinRequest.ItemLevel = lfgEntry.ItemLevel;
+        result.JoinRequest.HonorLevel = lfgEntry.HonorLevel;
+        result.JoinRequest.GroupName = lfgEntry.GroupName;
+        result.JoinRequest.Comment = lfgEntry.Comment;
+        result.JoinRequest.VoiceChat = lfgEntry.VoiceChat;
+        result.JoinRequest.AutoAccept = lfgEntry.AutoAccept;
+        result.JoinRequest.QuestID = lfgEntry.QuestID;
 
         results.SearchResults.emplace_back(result);
     }
@@ -113,21 +105,35 @@ void WorldSession::HandleLfgListJoin(WorldPackets::LfgList::LfgListJoin& packet)
         list->QuestID = *packet.Request.QuestID;
     list->ApplicationGroup = nullptr;
     list->PrivateGroup = packet.Request.PrivateGroup;
-    sLFGListMgr->Insert(list, GetPlayer());
+    if (!sLFGListMgr->Insert(list, GetPlayer()))
+        delete list;
+}
+
+// The group the player may manage in the group finder: only its leader or an assistant handle the listing.
+static ObjectGuid::LowType GetManagedLfgListGroup(Player* player, bool leaderOnly = false)
+{
+    Group* group = player->GetGroup();
+    if (group && (group->isBGGroup() || group->isBFGroup()))
+        group = player->GetOriginalGroup();
+
+    if (!group || (!group->IsLeader(player->GetGUID()) && (leaderOnly || !group->IsAssistant(player->GetGUID()))))
+        return 0;
+
+    return group->GetGUIDLow();
 }
 
 void WorldSession::HandleLfgListLeave(WorldPackets::LfgList::LfgListLeave& packet)
 {
-    auto entry = sLFGListMgr->GetEntrybyGuidLow(packet.ApplicationTicket.Id);
-    if (!entry || !entry->ApplicationGroup->IsLeader(GetPlayer()->GetGUID()))
+    ObjectGuid::LowType groupLowGuid = GetManagedLfgListGroup(GetPlayer(), true);
+    if (!groupLowGuid || groupLowGuid != packet.ApplicationTicket.Id)
         return;
 
-    sLFGListMgr->Remove(packet.ApplicationTicket.Id, GetPlayer());
+    sLFGListMgr->Remove(groupLowGuid, GetPlayer());
 }
 
 void WorldSession::HandleLfgListInviteResponse(WorldPackets::LfgList::LfgListInviteResponse& packet)
 {
-    sLFGListMgr->ChangeApplicantStatus(sLFGListMgr->GetApplicationByID(packet.ApplicantTicket.Id), packet.Accept ? LFGListApplicationStatus::InviteAccepted : LFGListApplicationStatus::InviteDeclined);
+    sLFGListMgr->RespondToInvite(GetPlayer(), packet.ApplicantTicket.Id, packet.Accept);
 }
 
 void WorldSession::HandleLfgListGetStatus(WorldPackets::LfgList::LfgListGetStatus& /*packet*/)
@@ -144,53 +150,25 @@ void WorldSession::HandleLfgListApplyToGroup(WorldPackets::LfgList::LfgListApply
 
 void WorldSession::HandleLfgListCancelApplication(WorldPackets::LfgList::LfgListCancelApplication& packet)
 {
-    if (auto entry = sLFGListMgr->GetEntryByApplicant(packet.ApplicantTicket))
-        sLFGListMgr->ChangeApplicantStatus(entry->GetApplicant(packet.ApplicantTicket.Id), LFGListApplicationStatus::Cancelled);
+    sLFGListMgr->CancelApplication(GetPlayer(), packet.ApplicantTicket.Id, packet.ApplicantTicket.Time);
 }
 
 void WorldSession::HandleLfgListDeclineApplicant(WorldPackets::LfgList::LfgListDeclineApplicant& packet)
 {
-    if (!_player->GetGroup()->IsAssistant(_player->GetGUID()) && !_player->GetGroup()->IsLeader(_player->GetGUID()))
-        return;
-
-    if (auto entry = sLFGListMgr->GetEntrybyGuidLow(packet.ApplicantTicket.Id))
-        sLFGListMgr->ChangeApplicantStatus(entry->GetApplicant(packet.ApplicationTicket.Id), LFGListApplicationStatus::Declined);
+    if (ObjectGuid::LowType groupLowGuid = GetManagedLfgListGroup(_player))
+        sLFGListMgr->DeclineApplicant(groupLowGuid, packet.ApplicationTicket.Id);
 }
 
 void WorldSession::HandleLfgListInviteApplicant(WorldPackets::LfgList::LfgListInviteApplicant& packet)
 {
-    if (!_player->GetGroup()->IsAssistant(_player->GetGUID()) && !_player->GetGroup()->IsLeader(_player->GetGUID()))
+    if (packet.Applicant.empty())
         return;
 
-    //packet.Applicant
-    //packet.ApplicationTicket
-    if (auto entry = sLFGListMgr->GetEntrybyGuidLow(packet.ApplicantTicket.Id))
-    {
-        auto applicant = entry->GetApplicant(packet.ApplicationTicket.Id);
-        applicant->RoleMask = (*packet.Applicant.begin()).Role;
-
-        sLFGListMgr->ChangeApplicantStatus(applicant, LFGListApplicationStatus::Invited);
-    }
+    if (ObjectGuid::LowType groupLowGuid = GetManagedLfgListGroup(_player))
+        sLFGListMgr->InviteApplicant(groupLowGuid, packet.ApplicationTicket.Id, packet.Applicant.front().Role);
 }
 
 void WorldSession::HandleLfgListUpdateRequest(WorldPackets::LfgList::LfgListUpdateRequest& packet)
 {
-    auto entry = sLFGListMgr->GetEntrybyGuidLow(packet.Ticket.Id);
-    if (!entry || !entry->ApplicationGroup->IsLeader(_player->GetGUID()))
-        return;
-
-    entry->AutoAccept = packet.UpdateRequest.AutoAccept;
-    entry->GroupName = packet.UpdateRequest.GroupName;
-    entry->Comment = packet.UpdateRequest.Comment;
-    entry->VoiceChat = packet.UpdateRequest.VoiceChat;
-    entry->HonorLevel = packet.UpdateRequest.HonorLevel;
-    if (packet.UpdateRequest.QuestID.has_value())
-        entry->QuestID = *packet.UpdateRequest.QuestID;
-
-    if (packet.UpdateRequest.ItemLevel < sLFGListMgr->GetPlayerItemLevelForActivity(entry->GroupFinderActivityData, _player))
-        entry->ItemLevel = packet.UpdateRequest.ItemLevel;
-    entry->PrivateGroup = packet.UpdateRequest.PrivateGroup;
-
-    sLFGListMgr->AutoInviteApplicantsIfPossible(entry);
-    sLFGListMgr->SendLFGListStatusUpdate(entry);
+    sLFGListMgr->UpdateEntry(_player, packet.Ticket.Id, packet.UpdateRequest);
 }

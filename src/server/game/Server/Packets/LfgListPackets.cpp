@@ -16,6 +16,12 @@
  */
 
 #include "LfgListPackets.h"
+#include "PacketUtilities.h"
+
+// Client-sized arrays: generous caps, far above what the 7.3.5 client sends.
+static uint32 const MAX_LFG_LIST_SEARCH_BLACKLIST = 1000;
+static uint32 const MAX_LFG_LIST_SEARCH_GUIDS = 200;
+static uint32 const MAX_LFG_LIST_APPLICANT_MEMBERS = 40;
 
 ByteBuffer& operator<<(ByteBuffer& data, WorldPackets::LfgList::LFGListBlacklist const& blackList)
 {
@@ -77,7 +83,7 @@ ByteBuffer& operator>>(ByteBuffer& data, WorldPackets::LfgList::ListRequest& joi
     join.VoiceChat = data.ReadString(VoiceChateLen);
 
     if (isForQuest)
-        data >> *join.QuestID;
+        join.QuestID = data.read<uint32>();
 
     return data;
 }
@@ -153,7 +159,7 @@ void WorldPackets::LfgList::LfgListSearch::Read()
     {
         for (uint32 i = 0; i < count; i++)
         {
-            auto len = new uint32[3];
+            uint32 len[3];
             for (int i = 0; i < 3; i++)
                 len[i] = _worldPacket.ReadBits(5);
 
@@ -168,8 +174,16 @@ void WorldPackets::LfgList::LfgListSearch::Read()
     _worldPacket >> SearchTerms;
     _worldPacket >> Filter;
     _worldPacket >> PreferredFilters;
-    Blacklist.resize(_worldPacket.read<uint32>());
-    Guids.resize(_worldPacket.read<uint32>());
+
+    uint32 blacklistCount = _worldPacket.read<uint32>();
+    uint32 guidCount = _worldPacket.read<uint32>();
+    if (blacklistCount > MAX_LFG_LIST_SEARCH_BLACKLIST)
+        throw WorldPackets::PacketArrayMaxCapacityException(blacklistCount, MAX_LFG_LIST_SEARCH_BLACKLIST);
+    if (guidCount > MAX_LFG_LIST_SEARCH_GUIDS)
+        throw WorldPackets::PacketArrayMaxCapacityException(guidCount, MAX_LFG_LIST_SEARCH_GUIDS);
+
+    Blacklist.resize(blacklistCount);
+    Guids.resize(guidCount);
 
     for (auto& v : Blacklist)
     {
@@ -259,7 +273,12 @@ void WorldPackets::LfgList::LfgListInviteApplicant::Read()
 {
     _worldPacket >> ApplicantTicket;
     _worldPacket >> ApplicationTicket;
-    Applicant.resize(_worldPacket.read<uint32>());
+
+    uint32 applicantCount = _worldPacket.read<uint32>();
+    if (applicantCount > MAX_LFG_LIST_APPLICANT_MEMBERS)
+        throw WorldPackets::PacketArrayMaxCapacityException(applicantCount, MAX_LFG_LIST_APPLICANT_MEMBERS);
+
+    Applicant.resize(applicantCount);
     for (auto& v : Applicant)
     {
         _worldPacket >> v.PlayerGUID;

@@ -96,11 +96,6 @@ struct LFGListEntry
 
     LFGListEntry();
 
-    bool IsApplied(ObjectGuid::LowType guidLow) const;
-    bool IsApplied(Player* player) const;
-
-    void BroadcastApplicantUpdate(LFGListApplicationEntry const* applicant);
-
     LFGListApplicationEntry* GetApplicant(ObjectGuid::LowType id);
     LFGListApplicationEntry* GetApplicantByPlayerGUID(ObjectGuid::LowType lowGuid);
 
@@ -123,4 +118,22 @@ struct LFGListEntry
     std::string VoiceChat;
     bool AutoAccept;
     bool PrivateGroup = false;
+};
+
+// Copy of a listing taken under LFGListMgr's lock, so that packets can be built and sent once it is released.
+struct LFGListEntrySnapshot
+{
+    ObjectGuid GroupGuid;
+    ObjectGuid LeaderGuid;
+    uint32 ActivityID = 0;
+    uint32 CreationTime = 0;
+    uint32 HonorLevel = 0;
+    uint32 QuestID = 0;
+    float ItemLevel = 0.0f;
+    std::string GroupName;
+    std::string Comment;
+    std::string VoiceChat;
+    bool AutoAccept = false;
+    bool PrivateGroup = false;
+    std::vector<std::pair<uint8, uint8>> Members;   // class, role
 };

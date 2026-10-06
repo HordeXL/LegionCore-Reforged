@@ -25,80 +25,15 @@ Player* LFGListEntry::LFGListApplicationEntry::GetPlayer() const
     return sObjectMgr->GetPlayerByLowGUID(PlayerLowGuid);
 };
 
-bool LFGListEntry::IsApplied(ObjectGuid::LowType guidLow) const
-{
-    return ApplicationsContainer.find(guidLow) != ApplicationsContainer.end();
-}
-
-bool LFGListEntry::IsApplied(Player* player) const
-{
-    return IsApplied(player->GetGUIDLow());
-}
-
-void LFGListEntry::BroadcastApplicantUpdate(LFGListApplicationEntry const* applicant)
-{
-    auto applicantList = std::list<LFGListEntry::LFGListApplicationEntry const*>({applicant}); // nyi
-
-    WorldPackets::LfgList::LfgListApplicationUpdate update;
-    update.ApplicationTicket.RequesterGuid = ApplicationGroup->GetGUID();
-    update.ApplicationTicket.Id = ApplicationGroup->GetGUIDLow();
-    update.ApplicationTicket.Type = WorldPackets::LFG::RideType::LfgListApplication;
-    update.ApplicationTicket.Time = CreationTime;
-
-    update.UnkInt = 6;
-
-    for (auto const& v : applicantList)
-    {
-        auto player = v->GetPlayer();
-
-        WorldPackets::LfgList::ApplicantInfo info;
-        info.ApplicantTicket.RequesterGuid = ObjectGuid::Create<HighGuid::Player>(v->PlayerLowGuid);
-        info.ApplicantTicket.Id = v->ID;
-        info.ApplicantTicket.Type = WorldPackets::LFG::RideType::LfgListApplicant;
-        info.ApplicantTicket.Time = v->ApplicationTime;
-
-        info.ApplicantPartyLeader = ObjectGuid::Create<HighGuid::Player>(v->PlayerLowGuid);
-        info.ApplicationStatus = AsUnderlyingType(v->ApplicationStatus);
-        info.Comment = v->Comment;
-        info.Listed = v->Listed;
-
-        if (player && v->Listed)
-        {
-            WorldPackets::LfgList::ApplicantMember member;
-            member.PlayerGUID = player->GetGUID();
-            member.VirtualRealmAddress = GetVirtualRealmAddress();
-            member.Level = player->getLevel();
-            member.HonorLevel = player->GetHonorLevel();
-            member.ItemLevel = sLFGListMgr->GetPlayerItemLevelForActivity(GroupFinderActivityData, player);
-            member.PossibleRoleMask = v->RoleMask;
-            member.SelectedRoleMask = 0;
-
-            //for (auto const& v : applicants)
-            //{
-            //    ACStatInfo info;
-            //    info.UnkInt4 = v.Role;
-            //    info.UnkInt5 = 0;
-            //    AcStat.emplace_back(info);
-            //}
-
-            info.Member.emplace_back(member);
-        }
-
-        update.Applicants.emplace_back(info);
-    }
-
-    ApplicationGroup->BroadcastPacket(update.Write(), false);
-}
-
 void LFGListEntry::LFGListApplicationEntry::ResetTimeout()
 {
     Timeout = GameTime::GetGameTime() + (ApplicationStatus == LFGListApplicationStatus::Invited ? LFG_LIST_INVITE_TO_GROUP_TIMEOUT : LFG_LIST_APPLY_FOR_GROUP_TIMEOUT);
 }
 
+// the status update is sent by LFGListMgr once its lock is released
 void LFGListEntry::ResetTimeout()
 {
     Timeout = GameTime::GetGameTime() + LFG_LIST_GROUP_TIMEOUT;
-    sLFGListMgr->SendLFGListStatusUpdate(this);
 }
 
 uint32 LFGListEntry::GetID() const
@@ -106,19 +41,9 @@ uint32 LFGListEntry::GetID() const
     return ApplicationGroup->GetGUIDLow();
 }
 
-bool LFGListEntry::Update(uint32 const diff)
+// expired applications are handled by LFGListMgr::Update, which owns the lock and the packets
+bool LFGListEntry::Update(uint32 const /*diff*/)
 {
-    for (auto itr = ApplicationsContainer.begin(); itr != ApplicationsContainer.end();)
-    {
-        if (!itr->second.Update(diff))
-        {
-            sLFGListMgr->ChangeApplicantStatus(&itr->second, LFGListApplicationStatus::Timeout);
-            itr = ApplicationsContainer.begin();
-        }
-        else
-            ++itr;
-    }
-
     return Timeout > GameTime::GetGameTime();
 }
 
