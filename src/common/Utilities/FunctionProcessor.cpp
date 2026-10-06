@@ -69,12 +69,12 @@ void FunctionProcessor::AddFunction(std::function<void()> && Function, uint64 e_
 
 void FunctionProcessor::AddFunctionsFromQueue()
 {
-    if (m_functions_queue.empty())
-        return;
-
+    // other threads fill the queue (AddDelayedEvent on a player owned by another map): even the emptiness test is locked
     FunctionList tempFunctions;
     {
         std::lock_guard<std::recursive_mutex> _queue_lock(m_queue_lock);
+        if (m_functions_queue.empty())
+            return;
         std::swap(tempFunctions, m_functions_queue);
     }
     FunctionList::iterator itr = tempFunctions.begin();

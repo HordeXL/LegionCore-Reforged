@@ -260,12 +260,34 @@ Pet* ObjectAccessor::FindPet(ObjectGuid const& guid)
     return GetObjectInWorld(guid, static_cast<Pet*>(nullptr));
 }
 
-Player* ObjectAccessor::FindPlayer(ObjectGuid const& guid, bool checInWorld/*=true*/)
+Player* ObjectAccessor::FindPlayer(ObjectGuid const& guid, bool /*checInWorld*/ /*=true*/)
 {
-    Player* res = GetObjectInWorld(guid, static_cast<Player*>(nullptr));
-    if (res && !res->IsInWorld())
-        return nullptr;
-    return res;
+    return GetObjectInWorld(guid, static_cast<Player*>(nullptr));
+}
+
+bool ObjectAccessor::PostToPlayer(ObjectGuid guid, std::function<void(Player*)>&& action, uint64 delay /*= 0*/, PlayerScope scope /*= PlayerScope::InOrOutOfWorld*/)
+{
+    return HashMapHolder<Player>::Visit(guid, [&](Player* player)
+    {
+        if (player->IsDelete() || player->IsPreDelete())
+            return false;
+
+        if (scope == PlayerScope::InWorld && !player->IsInWorld())
+            return false;
+
+        player->AddDelayedEvent(delay, [player, action = std::move(action)]() -> void { action(player); });
+        return true;
+    });
+}
+
+bool ObjectAccessor::SendToPlayer(ObjectGuid guid, WorldPacket const* packet)
+{
+    return WithPlayer(guid, [packet](Player* player) { player->SendDirectMessage(packet); });
+}
+
+bool ObjectAccessor::IsPlayerOnline(ObjectGuid guid)
+{
+    return WithPlayer(guid, [](Player*) {});
 }
 
 Unit* ObjectAccessor::FindUnit(ObjectGuid const& guid)
@@ -291,12 +313,25 @@ Player* ObjectAccessor::FindPlayerByName(std::string name)
     return HashMapHolder<Player>::FindStr(name);
 }
 
+ObjectGuid ObjectAccessor::FindPlayerGuidByName(std::string name)
+{
+    name = sObjectMgr->GetRealCharName(name);
+    std::transform(name.begin(), name.end(), name.begin(), ::tolower);
+
+    return HashMapHolder<Player>::FindGuidStr(name);
+}
+
 void ObjectAccessor::SaveAllPlayers()
 {
+    // SaveToDB reads the player and takes his map's and guild's locks: each one saves in his own thread
+    std::vector<ObjectGuid> guids;
     HashMapHolder<Player>::GetLock().lock_shared();
     for (auto &pair : GetPlayers())
-        pair.second->SaveToDB();
+        guids.push_back(pair.first);
     HashMapHolder<Player>::GetLock().unlock_shared();
+
+    for (ObjectGuid const& guid : guids)
+        PostToPlayer(guid, [](Player* player) { player->SaveToDB(); });
 }
 
 Corpse* ObjectAccessor::GetCorpseForPlayerGUID(ObjectGuid guid)

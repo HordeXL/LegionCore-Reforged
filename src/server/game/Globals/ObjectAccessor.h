@@ -50,51 +50,56 @@ public:
     typedef std::unordered_map<std::string, T*> MapTypeStr;
     typedef std::vector<T*> MapTypeVector;
 
+    // Players: i_lock (exclusive) is taken first and held while the slot and the maps change, so that a Visit never
+    // sees an object that is being removed. Lock order: i_lock -> i_lockVector. Callers must not hold i_lock
+    // (shared included: contention_free_shared_mutex forbids shared -> exclusive), e.g. never from inside Visit.
     static void Insert(T* o)
     {
-        uint64 guidlow = o->GetGUIDLow();
-        {
-            // shared: slots are written in place, only SetSize reallocates the vector
-            std::shared_lock<sf::contention_free_shared_mutex< >> guard(i_lockVector);
-            if (guidlow >= _size) // If guid buged don`t check it
-                return;
-
-            _objectVector[guidlow] = o;
-        }
-
         if (o->IsPlayer())
         {
-            i_lock.lock();
+            std::unique_lock<sf::contention_free_shared_mutex< >> lock(i_lock);
+            SetSlot(o);
             _objectMap[o->GetGUID()] = o;
-            std::string _name = o->GetName();
-            std::transform(_name.begin(), _name.end(), _name.begin(), ::tolower);
-            _objectMapStr[_name] = o;
-            i_lock.unlock();
+            _objectMapStr[LowerName(o)] = o;
+            return;
         }
+
+        SetSlot(o);
     }
 
     static void Remove(T* o)
     {
-        uint64 guidlow = o->GetGUIDLow();
-        {
-            std::shared_lock<sf::contention_free_shared_mutex< >> guard(i_lockVector);
-            if (guidlow >= _size) // If guid buged don`t check it
-                return;
-
-            // transports and gameobjects have separate counters but share this table
-            if (_objectVector[guidlow] == o)
-                _objectVector[guidlow] = nullptr;
-        }
-
         if (o->IsPlayer())
         {
-            i_lock.lock();
-            _objectMap.erase(o->GetGUID());
-            std::string _name = o->GetName();
-            std::transform(_name.begin(), _name.end(), _name.begin(), ::tolower);
-            _objectMapStr.erase(_name);
-            i_lock.unlock();
+            std::unique_lock<sf::contention_free_shared_mutex< >> lock(i_lock);
+            ClearSlot(o);
+
+            // on a reconnect the new object may already be registered under the same guid and name
+            auto itr = _objectMap.find(o->GetGUID());
+            if (itr != _objectMap.end() && itr->second == o)
+                _objectMap.erase(itr);
+
+            auto itrStr = _objectMapStr.find(LowerName(o));
+            if (itrStr != _objectMapStr.end() && itrStr->second == o)
+                _objectMapStr.erase(itrStr);
+            return;
         }
+
+        ClearSlot(o);
+    }
+
+    // Players only (the guid map holds nothing else). fn(T*) -> bool runs under the shared i_lock: the object cannot
+    // be removed, hence deleted, meanwhile. fn must stay short and never call Insert/Remove (login, logout, map removal)
+    // nor take a lock that is held around a Visit (see ObjectAccessor lock order).
+    template<class Fn>
+    static bool Visit(ObjectGuid guid, Fn&& fn)
+    {
+        std::shared_lock<sf::contention_free_shared_mutex< >> lock(i_lock);
+        auto itr = _objectMap.find(guid);
+        if (itr == _objectMap.end() || !itr->second)
+            return false;
+
+        return fn(itr->second);
     }
 
     static T* Find(ObjectGuid guid)
@@ -130,6 +135,13 @@ public:
         return (itr != _objectMapStr.end()) ? itr->second : nullptr;
     }
 
+    static ObjectGuid FindGuidStr(std::string const& name)
+    {
+        std::shared_lock<sf::contention_free_shared_mutex< >> guard(i_lock);
+        typename MapTypeStr::iterator itr = _objectMapStr.find(name);
+        return (itr != _objectMapStr.end() && itr->second) ? itr->second->GetGUID() : ObjectGuid::Empty;
+    }
+
     static void SetSize(uint64 size)
     {
         // called on every guid generation: the exclusive lock only for an actual resize
@@ -157,6 +169,31 @@ private:
 
     //Non instanceable only static
     HashMapHolder() { _checkLock = false; _size = 0; }
+
+    static std::string LowerName(T const* o)
+    {
+        std::string name = o->GetName();
+        std::transform(name.begin(), name.end(), name.begin(), ::tolower);
+        return name;
+    }
+
+    static void SetSlot(T* o)
+    {
+        // shared: slots are written in place, only SetSize reallocates the vector
+        std::shared_lock<sf::contention_free_shared_mutex< >> guard(i_lockVector);
+        uint64 guidlow = o->GetGUIDLow();
+        if (guidlow < _size) // If guid buged don`t check it
+            _objectVector[guidlow] = o;
+    }
+
+    static void ClearSlot(T* o)
+    {
+        std::shared_lock<sf::contention_free_shared_mutex< >> guard(i_lockVector);
+        uint64 guidlow = o->GetGUIDLow();
+        // transports and gameobjects have separate counters but share this table
+        if (guidlow < _size && _objectVector[guidlow] == o)
+            _objectVector[guidlow] = nullptr;
+    }
 
     // several high types share one counter per table; anything else under another high type is a different object with the same low guid
     // (e.g. ship transports, numbered 1..n, against the first gameobject spawns)
@@ -216,13 +253,18 @@ public:
         return HashMapHolder<T>::Find(guid);
     }
 
-    // Player may be not in world while in ObjectAccessor
+    // Player may be not in world while in ObjectAccessor. The test runs under the accessor lock, but the returned
+    // pointer is only safe in the caller's own map thread (see PostToPlayer / WithPlayer)
     static Player* GetObjectInWorld(ObjectGuid guid, Player* /*typeSpecifier*/)
     {
-        Player* player = HashMapHolder<Player>::Find(guid);
-        if (player && player->IsInWorld() && !player->IsPreDelete())
-            return player;
-        return nullptr;
+        Player* found = nullptr;
+        HashMapHolder<Player>::Visit(guid, [&found](Player* player)
+        {
+            if (player->IsInWorld() && !player->IsPreDelete())
+                found = player;
+            return true;
+        });
+        return found;
     }
 
     static Unit* GetObjectInWorld(ObjectGuid guid, Unit* /*typeSpecifier*/)
@@ -236,12 +278,32 @@ public:
         return static_cast<Unit*>(GetObjectInWorld(guid, static_cast<Creature*>(nullptr)));
     }
 
+    // the map is compared under the accessor lock: a player of another map may be deleted right after
+    static Player* GetObjectInMap(ObjectGuid guid, Map* map, Player* /*typeSpecifier*/)
+    {
+        if (!map)
+            return nullptr;
+
+        Player* found = nullptr;
+        HashMapHolder<Player>::Visit(guid, [&found, map](Player* player)
+        {
+            if (player->IsInWorld() && !player->IsPreDelete() && player->FindMap() == map)
+                found = player;
+            return true;
+        });
+        return found;
+    }
+
     // returns object if is in map
     template<class T> static T* GetObjectInMap(ObjectGuid guid, Map* map, T* /*typeSpecifier*/)
     {
         // ASSERT(map);
         if (!map)
             return nullptr;
+
+        if constexpr (std::is_base_of_v<T, Player>)
+            if (guid.IsPlayer())
+                return GetObjectInMap(guid, map, static_cast<Player*>(nullptr));
 
         if (T* obj = GetObjectInWorld(guid, static_cast<T*>(nullptr)))
             if (obj->GetMap() == map && !obj->IsPreDelete())
@@ -298,6 +360,9 @@ public:
 
     // these functions return objects if found in whole world
     // ACCESS LIKE THAT IS NOT THREAD SAFE
+    // A player found by guid lives in his own map thread and is deleted there right after leaving the accessor:
+    // the pointer may only be used by code running in that player's map thread (his packet handlers included).
+    // From any other thread use PostToPlayer, WithPlayer or SendToPlayer.
     static Pet* FindPet(ObjectGuid const& g);
     static Player* FindPlayer(ObjectGuid const& g, bool inWorld = true);
     static Unit* FindUnit(ObjectGuid const& g);
@@ -305,6 +370,47 @@ public:
     static Creature* FindCreature(ObjectGuid const& guid);
 
     static Player* FindPlayerByName(std::string name);
+    // for another thread's player: then use WithPlayer / PostToPlayer with the guid
+    static ObjectGuid FindPlayerGuidByName(std::string name);
+
+    /* Cross-thread access to a player known by guid. The pointer never leaves the accessor lock.
+     *
+     * Lock order: domain locks (guild, group, LFG, LFG list, pet battle, battleground queue, auction...)
+     *   -> HashMapHolder<Player> i_lock (shared) -> leaf locks only: FunctionProcessor queue, socket send queue,
+     *   packet log, SocialMgr::m_social_lock, GuildMgr store lock, Guild::m_leafLock (nothing is taken under them).
+     * Insert/Remove (login, map removal) take i_lock exclusively and call nothing out under it; they are never run
+     * from inside a Visit (shared -> exclusive is forbidden by contention_free_shared_mutex). Code under i_lock must
+     * not take a domain lock: a writer waiting for i_lock blocks new readers, so a reader waiting for a domain lock
+     * whose holder wants i_lock would close a cycle.
+     *
+     * A posted action runs later in the player's own Update, only while he is in world, and is destroyed unrun if
+     * he logs out first: post in-memory changes and packets only, never a database write that must happen. */
+    enum class PlayerScope
+    {
+        InWorld,            // refused while the player is between maps (far teleport, loading)
+        InOrOutOfWorld      // kept until he is back in a map
+    };
+
+    static bool PostToPlayer(ObjectGuid guid, std::function<void(Player*)>&& action, uint64 delay = 0, PlayerScope scope = PlayerScope::InOrOutOfWorld);
+
+    // fn(Player*) runs now, in the caller's thread, under the accessor lock: short reads of fields that are stable or
+    // atomic, and packet sends only. Never login/logout, map changes, or anything that may take a domain lock.
+    template<class Fn>
+    static bool WithPlayer(ObjectGuid guid, Fn&& fn, PlayerScope scope = PlayerScope::InWorld)
+    {
+        return HashMapHolder<Player>::Visit(guid, [&fn, scope](Player* player)
+        {
+            if (player->IsDelete() || player->IsPreDelete())
+                return false;
+            if (scope == PlayerScope::InWorld && !player->IsInWorld())
+                return false;
+            fn(player);
+            return true;
+        });
+    }
+
+    static bool SendToPlayer(ObjectGuid guid, WorldPacket const* packet);
+    static bool IsPlayerOnline(ObjectGuid guid);
 
     // when using this, you must use the hashmapholder's lock
     static HashMapHolder<Player>::MapType const& GetPlayers()
