@@ -185,4 +185,9 @@ struct Mail
     bool HasItems() const;
 };
 
+// In-memory side of a mail already written to the DB, for an online receiver who may be updated by another
+// map thread: applied in his own update. Takes ownership of mail and items (freed if he does not take them,
+// or is offline: the DB rows stay the reference). Returns whether it was handed over.
+TC_GAME_API bool DeliverMailInGame(ObjectGuid const& receiverGuid, Mail* mail, std::vector<Item*>&& items);
+
 #endif

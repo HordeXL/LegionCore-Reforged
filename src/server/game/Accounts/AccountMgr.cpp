@@ -79,13 +79,13 @@ AccountOpResult DeleteAccount(uint32 accountId)
         {
             ObjectGuid guid = ObjectGuid::Create<HighGuid::Player>((*result)[0].GetUInt32());
 
-            // Kick if player is online
-            if (Player* p = ObjectAccessor::FindPlayer(guid))
+            // Kick if player is online. The logout runs in his own thread at the next session update, without saving
+            ObjectAccessor::WithPlayer(guid, [](Player* p)
             {
                 WorldSession* s = p->GetSession();
-                s->KickPlayer();                            // mark session to remove at next session list update
-                s->LogoutPlayer(false);                     // logout player without waiting next session list update
-            }
+                s->DisableLogoutSave();
+                s->KickPlayer();
+            });
 
             Player::DeleteFromDB(guid, accountId, false);       // no need to update realm characters
         } while (result->NextRow());

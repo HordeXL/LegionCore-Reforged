@@ -1148,6 +1148,8 @@ class TC_GAME_API WorldSession
 
         void LogoutPlayer(bool Save);
         void KickPlayer();
+        // the characters are being deleted from another thread: the coming logout must not write them back
+        void DisableLogoutSave() { m_logoutSaveDisabled = true; }
         bool CanLogout() { return canLogout; }
         void SetCanLogout() { canLogout = true; }
 
@@ -2152,6 +2154,7 @@ class TC_GAME_API WorldSession
         bool m_playerLogout;                                // code processed in LogoutPlayer
         bool m_playerRecentlyLogout;
         bool m_playerSave;
+        std::atomic<bool> m_logoutSaveDisabled{ false };
         bool m_IsPetBattleJournalLocked;
         LocaleConstant m_sessionDbLocaleIndex;
         std::atomic<uint32> m_latency;

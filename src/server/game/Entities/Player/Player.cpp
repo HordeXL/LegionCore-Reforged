@@ -6687,14 +6687,12 @@ void Player::DeleteFromDB(ObjectGuid playerguid, uint32 accountId, bool updateRe
             {
                 do
                 {
-                    if (Player* pFriend = ObjectAccessor::FindPlayer(ObjectGuid::Create<HighGuid::Player>((*resultFriends)[0].GetUInt64())))
+                    // the friend may be on another map: his list is changed in his own thread
+                    ObjectAccessor::PostToPlayer(ObjectGuid::Create<HighGuid::Player>((*resultFriends)[0].GetUInt64()), [playerguid](Player* pFriend) -> void
                     {
-                        if (pFriend->IsInWorld())
-                        {
-                            pFriend->GetSocial()->RemoveFromSocialList(playerguid, SOCIAL_FLAG_ALL);
-                            sSocialMgr->SendFriendStatus(pFriend, FRIEND_REMOVED, playerguid, false);
-                        }
-                    }
+                        pFriend->GetSocial()->RemoveFromSocialList(playerguid, SOCIAL_FLAG_ALL);
+                        sSocialMgr->SendFriendStatus(pFriend, FRIEND_REMOVED, playerguid, false);
+                    }, 0, ObjectAccessor::PlayerScope::InWorld);
                 } while (resultFriends->NextRow());
             }
 

@@ -2161,6 +2161,8 @@ class TC_GAME_API Player : public Unit, public GridObject<Player>
         void UpdateNextMailTimeAndUnreads();
         void AddNewMailDeliverTime(time_t deliver_time);
         bool IsMailsLoaded() const { return m_mailsLoaded; }
+        ObjectGuid const& GetOpenedMailbox() const { return m_openedMailboxGuid; }
+        void SetOpenedMailbox(ObjectGuid const& guid) { m_openedMailboxGuid = guid; }
 
         void RemoveMail(uint32 id);
         void SafeRemoveMailFromIgnored(ObjectGuid const& ignoredPlayerGuid);
@@ -3652,6 +3654,7 @@ class TC_GAME_API Player : public Unit, public GridObject<Player>
 
     private:
         uint32 m_openPlayerChoiceId = 0;
+        ObjectGuid m_openedMailboxGuid;
         bool m_createSpellsPending = false;
         bool m_introCinematicPlaying = false;
         uint8 m_createSpellsPose = UNIT_STAND_STATE_STAND;

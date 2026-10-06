@@ -4602,7 +4602,8 @@ void World::ProcessMailboxQueue()
             for (uint8 j = 0; j < countmails; ++j)
             {
                 uint32 mailId = sObjectMgr->GenerateMailID();
-                Player * receiver = ObjectAccessor::FindPlayer(receiver_guid);
+                // the receiver may stand on another map: items are created without him, the copy goes to his thread
+                Player* receiver = nullptr;
                 std::vector<Item*> ItemsOnMail;
                 ItemsOnMail.clear();
                 
@@ -4676,47 +4677,31 @@ void World::ProcessMailboxQueue()
                 
                 CharacterDatabase.CommitTransaction(trans);
 
-                // For online receiver update in game mail status and data
-                if (receiver)
+                // For an online receiver the in-game copy is handed to his own thread: this runs in the world thread
+                // (freed with the items if he is offline)
                 {
-                    receiver->AddNewMailDeliverTime(deliver_time);
+                    Mail *m = new Mail;
+                    m->messageID = mailId;
+                    m->messageType = messageType;
+                    m->stationery = stationery;
+                    m->mailTemplateId = 0;
+                    m->sender = sender_guid;
+                    m->receiver = receiver_guid.GetCounter();
+                    m->subject = subject;
+                    m->body = body;
 
-                    if (receiver->IsMailsLoaded())
-                    {
-                        Mail *m = new Mail;
-                        m->messageID = mailId;
-                        m->messageType = messageType;
-                        m->stationery = stationery;
-                        m->mailTemplateId = 0;
-                        m->sender = sender_guid;
-                        m->receiver = receiver->GetGUIDLow();
-                        m->subject = subject;
-                        m->body = body;
+                    for (Item* pitem : ItemsOnMail)
+                        m->AddItem(pitem->GetGUIDLow(), pitem->GetEntry());
 
-                        if(!ItemsOnMail.empty())
-                            for (Item* pitem : ItemsOnMail)
-                                m->AddItem(pitem->GetGUIDLow(), pitem->GetEntry());
+                    m->expire_time = expire_time;
+                    m->deliver_time = deliver_time;
+                    m->money = money;
+                    m->COD = 0;
+                    m->checked = 0;
+                    m->state = MAIL_STATE_UNCHANGED;
 
-                        m->expire_time = expire_time;
-                        m->deliver_time = deliver_time;
-                        m->money = money;
-                        m->COD = 0;
-                        m->checked = 0;
-                        m->state = MAIL_STATE_UNCHANGED;
-
-                        receiver->AddMail(m);                           // to insert new mail to beginning of maillist
-
-                        if(!ItemsOnMail.empty())
-                            for (Item* pitem : ItemsOnMail)
-                                receiver->AddMItem(pitem);
-                    }
-                    else if(!ItemsOnMail.empty())
-                            for (Item* pitem : ItemsOnMail)
-                                delete pitem;
+                    DeliverMailInGame(receiver_guid, m, std::move(ItemsOnMail));
                 }
-                else if(!ItemsOnMail.empty())
-                            for (Item* pitem : ItemsOnMail)
-                                delete pitem;
 
                 //CharacterDatabase.PExecute("DELETE FROM mailbox_queue WHERE id = '%u'", id);
                 stmt = CharacterDatabase.GetPreparedStatement(CHAR_DEL_MAILBOX_QUEUE);

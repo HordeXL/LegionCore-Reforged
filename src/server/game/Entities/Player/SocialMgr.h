@@ -22,6 +22,7 @@
 #include "DatabaseEnv.h"
 #include "Common.h"
 #include "ObjectGuid.h"
+#include <shared_mutex>
 
 class SocialMgr;
 class PlayerSocial;
@@ -126,6 +127,7 @@ class PlayerSocial
 
     private:
         bool _HasContact(ObjectGuid const& guid, SocialFlag flags);
+        uint32 _CountWithFlag(SocialFlag flag) const;   // caller holds the SocialMgr lock
 
         PlayerSocialMap m_playerSocialMap;
         ObjectGuid m_playerGUID;
@@ -149,15 +151,20 @@ class TC_GAME_API SocialMgr
         // Loading
         PlayerSocial *LoadFromDB(PreparedQueryResult result, ObjectGuid const& guid);
 
-        std::vector<Player*> GetVisibleFriendsContaier(Player* player, bool online = false, uint32 lfgListActivityID = 0);
+        // guids only: the friend listers stand on any map
+        GuidList GetVisibleFriendsContaier(Player* player, bool online = false, uint32 lfgListActivityID = 0);
         GuidList GetBNetFriendsGuids(uint32 lfgListActivityID);
         GuidList GetCharFriendsGuids(Player* player, uint32 lfgListActivityID);
         GuidList GetGuildMateGuids(uint32 lfgListActivityID);
         bool HasInFriendsList(Player* player, ObjectGuid guid);
-        std::recursive_mutex& GetLock() { return m_social_lock; }
+        // by guid, without touching the players (online lists only)
+        bool HasContact(ObjectGuid const& owner, ObjectGuid const& contact, SocialFlag flag);
+        std::shared_mutex& GetLock() { return m_social_lock; }
     private:
         SocialMap m_socialMap;
-        std::recursive_mutex m_social_lock;
+        // Guards m_socialMap and every PlayerSocial list (read by all map threads, e.g. ignore checks).
+        // Leaf lock, never taken recursively: no player lookup, packet, DB call or other lock while held.
+        std::shared_mutex m_social_lock;
         GuidList _friendList;
         GuidList _guildMateList;
 };

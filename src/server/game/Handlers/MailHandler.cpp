@@ -76,6 +76,12 @@ void WorldSession::HandleSendMail(WorldPackets::Mail::SendMail& packet)
         return;
     }
 
+    if (packet.Info.Cod < 0)
+    {
+        player->SendMailResult(0, MAIL_SEND, MAIL_ERR_INTERNAL_ERROR);
+        return;
+    }
+
     // check msg to bad word
     if (sWorld->getBoolConfig(CONFIG_WORD_FILTER_ENABLE))
     {
@@ -159,22 +165,37 @@ void WorldSession::HandleSendMail(WorldPackets::Mail::SendMail& packet)
         return;
     }
 
-    Player* receive = ObjectAccessor::FindPlayer(receiverGuid);
-
+    // the receiver may stand on another map: read under the accessor lock, the mail reaches him by guid
     uint32 rc_team = 0;
-    uint8 mails_count = 0;                                  //do not allow to send to one player more than 100 mails
+    uint64 mails_count = 0;                                 //do not allow to send to one player more than 100 mails
     uint8 receiveLevel = 0;
+    uint32 receiveAccount = 0;
+    LocaleConstant receiveLocale = player->GetSession()->GetSessionDbLocaleIndex();
 
-    if (receive)
+    bool const receive = ObjectAccessor::WithPlayer(receiverGuid, [&](Player* receiver)
     {
-        rc_team = receive->GetTeam();
-        mails_count = receive->GetMailSize();
-        receiveLevel = receive->getLevel();
+        rc_team = receiver->GetTeam();
+        receiveLevel = receiver->getLevel();
+        receiveAccount = receiver->GetSession()->GetAccountId();
+        receiveLocale = receiver->GetSession()->GetSessionDbLocaleIndex();
+    });
+
+    if (!receive)
+    {
+        if (const CharacterInfo* nameData = sWorld->GetCharacterInfo(receiverGuid))
+        {
+            receiveLevel = nameData->Level;
+            rc_team = Player::TeamForRace(nameData->Race);
+        }
     }
-    else if (const CharacterInfo* nameData = sWorld->GetCharacterInfo(receiverGuid))
+
+    // Counted in the DB even for an online receiver: his in-memory list belongs to his own map thread.
+    // Mails he deleted since his last save still count until then.
     {
-        receiveLevel = nameData->Level;
-        rc_team = Player::TeamForRace(nameData->Race);
+        CharacterDatabasePreparedStatement* stmt = CharacterDatabase.GetPreparedStatement(CHAR_SEL_MAIL_COUNT);
+        stmt->setUInt64(0, receiverGuid.GetCounter());
+        if (PreparedQueryResult result = CharacterDatabase.Query(stmt))
+            mails_count = (*result)[0].GetUInt64();
     }
 
     //do not allow to have more than 100 mails in mailbox.. mails count is in opcode uint8!!! - so max can be 255..
@@ -209,7 +230,7 @@ void WorldSession::HandleSendMail(WorldPackets::Mail::SendMail& packet)
         return;
     }
 
-    uint32 rc_account = receive ? receive->GetSession()->GetAccountId() : ObjectMgr::GetPlayerAccountIdByGUID(receiverGuid);
+    uint32 rc_account = receive ? receiveAccount : ObjectMgr::GetPlayerAccountIdByGUID(receiverGuid);
 
     std::vector<Item*> items;
 
@@ -281,7 +302,7 @@ void WorldSession::HandleSendMail(WorldPackets::Mail::SendMail& packet)
             for (auto const& item : items)
             {
                 if (!AccountMgr::IsPlayerAccount(GetSecurity()) && sWorld->getBoolConfig(CONFIG_GM_LOG_TRADE))
-                    sLog->outCommand(GetAccountId(), "GM %s (Account: %u) mail item: %s (Entry: %u Count: %u) to player: %s (Account: %u)", GetPlayerName().c_str(), GetAccountId(), item->GetTemplate()->GetName()->Str[receive ? receive->GetSession()->GetSessionDbLocaleIndex() : player->GetSession()->GetSessionDbLocaleIndex()], item->GetEntry(), item->GetCount(), packet.Info.Target.c_str(), rc_account);
+                    sLog->outCommand(GetAccountId(), "GM %s (Account: %u) mail item: %s (Entry: %u Count: %u) to player: %s (Account: %u)", GetPlayerName().c_str(), GetAccountId(), item->GetTemplate()->GetName()->Str[receiveLocale], item->GetEntry(), item->GetCount(), packet.Info.Target.c_str(), rc_account);
 
                 item->SetNotRefundable(GetPlayer()); // makes the item no longer refundable
                 player->MoveItemFromInventory(item, true);
@@ -311,7 +332,7 @@ void WorldSession::HandleSendMail(WorldPackets::Mail::SendMail& packet)
         if (guild->IsMember(receiverGuid))
             deliver_delay = 0;
 
-    draft.AddMoney(packet.Info.SendMoney).AddCOD(packet.Info.Cod).SendMailTo(trans, MailReceiver(receive, receiverGuid.GetCounter()), MailSender(player), packet.Info.Body.empty() ? MAIL_CHECK_MASK_COPIED : MAIL_CHECK_MASK_HAS_BODY, deliver_delay);
+    draft.AddMoney(packet.Info.SendMoney).AddCOD(packet.Info.Cod).SendMailTo(trans, MailReceiver(nullptr, receiverGuid.GetCounter()), MailSender(player), packet.Info.Body.empty() ? MAIL_CHECK_MASK_COPIED : MAIL_CHECK_MASK_HAS_BODY, deliver_delay);
 
     player->SaveInventoryAndGoldToDB(trans);
     CharacterDatabase.CommitTransaction(trans);
@@ -335,6 +356,10 @@ void WorldSession::HandleMailMarkAsRead(WorldPackets::Mail::MailMarkAsRead& pack
 
 void WorldSession::HandleMailDelete(WorldPackets::Mail::MailDelete& packet)
 {
+    // The packet carries no mailbox: the one opened by the last mail list request must still be in reach
+    if (!CanOpenMailBox(_player->GetOpenedMailbox()))
+        return;
+
     Player* player = _player;
     player->m_mailsUpdated = true;
     if (Mail* m = _player->GetMail(packet.MailID))
@@ -353,6 +378,9 @@ void WorldSession::HandleMailDelete(WorldPackets::Mail::MailDelete& packet)
 
 void WorldSession::HandleMailReturnToSender(WorldPackets::Mail::MailReturnToSender& packet)
 {
+    if (!CanOpenMailBox(_player->GetOpenedMailbox()))
+        return;
+
     Player* player = _player;
     Mail* m = player->GetMail(packet.MailID);
     if (!m || m->state == MAIL_STATE_DELETED || m->deliver_time > GameTime::GetGameTime() || m->sender != packet.SenderGUID.GetCounter())
@@ -445,7 +473,14 @@ void WorldSession::HandleMailTakeItem(WorldPackets::Mail::MailTakeItem& packet)
         if (m->COD > 0)                                     //if there is COD, take COD money from player and send them to sender by mail
         {
             ObjectGuid sender_guid = ObjectGuid::Create<HighGuid::Player>(m->sender);
-            Player* receive = ObjectAccessor::FindPlayer(sender_guid);
+            // the sender may stand on another map: read under the accessor lock, paid by guid
+            uint32 onlineSenderAccId = 0;
+            std::string onlineSenderName;
+            bool const receive = ObjectAccessor::WithPlayer(sender_guid, [&onlineSenderAccId, &onlineSenderName](Player* sender)
+            {
+                onlineSenderAccId = sender->GetSession()->GetAccountId();
+                onlineSenderName = sender->GetName();
+            });
 
             uint32 sender_accId = 0;
 
@@ -454,8 +489,8 @@ void WorldSession::HandleMailTakeItem(WorldPackets::Mail::MailTakeItem& packet)
                 std::string sender_name;
                 if (receive)
                 {
-                    sender_accId = receive->GetSession()->GetAccountId();
-                    sender_name = receive->GetName();
+                    sender_accId = onlineSenderAccId;
+                    sender_name = onlineSenderName;
                 }
                 else
                 {
@@ -480,7 +515,7 @@ void WorldSession::HandleMailTakeItem(WorldPackets::Mail::MailTakeItem& packet)
             }
 
             if (receive || sender_accId)
-                MailDraft(m->subject, "") .AddMoney(m->COD) .SendMailTo(trans, MailReceiver(receive, m->sender), MailSender(MAIL_NORMAL, m->receiver), MAIL_CHECK_MASK_COD_PAYMENT);
+                MailDraft(m->subject, "") .AddMoney(m->COD) .SendMailTo(trans, MailReceiver(nullptr, m->sender), MailSender(MAIL_NORMAL, m->receiver), MAIL_CHECK_MASK_COD_PAYMENT);
 
             player->ModifyMoney(-int64(m->COD));
         }
@@ -542,15 +577,11 @@ void WorldSession::HandleGetMailList(WorldPackets::Mail::MailGetList& packet)
         return;
 
     Player* player = _player;
+    player->SetOpenedMailbox(packet.Mailbox);
 
     //load players mails, and mailed items
     if (!player->m_mailsLoaded)
         player->_LoadMail();
-
-    GameObject* _mailbox = nullptr;
-    Trinity::MailBoxMasterCheck check(player);
-    Trinity::GameObjectSearcher<Trinity::MailBoxMasterCheck> searcher(player, _mailbox, check);
-    Trinity::VisitNearbyObject(player, 5.0f, searcher);
 
     WorldPackets::Mail::MailListResult response;
     time_t cur_time = GameTime::GetGameTime();

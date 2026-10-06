@@ -507,6 +507,8 @@ void WorldSession::LogoutPlayer(bool Save)
 
     uint32 _s = getMSTime();
     m_playerLogout = true;
+    if (m_logoutSaveDisabled)
+        Save = false;
     m_playerSave = Save;
 
     if (_player)
@@ -735,6 +737,14 @@ void WorldSession::LogoutPlayer(bool Save)
 
         if (Map* _map = _player->FindMap())
             _map->RemovePlayerFromMap(_player, true);
+        else
+        {
+            // between two maps (far teleport): nothing else holds the player, but he is still in the accessor
+            sObjectAccessor->RemoveObject(_player);
+            _player->SetPreDelete();
+            _player->SetDelete();
+            delete _player;
+        }
 
         SetPlayer(nullptr); //! Pointer already deleted during RemovePlayerFromMap
 

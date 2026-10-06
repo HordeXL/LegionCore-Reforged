@@ -27,6 +27,7 @@
 #include "AccountMgr.h"
 #include "SocialPackets.h"
 #include "ObjectMgr.h"
+#include "ObjectAccessor.h"
 
 FriendInfo::FriendInfo(uint8 flags) : Status(FRIEND_STATUS_OFFLINE), Area(0), LfgListActivityID(0), Level(0), Class(0), Flags(flags)
 {
@@ -46,32 +47,44 @@ PlayerSocial::~PlayerSocial()
     m_playerSocialMap.clear();
 }
 
-uint32 PlayerSocial::GetNumberOfSocialsWithFlag(SocialFlag flag)
+uint32 PlayerSocial::_CountWithFlag(SocialFlag flag) const
 {
-    std::lock_guard<std::recursive_mutex> guard(sSocialMgr->GetLock());
     uint32 counter = 0;
-    for (PlayerSocialMap::iterator itr = m_playerSocialMap.begin(); itr != m_playerSocialMap.end(); ++itr)
-        if (itr->second.Flags & flag)
+    for (auto const& itr : m_playerSocialMap)
+        if (itr.second.Flags & flag)
             ++counter;
 
     return counter;
 }
 
+uint32 PlayerSocial::GetNumberOfSocialsWithFlag(SocialFlag flag)
+{
+    std::shared_lock<std::shared_mutex> guard(sSocialMgr->GetLock());
+    return _CountWithFlag(flag);
+}
+
 bool PlayerSocial::AddToSocialList(ObjectGuid const& friendGuid, SocialFlag flag)
 {
-    std::lock_guard<std::recursive_mutex> guard(sSocialMgr->GetLock());
-    // check client limits
-    if (GetNumberOfSocialsWithFlag(flag) >= (((flag & SOCIAL_FLAG_FRIEND) != 0) ? SOCIALMGR_FRIEND_LIMIT : SOCIALMGR_IGNORE_LIMIT))
-        return false;
-
-    PlayerSocialMap::iterator itr = m_playerSocialMap.find(friendGuid);
-    if (itr != m_playerSocialMap.end())
+    uint8 flags = 0;
+    bool inserted = false;
     {
-        itr->second.Flags |= flag;
+        std::unique_lock<std::shared_mutex> guard(sSocialMgr->GetLock());
+        // check client limits
+        if (_CountWithFlag(flag) >= (((flag & SOCIAL_FLAG_FRIEND) != 0) ? SOCIALMGR_FRIEND_LIMIT : SOCIALMGR_IGNORE_LIMIT))
+            return false;
 
+        auto result = m_playerSocialMap.emplace(friendGuid, FriendInfo(flag));
+        inserted = result.second;
+        if (!inserted)
+            result.first->second.Flags |= flag;
+        flags = result.first->second.Flags;
+    }
+
+    if (!inserted)
+    {
         CharacterDatabasePreparedStatement* stmt = CharacterDatabase.GetPreparedStatement(CHAR_UPD_ADD_CHARACTER_SOCIAL_FLAGS);
 
-        stmt->setUInt8(0, itr->second.Flags);
+        stmt->setUInt8(0, flags);
         stmt->setUInt64(1, GetPlayerGUID().GetCounter());
         stmt->setUInt64(2, friendGuid.GetCounter());
 
@@ -79,8 +92,6 @@ bool PlayerSocial::AddToSocialList(ObjectGuid const& friendGuid, SocialFlag flag
     }
     else
     {
-        m_playerSocialMap.emplace(friendGuid, flag);
-
         CharacterDatabasePreparedStatement* stmt = CharacterDatabase.GetPreparedStatement(CHAR_INS_CHARACTER_SOCIAL);
 
         stmt->setUInt64(0, GetPlayerGUID().GetCounter());
@@ -94,13 +105,20 @@ bool PlayerSocial::AddToSocialList(ObjectGuid const& friendGuid, SocialFlag flag
 
 void PlayerSocial::RemoveFromSocialList(ObjectGuid const& friendGuid, SocialFlag flag)
 {
-    std::lock_guard<std::recursive_mutex> guard(sSocialMgr->GetLock());
-    PlayerSocialMap::iterator itr = m_playerSocialMap.find(friendGuid);
-    if (itr == m_playerSocialMap.end())
-        return;
+    uint8 flags = 0;
+    {
+        std::unique_lock<std::shared_mutex> guard(sSocialMgr->GetLock());
+        PlayerSocialMap::iterator itr = m_playerSocialMap.find(friendGuid);
+        if (itr == m_playerSocialMap.end())
+            return;
 
-    itr->second.Flags &= ~flag;
-    if (!itr->second.Flags)
+        itr->second.Flags &= ~flag;
+        flags = itr->second.Flags;
+        if (!flags)
+            m_playerSocialMap.erase(itr);
+    }
+
+    if (!flags)
     {
         CharacterDatabasePreparedStatement* stmt = CharacterDatabase.GetPreparedStatement(CHAR_DEL_CHARACTER_SOCIAL);
 
@@ -108,14 +126,12 @@ void PlayerSocial::RemoveFromSocialList(ObjectGuid const& friendGuid, SocialFlag
         stmt->setUInt64(1, friendGuid.GetCounter());
 
         CharacterDatabase.Execute(stmt);
-
-        m_playerSocialMap.erase(itr->first);
     }
     else
     {
         CharacterDatabasePreparedStatement* stmt = CharacterDatabase.GetPreparedStatement(CHAR_UPD_REM_CHARACTER_SOCIAL_FLAGS);
 
-        stmt->setUInt8(0, itr->second.Flags);
+        stmt->setUInt8(0, flags);
         stmt->setUInt64(1, GetPlayerGUID().GetCounter());
         stmt->setUInt64(2, friendGuid.GetCounter());
 
@@ -125,17 +141,20 @@ void PlayerSocial::RemoveFromSocialList(ObjectGuid const& friendGuid, SocialFlag
 
 void PlayerSocial::SetFriendNote(ObjectGuid const& friendGuid, std::string note)
 {
-    std::lock_guard<std::recursive_mutex> guard(sSocialMgr->GetLock());
-    PlayerSocialMap::iterator itr = m_playerSocialMap.find(friendGuid);
-    if (itr == m_playerSocialMap.end())                  // not exist
-        return;
+    utf8truncate(note, 48);                                  // DB and client size limitation
 
-    itr->second.Note = note;
-    utf8truncate(itr->second.Note, 48);                                  // DB and client size limitation
+    {
+        std::unique_lock<std::shared_mutex> guard(sSocialMgr->GetLock());
+        PlayerSocialMap::iterator itr = m_playerSocialMap.find(friendGuid);
+        if (itr == m_playerSocialMap.end())                  // not exist
+            return;
+
+        itr->second.Note = note;
+    }
 
     CharacterDatabasePreparedStatement* stmt = CharacterDatabase.GetPreparedStatement(CHAR_UPD_CHARACTER_SOCIAL_NOTE);
 
-    stmt->setString(0, itr->second.Note);
+    stmt->setString(0, note);
     stmt->setUInt64(1, GetPlayerGUID().GetCounter());
     stmt->setUInt64(2, friendGuid.GetCounter());
 
@@ -147,37 +166,63 @@ void PlayerSocial::SendSocialList(Player* player, uint32 flags)
     if (!player)
         return;
 
-    ASSERT(player);
+    uint32 const limit = ((flags & SOCIAL_FLAG_FRIEND) != 0) ? SOCIALMGR_FRIEND_LIMIT : SOCIALMGR_IGNORE_LIMIT;
+
+    // Copied under the lock, completed without it: GetFriendInfo looks up and reads the other players
+    std::vector<std::pair<ObjectGuid, FriendInfo>> contacts;
+    {
+        std::shared_lock<std::shared_mutex> guard(sSocialMgr->GetLock());
+        for (auto const& v : m_playerSocialMap)
+        {
+            if (!(v.second.Flags & flags))
+                continue;
+
+            contacts.emplace_back(v.first, v.second);
+
+            // client's friends list and ignore list limit
+            if (contacts.size() >= limit)
+                break;
+        }
+    }
+
+    for (auto& contact : contacts)
+        sSocialMgr->GetFriendInfo(player, contact.first, contact.second);
+
+    {
+        // Stored back: GetVisibleFriendsContaier filters this player's friends on it
+        std::unique_lock<std::shared_mutex> guard(sSocialMgr->GetLock());
+        for (auto const& contact : contacts)
+        {
+            PlayerSocialMap::iterator itr = m_playerSocialMap.find(contact.first);
+            if (itr == m_playerSocialMap.end())
+                continue;
+
+            itr->second.Status = contact.second.Status;
+            itr->second.Area = contact.second.Area;
+            itr->second.Level = contact.second.Level;
+            itr->second.Class = contact.second.Class;
+        }
+    }
 
     WorldPackets::Social::ContactList contactList;
     contactList.Flags = flags;
 
-    // GetVisibleFriendsContaier reads every player's list from other threads under this lock
-    std::lock_guard<std::recursive_mutex> guard(sSocialMgr->GetLock());
-
-    for (auto& v : m_playerSocialMap)
+    for (auto const& contact : contacts)
     {
-        if (!(v.second.Flags & flags))
-            continue;
-
-        sSocialMgr->GetFriendInfo(player, v.first, v.second);
+        FriendInfo const& friendInfo = contact.second;
 
         WorldPackets::Social::ContactInfo info;
-        info.Guid = v.first;
-        info.WowAccountGuid = ObjectGuid::Create<HighGuid::WowAccount>(ObjectMgr::GetPlayerAccountIdByGUID(v.first));
+        info.Guid = contact.first;
+        info.WowAccountGuid = ObjectGuid::Create<HighGuid::WowAccount>(ObjectMgr::GetPlayerAccountIdByGUID(contact.first));
         info.VirtualRealmAddr = GetVirtualRealmAddress();
         info.NativeRealmAddr = GetVirtualRealmAddress();
-        info.TypeFlags = v.second.Flags;
-        info.Notes = v.second.Note;
-        info.Status = v.second.Status;
-        info.AreaID = v.second.Area;
-        info.Level = v.second.Level;
-        info.ClassID = v.second.Class;
+        info.TypeFlags = friendInfo.Flags;
+        info.Notes = friendInfo.Note;
+        info.Status = friendInfo.Status;
+        info.AreaID = friendInfo.Area;
+        info.Level = friendInfo.Level;
+        info.ClassID = friendInfo.Class;
         contactList.Contacts.emplace_back(info);
-
-        // client's friends list and ignore list limit
-        if (contactList.Contacts.size() >= (((flags & SOCIAL_FLAG_FRIEND) != 0) ? SOCIALMGR_FRIEND_LIMIT : SOCIALMGR_IGNORE_LIMIT))
-            break;
     }
 
     player->SendDirectMessage(contactList.Write());
@@ -185,7 +230,7 @@ void PlayerSocial::SendSocialList(Player* player, uint32 flags)
 
 bool PlayerSocial::_HasContact(ObjectGuid const& guid, SocialFlag flags)
 {
-    std::lock_guard<std::recursive_mutex> guard(sSocialMgr->GetLock());
+    std::shared_lock<std::shared_mutex> guard(sSocialMgr->GetLock());
     PlayerSocialMap::const_iterator itr = m_playerSocialMap.find(guid);
     if (itr != m_playerSocialMap.end())
         return (itr->second.Flags & flags) != 0;
@@ -227,26 +272,31 @@ void SocialMgr::GetFriendInfo(Player* player, ObjectGuid const& friendGUID, Frie
     friendInfo.Level = 0;
     friendInfo.Class = 0;
 
-    Player* pFriend = ObjectAccessor::FindPlayer(friendGUID);
-    if (!pFriend)
+    if (!ObjectAccessor::IsPlayerOnline(friendGUID))
         return;
 
     uint32 team = player->GetTeam();
     AccountTypes security = player->GetSession()->GetSecurity();
+    uint32 const accountId = player->GetSession()->GetAccountId();
+    uint32 const recruiterId = player->GetSession()->GetRecruiterId();
     bool allowTwoSideWhoList = sWorld->getBoolConfig(CONFIG_ALLOW_TWO_SIDE_WHO_LIST);
     AccountTypes gmLevelInWhoList = AccountTypes(sWorld->getIntConfig(CONFIG_GM_LEVEL_IN_WHO_LIST));
 
     {
-        std::lock_guard<std::recursive_mutex> guard(m_social_lock);
+        std::shared_lock<std::shared_mutex> guard(m_social_lock);
         PlayerSocialMap::iterator itr = player->GetSocial()->m_playerSocialMap.find(friendGUID);
         if (itr != player->GetSocial()->m_playerSocialMap.end())
             friendInfo.Note = itr->second.Note;
     }
 
+    // The friend may stand on another map: read under the accessor lock
     // PLAYER see his team only and PLAYER can't see MODERATOR, GAME MASTER, ADMINISTRATOR characters
     // MODERATOR, GAME MASTER, ADMINISTRATOR can see all
-    if (pFriend && pFriend->GetName() && (!AccountMgr::IsPlayerAccount(security) || ((pFriend->GetTeam() == team || allowTwoSideWhoList) && (pFriend->GetSession()->GetSecurity() <= gmLevelInWhoList))) && pFriend->IsVisibleGloballyFor(player))
+    ObjectAccessor::WithPlayer(friendGUID, [&](Player* pFriend)
     {
+        if (!(pFriend->GetName() && (!AccountMgr::IsPlayerAccount(security) || ((pFriend->GetTeam() == team || allowTwoSideWhoList) && (pFriend->GetSession()->GetSecurity() <= gmLevelInWhoList))) && pFriend->IsVisibleGloballyFor(player)))
+            return;
+
         if (pFriend->isAFK())
             friendInfo.Status = FRIEND_STATUS_AFK;
         else if (pFriend->isDND())
@@ -255,14 +305,14 @@ void SocialMgr::GetFriendInfo(Player* player, ObjectGuid const& friendGUID, Frie
         {
             friendInfo.Status = FRIEND_STATUS_ONLINE;
 
-            if (pFriend->GetSession()->GetRecruiterId() == player->GetSession()->GetAccountId() || pFriend->GetSession()->GetAccountId() == player->GetSession()->GetRecruiterId())
+            if (pFriend->GetSession()->GetRecruiterId() == accountId || pFriend->GetSession()->GetAccountId() == recruiterId)
                 friendInfo.Status = FriendStatus(uint32(friendInfo.Status) | FRIEND_STATUS_RAF);
         }
 
         friendInfo.Area = pFriend->GetCurrentZoneID();
         friendInfo.Level = pFriend->getLevel();
         friendInfo.Class = pFriend->getClass();
-    }
+    });
 }
 
 void SocialMgr::SendFriendStatus(Player* player, FriendsResult result, ObjectGuid const& friendGuid, bool broadcast)
@@ -289,16 +339,16 @@ void SocialMgr::SendFriendStatus(Player* player, FriendsResult result, ObjectGui
 
 void SocialMgr::BroadcastToFriendListers(Player* player, WorldPacket const* packet)
 {
-    if (!player || m_socialMap.empty())
+    if (!player)
         return;
 
-    for (auto const& friendPlayer : GetVisibleFriendsContaier(player))
-        friendPlayer->SendDirectMessage(packet);
+    for (ObjectGuid const& friendGuid : GetVisibleFriendsContaier(player))
+        ObjectAccessor::SendToPlayer(friendGuid, packet);
 }
 
 PlayerSocial* SocialMgr::LoadFromDB(PreparedQueryResult result, ObjectGuid const& guid)
 {
-    std::lock_guard<std::recursive_mutex> guard(m_social_lock);
+    std::unique_lock<std::shared_mutex> guard(m_social_lock);
     PlayerSocial *social = &m_socialMap[guid];
     social->SetPlayerGUID(guid);
 
@@ -317,37 +367,52 @@ PlayerSocial* SocialMgr::LoadFromDB(PreparedQueryResult result, ObjectGuid const
     return social;
 }
 
-std::vector<Player*> SocialMgr::GetVisibleFriendsContaier(Player* player, bool online /*= false*/, uint32 lfgListActivityID /*= 0*/)
+GuidList SocialMgr::GetVisibleFriendsContaier(Player* player, bool online /*= false*/, uint32 lfgListActivityID /*= 0*/)
 {
-    auto data = std::vector<Player*>();
-    if (!player || m_socialMap.empty())
+    GuidList data;
+    if (!player)
         return data;
 
-    std::lock_guard<std::recursive_mutex> guard(m_social_lock);
-    auto team = player->GetTeam();
-    auto security = player->GetSession()->GetSecurity();
     auto guid = player->GetGUID();
-    auto gmLevelInWhoList = AccountTypes(sWorld->getIntConfig(CONFIG_GM_LEVEL_IN_WHO_LIST));
-    auto allowTwoSideWhoList = sWorld->getBoolConfig(CONFIG_ALLOW_TWO_SIDE_WHO_LIST);
 
-    for (auto itr = m_socialMap.begin(); itr != m_socialMap.end(); ++itr)
+    // Only the GUIDs are collected under the lock; lookups and checks run after it is released
+    std::vector<ObjectGuid> candidates;
     {
-        PlayerSocialMap::iterator itr2 = itr->second.m_playerSocialMap.find(guid);
-        if (itr2 != itr->second.m_playerSocialMap.end() && (itr2->second.Flags & SOCIAL_FLAG_FRIEND))
+        std::shared_lock<std::shared_mutex> guard(m_social_lock);
+        for (auto const& itr : m_socialMap)
         {
+            PlayerSocialMap::const_iterator itr2 = itr.second.m_playerSocialMap.find(guid);
+            if (itr2 == itr.second.m_playerSocialMap.end() || !(itr2->second.Flags & SOCIAL_FLAG_FRIEND))
+                continue;
+
             if (online && itr2->second.Status == FRIEND_STATUS_OFFLINE)
                 continue;
 
             if (lfgListActivityID && itr2->second.LfgListActivityID != lfgListActivityID)
                 continue;
 
-            auto friendPlayer = ObjectAccessor::FindPlayer(itr->first);
-            if (!friendPlayer)
-                continue;
-
-            if (friendPlayer->IsInWorld() && (!AccountMgr::IsPlayerAccount(friendPlayer->GetSession()->GetSecurity()) || ((friendPlayer->GetTeam() == team || allowTwoSideWhoList) && security <= gmLevelInWhoList)) && player->IsVisibleGloballyFor(friendPlayer))
-                data.emplace_back(friendPlayer);
+            candidates.push_back(itr.first);
         }
+    }
+
+    if (candidates.empty())
+        return data;
+
+    auto team = player->GetTeam();
+    auto security = player->GetSession()->GetSecurity();
+    auto gmLevelInWhoList = AccountTypes(sWorld->getIntConfig(CONFIG_GM_LEVEL_IN_WHO_LIST));
+    auto allowTwoSideWhoList = sWorld->getBoolConfig(CONFIG_ALLOW_TWO_SIDE_WHO_LIST);
+
+    for (ObjectGuid const& friendGuid : candidates)
+    {
+        bool visible = false;
+        ObjectAccessor::WithPlayer(friendGuid, [&](Player* friendPlayer)
+        {
+            visible = (!AccountMgr::IsPlayerAccount(friendPlayer->GetSession()->GetSecurity()) || ((friendPlayer->GetTeam() == team || allowTwoSideWhoList) && security <= gmLevelInWhoList)) && player->IsVisibleGloballyFor(friendPlayer);
+        });
+
+        if (visible)
+            data.emplace_back(friendGuid);
     }
 
     return data;
@@ -360,10 +425,7 @@ GuidList SocialMgr::GetBNetFriendsGuids(uint32 /*lfgListActivityID*/)
 
 GuidList SocialMgr::GetCharFriendsGuids(Player* player, uint32 lfgListActivityID)
 {
-    auto tmpList = GuidList();
-    for (auto const& friendPlayer : GetVisibleFriendsContaier(player, true, lfgListActivityID))
-        tmpList.emplace_back(friendPlayer->GetGUID());
-    return tmpList;//_friendList;
+    return GetVisibleFriendsContaier(player, true, lfgListActivityID);
 }
 
 GuidList SocialMgr::GetGuildMateGuids(uint32 lfgListActivityID)
@@ -373,15 +435,26 @@ GuidList SocialMgr::GetGuildMateGuids(uint32 lfgListActivityID)
 
 bool SocialMgr::HasInFriendsList(Player * player, ObjectGuid guid)
 {
-    for (auto friendPlayer : GetVisibleFriendsContaier(player))
-        if (friendPlayer->GetGUID() == guid)
+    for (ObjectGuid const& friendGuid : GetVisibleFriendsContaier(player))
+        if (friendGuid == guid)
             return true;
 
     return false;
 }
 
+bool SocialMgr::HasContact(ObjectGuid const& owner, ObjectGuid const& contact, SocialFlag flag)
+{
+    std::shared_lock<std::shared_mutex> guard(m_social_lock);
+    auto social = m_socialMap.find(owner);
+    if (social == m_socialMap.end())
+        return false;
+
+    auto itr = social->second.m_playerSocialMap.find(contact);
+    return itr != social->second.m_playerSocialMap.end() && (itr->second.Flags & flag) != 0;
+}
+
 void SocialMgr::RemovePlayerSocial(ObjectGuid const& guid)
 {
-    std::lock_guard<std::recursive_mutex> guard(m_social_lock);
+    std::unique_lock<std::shared_mutex> guard(m_social_lock);
     m_socialMap.erase(guid);
 }

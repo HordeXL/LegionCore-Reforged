@@ -21,6 +21,7 @@
 #include "Log.h"
 #include "World.h"
 #include "ObjectMgr.h"
+#include "ObjectAccessor.h"
 #include "Player.h"
 #include "Unit.h"
 #include "BattlegroundMgr.h"
@@ -28,6 +29,51 @@
 #include "AuctionHouseMgr.h"
 #include "BlackMarketMgr.h"
 #include "CalendarMgr.h"
+
+namespace
+{
+    // Receiver-side part of a mail, applied in the receiver's own thread; what he does not take is freed here
+    struct PendingMail
+    {
+        Mail* mail = nullptr;
+        std::vector<Item*> items;
+
+        PendingMail() = default;
+        PendingMail(PendingMail const&) = delete;
+        PendingMail& operator=(PendingMail const&) = delete;
+
+        ~PendingMail()
+        {
+            delete mail;
+            for (Item* item : items)
+                delete item;
+        }
+    };
+}
+
+bool DeliverMailInGame(ObjectGuid const& receiverGuid, Mail* mail, std::vector<Item*>&& items)
+{
+    auto pending = std::make_shared<PendingMail>();
+    pending->mail = mail;
+    pending->items = std::move(items);
+
+    time_t const deliverTime = mail->deliver_time;
+    return ObjectAccessor::PostToPlayer(receiverGuid, [pending, deliverTime](Player* receiver) -> void
+    {
+        receiver->AddNewMailDeliverTime(deliverTime);
+
+        // Not loaded: read from the DB at mailbox opening. Already listed: loaded after the commit.
+        if (!receiver->IsMailsLoaded() || receiver->GetMail(pending->mail->messageID))
+            return;
+
+        receiver->AddMail(pending->mail);                   // to insert new mail to beginning of maillist
+        pending->mail = nullptr;
+
+        for (Item* item : pending->items)
+            receiver->AddMItem(item);
+        pending->items.clear();
+    });
+}
 
 MailSender::MailSender(MailMessageType messageType, ObjectGuid::LowType const& sender_guidlow_or_entry, MailStationery stationery): m_messageType(messageType), m_senderId(sender_guidlow_or_entry), m_stationery(stationery)
 {
@@ -188,13 +234,14 @@ void MailDraft::deleteIncludedItems(CharacterDatabaseTransaction& trans, bool in
 void MailDraft::SendReturnToSender(uint32 sender_acc, ObjectGuid::LowType sender_guid, ObjectGuid::LowType receiver_guid, CharacterDatabaseTransaction& trans)
 {
     ObjectGuid receiverGuid = ObjectGuid::Create<HighGuid::Player>(receiver_guid);
-    Player* receiver = ObjectAccessor::FindPlayer(receiverGuid);
+    // the receiver may stand on another map: only his presence is tested, SendMailTo delivers by guid
+    bool const receiverOnline = ObjectAccessor::IsPlayerOnline(receiverGuid);
 
     uint32 rc_account = 0;
-    if (!receiver)
+    if (!receiverOnline)
         rc_account = ObjectMgr::GetPlayerAccountIdByGUID(ObjectGuid::Create<HighGuid::Player>(receiver_guid));
 
-    if (!receiver && !rc_account)                            // sender not exist
+    if (!receiverOnline && !rc_account)                      // sender not exist
     {
         deleteIncludedItems(trans, true);
         return;
@@ -225,13 +272,19 @@ void MailDraft::SendReturnToSender(uint32 sender_acc, ObjectGuid::LowType sender
     uint32 deliver_delay = needItemDelay ? sWorld->getIntConfig(CONFIG_MAIL_DELIVERY_DELAY) : 0;
 
     // will delete item or place to receiver mail list
-    SendMailTo(trans, MailReceiver(receiver, receiver_guid), MailSender(MAIL_NORMAL, sender_guid), MAIL_CHECK_MASK_RETURNED, deliver_delay);
+    SendMailTo(trans, MailReceiver(nullptr, receiver_guid), MailSender(MAIL_NORMAL, sender_guid), MAIL_CHECK_MASK_RETURNED, deliver_delay);
 }
 
 void MailDraft::SendMailTo(CharacterDatabaseTransaction& trans, MailReceiver const& receiver, MailSender const& sender, MailCheckMask checked, uint32 deliver_delay)
 {
     Player* pReceiver = receiver.GetPlayer();               // can be NULL
-    Player* pSender = sObjectMgr->GetPlayerByLowGUID(sender.GetSenderId());
+    // Other message types carry an entry, not a player guid; the sender may stand on another map
+    bool senderIsGameMaster = false;
+    if (sender.GetMailMessageType() == MAIL_NORMAL)
+        ObjectAccessor::WithPlayer(ObjectGuid::Create<HighGuid::Player>(sender.GetSenderId()), [&senderIsGameMaster](Player* pSender)
+        {
+            senderIsGameMaster = pSender->isGameMaster();
+        });
 
     if (pReceiver)
         prepareItems(pReceiver, trans);                            // generate mail template items
@@ -251,7 +304,7 @@ void MailDraft::SendMailTo(CharacterDatabaseTransaction& trans, MailReceiver con
         if (m_COD)
             expire_delay = 3 * DAY;
         else
-            expire_delay = pSender && pSender->isGameMaster() ? 90 * DAY : 30 * DAY;
+            expire_delay = senderIsGameMaster ? 90 * DAY : 30 * DAY;
 
     time_t expire_time = deliver_time + expire_delay;
 
@@ -284,56 +337,41 @@ void MailDraft::SendMailTo(CharacterDatabaseTransaction& trans, MailReceiver con
         trans->Append(stmt);
     }
 
-    // For online receiver update in game mail status and data
-    if (pReceiver)
+    // For online receiver update in game mail status and data.
+    // His mail list belongs to his map thread, which may not be this one: the DB rows above stay the
+    // reference, the in-memory copy is handed over to his own update (dropped with the items if he is offline).
     {
-        pReceiver->AddNewMailDeliverTime(deliver_time);
+        std::vector<Item*> items;
 
-        if (pReceiver->IsMailsLoaded())
+        Mail* m = new Mail;
+        m->messageID = mailId;
+        m->mailTemplateId = GetMailTemplateId();
+        m->subject = GetSubject();
+        m->body = GetBody();
+        m->money = GetMoney();
+        m->COD = GetCOD();
+
+        for (MailItemMap::const_iterator mailItemIter = m_items.begin(); mailItemIter != m_items.end(); ++mailItemIter)
         {
-            Mail* m = new Mail;
-            m->messageID = mailId;
-            m->mailTemplateId = GetMailTemplateId();
-            m->subject = GetSubject();
-            m->body = GetBody();
-            m->money = GetMoney();
-            m->COD = GetCOD();
+            Item* item = mailItemIter->second;
+            items.push_back(item);
 
-            for (MailItemMap::const_iterator mailItemIter = m_items.begin(); mailItemIter != m_items.end(); ++mailItemIter)
-            {
-                Item* item = mailItemIter->second;
-                if (sDB2Manager.GetHeirloomByItemId(item->GetEntry()))
-                    continue;
+            if (sDB2Manager.GetHeirloomByItemId(item->GetEntry()))
+                continue;
 
-                m->AddItem(item->GetGUIDLow(), item->GetEntry());
-            }
-
-            m->messageType = sender.GetMailMessageType();
-            m->stationery = sender.GetStationery();
-            m->sender = sender.GetSenderId();
-            m->receiver = receiver.GetPlayerGUIDLow();
-            m->expire_time = expire_time;
-            m->deliver_time = deliver_time;
-            m->checked = checked;
-            m->state = MAIL_STATE_UNCHANGED;
-
-            pReceiver->AddMail(m);                           // to insert new mail to beginning of maillist
-
-            if (!m_items.empty())
-            {
-                for (MailItemMap::iterator mailItemIter = m_items.begin(); mailItemIter != m_items.end(); ++mailItemIter)
-                    pReceiver->AddMItem(mailItemIter->second);
-            }
+            m->AddItem(item->GetGUIDLow(), item->GetEntry());
         }
-        else if (!m_items.empty())
-        {
-            CharacterDatabaseTransaction temp = CharacterDatabaseTransaction(NULL);
-            deleteIncludedItems(temp);
-        }
-    }
-    else if (!m_items.empty())
-    {
-        CharacterDatabaseTransaction temp = CharacterDatabaseTransaction(NULL);
-        deleteIncludedItems(temp);
+        m_items.clear();                                    // handed over with the mail
+
+        m->messageType = sender.GetMailMessageType();
+        m->stationery = sender.GetStationery();
+        m->sender = sender.GetSenderId();
+        m->receiver = receiver.GetPlayerGUIDLow();
+        m->expire_time = expire_time;
+        m->deliver_time = deliver_time;
+        m->checked = checked;
+        m->state = MAIL_STATE_UNCHANGED;
+
+        DeliverMailInGame(ObjectGuid::Create<HighGuid::Player>(receiver.GetPlayerGUIDLow()), m, std::move(items));
     }
 }
