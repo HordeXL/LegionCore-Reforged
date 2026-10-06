@@ -371,6 +371,7 @@ void WorldSession::HandleQueryRealmName(WorldPackets::Query::QueryRealmName& pac
     {
         response.LookupState = 1;
         SendPacket(response.Write());
+        return;
     }
 
     response.NameInfo.IsLocal = true;

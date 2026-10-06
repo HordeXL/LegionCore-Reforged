@@ -180,7 +180,7 @@ void WorldSession::SendTrainerList(ObjectGuid const& guid, std::string const& st
             if (!i)
                 continue;
 
-            if (maxReq > MAX_TRAINERSPELL_ABILITY_REQS)
+            if (maxReq >= MAX_TRAINERSPELL_ABILITY_REQS)
                 break;
 
             if (uint32 prevSpellId = sSpellMgr->GetPrevSpellInChain(i))
@@ -190,7 +190,12 @@ void WorldSession::SendTrainerList(ObjectGuid const& guid, std::string const& st
             }
 
             for (auto const& requirePair : sSpellMgr->GetSpellsRequiredForSpellBounds(i))
+            {
+                if (maxReq >= MAX_TRAINERSPELL_ABILITY_REQS)
+                    break;
+
                 spell.ReqAbility[maxReq++] = requirePair.second;
+            }
         }
 
         packet.Spells.push_back(spell);
@@ -403,6 +408,9 @@ void WorldSession::HandleSpiritHealerActivate(WorldPackets::NPC::SpiritHealerAct
         return;
 
     if (!player->GetNPCIfCanInteractWith(packet.Healer, UNIT_NPC_FLAG_SPIRITHEALER))
+        return;
+
+    if (player->IsAlive())
         return;
 
     if (player->HasUnitState(UNIT_STATE_DIED))

@@ -76,7 +76,8 @@ void WorldSession::HandleShowTradeSkill(WorldPackets::Misc::ShowTradeSkill& pack
     if (!sSkillLineStore.LookupEntry(packet.SkillLineID) || !sSpellMgr->GetSpellInfo(packet.SpellID))
         return;
 
-    Player* player = sObjectAccessor->FindPlayer(packet.PlayerGUID);
+    // Only players on our map: another map's player is updated by another thread while we read its spells
+    Player* player = ObjectAccessor::GetPlayer(*_player, packet.PlayerGUID);
     if (!player)
         return;
 
@@ -91,10 +92,10 @@ void WorldSession::HandleShowTradeSkill(WorldPackets::Misc::ShowTradeSkill& pack
         if (skillLine->ParentSkillLineID != packet.SkillLineID)
             continue;
 
-        if (!player->HasSkill(skillLine->ParentSkillLineID))
+        if (!player->HasSkill(skillLine->ID))
             continue;
 
-        relatedSkills.insert(skillLine->ParentSkillLineID);
+        relatedSkills.insert(skillLine->ID);
     }
 
     std::set<uint32> profSpells;

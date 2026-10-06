@@ -400,7 +400,8 @@ void WorldPackets::Query::QueryQuestCompletionNPCs::Read()
     uint32 questCount = 0;
 
     _worldPacket >> questCount;
-    QuestCompletionNPCs.resize(questCount);
+    // Client-supplied count: never allocate more entries than the packet can actually hold
+    QuestCompletionNPCs.resize(std::min(questCount, uint32((_worldPacket.size() - _worldPacket.rpos()) / sizeof(int32))));
 
     for (int32& QuestID : QuestCompletionNPCs)
         _worldPacket >> QuestID;

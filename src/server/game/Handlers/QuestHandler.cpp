@@ -44,7 +44,7 @@ void WorldSession::HandleQuestGiverStatusQuery(WorldPackets::Quest::QuestGiverSt
     Object* questGiver = ObjectAccessor::GetObjectByTypeMask(*_player, packet.QuestGiverGUID, TYPEMASK_UNIT | TYPEMASK_GAMEOBJECT);
     if (!questGiver)
     {
-        TC_LOG_INFO("network", "Error in CMSG_QUESTGIVER_STATUS_QUERY, called for non-existing questgiver (%s)", packet.QuestGiverGUID.ToString().c_str());
+        TC_LOG_DEBUG("network", "Error in CMSG_QUESTGIVER_STATUS_QUERY, called for non-existing questgiver (%s)", packet.QuestGiverGUID.ToString().c_str());
         return;
     }
 
@@ -204,6 +204,9 @@ void WorldSession::HandleQuestGiverAcceptQuest(WorldPackets::Quest::QuestGiverAc
                         if (!player || player == _player || !player->CanContact())     // not self
                             continue;
 
+                        if (!player->IsInMap(_player))
+                            continue;
+
                         if (player->CanTakeQuest(quest, true))
                         {
                             player->SetQuestSharingInfo(_player->GetGUID(), quest->GetQuestId());
@@ -268,7 +271,8 @@ void WorldSession::HandleQuestGiverQueryQuest(WorldPackets::Quest::QuestGiverQue
         if (!_player->CanTakeQuest(quest, true))
             return;
 
-        if (quest->IsAutoAccept() && _player->CanAddQuest(quest, true))
+        // Auto-accept skips HandleQuestGiverAcceptQuest, so its range check must be done here
+        if (quest->IsAutoAccept() && _player->CanInteractWithQuestGiver(object) && _player->CanAddQuest(quest, true))
             _player->AddQuestAndCheckCompletion(quest, object);
 
         if (quest->IsAutoComplete())
@@ -529,10 +533,6 @@ void WorldSession::HandleQuestGiverChooseReward(WorldPackets::Quest::QuestGiverC
             break;
         }
 
-        // TODO: is this needed?
-        // As quest complete send available quests. Need when questgiver from next quest chain staying near questtaker
-        //SendQuestgiverStatusMultipleQuery();
-
         // AutoTake system
         _player->PrepareAreaQuest(_player->GetCurrentAreaID());
     }
@@ -575,7 +575,7 @@ void WorldSession::HandleQuestLogRemoveQuest(WorldPackets::Quest::QuestLogRemove
     if (!player)
         return;
 
-    if (packet.Entry > MAX_QUEST_LOG_SIZE)
+    if (packet.Entry >= MAX_QUEST_LOG_SIZE)
         return;
 
     if (uint32 questId = player->GetQuestSlotQuestId(packet.Entry))
@@ -603,7 +603,7 @@ void WorldSession::HandleQuestLogRemoveQuest(WorldPackets::Quest::QuestLogRemove
         player->RemoveActiveQuest(questId);
         player->GetAchievementMgr()->RemoveTimedAchievement(CRITERIA_TIMED_TYPE_ITEM, questId);
 
-        TC_LOG_INFO("network", "Player %u abandoned quest %u", player->GetGUIDLow(), questId);
+        TC_LOG_DEBUG("network", "Player %u abandoned quest %u", player->GetGUIDLow(), questId);
     }
 
     _player->SetQuestSlot(packet.Entry, 0);
@@ -741,6 +741,10 @@ void WorldSession::HandlePushQuestToParty(WorldPackets::Quest::PushQuestToParty&
         if (!player || player == _player || !player->CanContact())
             continue;
 
+        // Members on another map are updated by another map thread: never write into them from here
+        if (!player->IsInMap(_player))
+            continue;
+
         if (!player->SatisfyQuestStatus(quest, false))
         {
             _player->SendPushToPartyResponse(player, QUEST_PARTY_MSG_HAVE_QUEST);
@@ -832,12 +836,26 @@ void WorldSession::HandleAdventureJournalStartQuest(WorldPackets::Quest::Adventu
     auto player = GetPlayer();
 
     // Check Adventure Map POI first (Scouting Map / Class Hall map quests)
-    bool isAdventureMapQuest = std::find_if(sAdventureMapPOIStore.begin(), sAdventureMapPOIStore.end(),
-        [questID](AdventureMapPOIEntry const* entry) -> bool { return entry->Type == 1 && entry->QuestID == questID; })
-        != sAdventureMapPOIStore.end();
+    bool isAdventureMapQuest = false;
+    bool adventureMapPOIAvailable = false;
+    for (AdventureMapPOIEntry const* entry : sAdventureMapPOIStore)
+    {
+        if (entry->Type != 1 || entry->QuestID != questID)
+            continue;
+
+        isAdventureMapQuest = true;
+        if (sConditionMgr->IsPlayerMeetingCondition(player, entry->PlayerConditionID))
+        {
+            adventureMapPOIAvailable = true;
+            break;
+        }
+    }
 
     if (isAdventureMapQuest)
     {
+        if (!adventureMapPOIAvailable)
+            return;
+
         auto quest = sQuestDataStore->GetQuestTemplate(questID);
         if (!quest)
             return;
@@ -1217,14 +1235,4 @@ void WorldSession::HandleRequestAreaPoiUpdate(WorldPackets::Quest::RequestAreaPo
 
     if (needSend)
         SendPacket(response.Write());
-
-    // if (uint8 eventID = sWorldStateMgr.GetWorldStateValue(13321))
-    // {
-        // WorldPackets::Quest::AreaPoiUpdate response;
-        // switch (eventID)
-        // {
-            // case 1:
-                // response.Pois.push_back(WorldPackets::Quest::WorldQuestUpdateInfo(worldQuest->StartTime, 5271, worldQuest->Timer, worldQuest->VariableID, worldQuest->Value));
-        // }
-    // }
 }
