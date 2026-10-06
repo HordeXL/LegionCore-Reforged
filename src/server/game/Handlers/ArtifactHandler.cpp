@@ -151,11 +151,10 @@ void WorldSession::HandleArtifactAddRelicTalent(WorldPackets::Artifact::Artifact
     if (relicks.find(packet.SlotIndex) == relicks.end()) // can it?
         return;
 
-    if (auto gem = artifact->GetGem(packet.SlotIndex - 2))
-    {
-        if (!gem || !gem->ItemId)
-            return;
-    }
+    // Relic talents belong to the relic socketed there
+    ItemDynamicFieldGems const* gem = artifact->GetGem(packet.SlotIndex - 2);
+    if (!gem || !gem->ItemId)
+        return;
 
     uint32 const chosen = relicks[packet.SlotIndex].firstTier;
     if ((1 << packet.TalentIndex) & chosen)
@@ -208,11 +207,10 @@ void WorldSession::HandleArtifactAttuneSocketedRelic(WorldPackets::Artifact::Art
     if (packet.RelicSlotIndex < 2 || packet.RelicSlotIndex >= 2 + MAX_GEM_SOCKETS)
         return;
 
-    if (auto gem = artifact->GetGem(packet.RelicSlotIndex - 2))
-    {
-        if (!gem || !gem->ItemId)
-            return;
-    }
+    ItemDynamicFieldGems const* gem = artifact->GetGem(packet.RelicSlotIndex - 2);
+    if (!gem || !gem->ItemId)
+        return;
+
     artifact->SetState(ITEM_CHANGED, _player);
 
     auto relicks = artifact->GetArtifactSockets();
@@ -238,6 +236,11 @@ void WorldSession::HandleArtifactAttunePreviewRelic(WorldPackets::Artifact::Arti
 
     Item* socket = _player->GetItemByGuid(packet.RelicGUID);
     if (!socket)
+        return;
+
+    // Previewing binds the item, so it must be a relic
+    ItemTemplate const* proto = socket->GetTemplate();
+    if (proto->GetClass() != ITEM_CLASS_GEM || proto->GetSubClass() != ITEM_SUBCLASS_GEM_ARTIFACT_RELIC)
         return;
 
     socket->SetBinding(true);

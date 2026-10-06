@@ -410,7 +410,6 @@ void WorldSession::HandleCastSpellOpcode(WorldPackets::Spells::CastSpell& cast)
     if (cast.Cast.MoveUpdate)
         HandleMovementOpcode(CMSG_MOVE_STOP, *cast.Cast.MoveUpdate);
 
-    // uint32 _s = getMSTime();
     TriggerCastData triggerData;
     triggerData.miscData0 = cast.Cast.Misc[0];
     triggerData.miscData1 = cast.Cast.Misc[1];
@@ -421,9 +420,6 @@ void WorldSession::HandleCastSpellOpcode(WorldPackets::Spells::CastSpell& cast)
     spell->m_SpellVisual = cast.Cast.SpellXSpellVisualID;
     spell->SetStartCastTime(spell->GetStartCastTime() - 50);
     spell->prepare(&targets);
-    // uint32 _ms = getMSTimeDiff(_s, getMSTime());
-    // if (_ms > 50)
-        // sLog->outDiff("HandleCastSpellOpcode Diff - %ums Id %u.", _ms, spellInfo->Id);
 }
 
 void WorldSession::HandleCancelCast(WorldPackets::Spells::CancelCast& packet)
@@ -604,8 +600,8 @@ void WorldSession::HandleSpellClick(WorldPackets::Spells::SpellClick& packet)
 
 void WorldSession::HandleGetMirrorImageData(WorldPackets::Spells::GetMirrorImageData& packet)
 {
-    // Get unit for which data is needed by client
-    Unit* unit = ObjectAccessor::GetObjectInWorld(packet.UnitGUID, static_cast<Unit*>(nullptr));
+    // Get unit for which data is needed by client; only units of our map, the others belong to another map thread
+    Unit* unit = ObjectAccessor::GetUnit(*_player, packet.UnitGUID);
     if (!unit)
         return;
 
@@ -678,10 +674,16 @@ void WorldSession::HandleGetMirrorImageData(WorldPackets::Spells::GetMirrorImage
     SendPacket(mirrorImageComponentedData.Write());
 }
 
+// The client only aims its own missiles: the player himself, or the vehicle or unit he controls
+static bool IsOwnMissileCaster(Player* player, Unit const* caster)
+{
+    return caster == player || caster == player->GetUnitBeingMoved() || caster == player->GetCharm() || caster == player->GetGuardianPet();
+}
+
 void WorldSession::HandleMissileTrajectoryCollision(WorldPackets::Spells::MissileTrajectoryCollision& packet)
 {
     Unit* caster = ObjectAccessor::GetUnit(*_player, packet.Target);
-    if (!caster)
+    if (!caster || !IsOwnMissileCaster(_player, caster))
         return;
 
     Spell* spell = caster->FindCurrentSpellBySpellId(packet.SpellID);
@@ -702,6 +704,9 @@ void WorldSession::HandleMissileTrajectoryCollision(WorldPackets::Spells::Missil
 void WorldSession::HandleUpdateMissileTrajectory(WorldPackets::Spells::UpdateMissileTrajectory& packet)
 {
     Unit* caster = ObjectAccessor::GetUnit(*_player, packet.Guid);
+    if (caster && !IsOwnMissileCaster(_player, caster))
+        return;
+
     Spell* spell = caster ? caster->GetCurrentSpell(CURRENT_GENERIC_SPELL) : nullptr;
     if (!spell || spell->m_spellInfo->Id != uint32(packet.SpellID) || !spell->m_targets.HasDst() || !spell->m_targets.HasSrc())
         return;
@@ -747,7 +752,7 @@ void WorldSession::HandleSetActionButtonOpcode(WorldPackets::Spells::SetActionBu
     uint32 action = ACTION_BUTTON_ACTION(packet.Action);
     uint8 type = ACTION_BUTTON_TYPE(packet.Action);
 
-    TC_LOG_INFO("network", "BUTTON: %u ACTION: %u TYPE: %u", packet.Index, action, uint32(type));
+    TC_LOG_DEBUG("network", "BUTTON: %u ACTION: %u TYPE: %u", packet.Index, action, uint32(type));
 
     if (!packet.Action && !type)
         player->RemoveActionButton(packet.Index);
@@ -757,25 +762,25 @@ void WorldSession::HandleSetActionButtonOpcode(WorldPackets::Spells::SetActionBu
         {
             case ACTION_BUTTON_MACRO:
             case ACTION_BUTTON_CMACRO:
-                TC_LOG_INFO("network", "MISC: Added Macro %u into button %u", action, packet.Index);
+                TC_LOG_DEBUG("network", "MISC: Added Macro %u into button %u", action, packet.Index);
                 break;
             case ACTION_BUTTON_EQSET:
-                TC_LOG_INFO("network", "MISC: Added EquipmentSetInfo %u into button %u", action, packet.Index);
+                TC_LOG_DEBUG("network", "MISC: Added EquipmentSetInfo %u into button %u", action, packet.Index);
                 break;
             case ACTION_BUTTON_SPELL:
-                TC_LOG_INFO("network", "MISC: Added Spell %u into button %u", action, packet.Index);
+                TC_LOG_DEBUG("network", "MISC: Added Spell %u into button %u", action, packet.Index);
                 break;
             case ACTION_BUTTON_SUB_BUTTON:
-                TC_LOG_INFO("network", "MISC: Added sub buttons %u into button %u", action, packet.Index);
+                TC_LOG_DEBUG("network", "MISC: Added sub buttons %u into button %u", action, packet.Index);
                 break;
             case ACTION_BUTTON_ITEM:
-                TC_LOG_INFO("network", "MISC: Added Item %u into button %u", action, packet.Index);
+                TC_LOG_DEBUG("network", "MISC: Added Item %u into button %u", action, packet.Index);
                 break;
             case ACTION_BUTTON_PET:
-                TC_LOG_INFO("network", "MISC: Added Pet Spell %u into button %u", action, packet.Index);
+                TC_LOG_DEBUG("network", "MISC: Added Pet Spell %u into button %u", action, packet.Index);
                 break;
             case ACTION_BUTTON_MOUNT:
-                TC_LOG_INFO("network", "MISC: Added mount or favorite mount %u into button %u", action, packet.Index);
+                TC_LOG_DEBUG("network", "MISC: Added mount or favorite mount %u into button %u", action, packet.Index);
                 break;
             default:
                 TC_LOG_ERROR("network", "MISC: Unknown action button type %u for action %u into button %u for player %s (GUID: %u)", type, action, packet.Index, _player->GetName(), _player->GetGUIDLow());
@@ -816,6 +821,14 @@ void WorldSession::HandleUpdateSpellVisualOpcode(WorldPackets::Spells::UpdateSpe
 {
     if (Aura* aura = GetPlayer()->GetAura(packet.SpellID))
     {
+        // The visual is broadcast to everyone around: it must be one of this spell's own visuals
+        if (packet.SpellXSpellVisualId)
+        {
+            SpellXSpellVisualEntry const* visual = sSpellXSpellVisualStore.LookupEntry(packet.SpellXSpellVisualId);
+            if (!visual || visual->SpellID != aura->GetId())
+                return;
+        }
+
         aura->SetSpellVisual(packet.SpellXSpellVisualId);
         aura->SetNeedClientUpdateForTargets();
     }

@@ -1528,7 +1528,6 @@ class TC_GAME_API WorldSession
         void HandleBinderActivate(WorldPackets::NPC::Hello& packet);
         void HandleRequestStabledPets(WorldPackets::NPC::RequestStabledPets& packet);
         void HandleSetPetSlot(WorldPackets::PetPackets::SetPetSlot& packet);
-        void HandleStableChangeSlotCallback(PreparedQueryResult const& result, uint8 new_slot);
         void SendTrainerService(ObjectGuid guid, uint32 spellId, uint32 trainState);
 
         void HandleAcceptTrade(WorldPackets::Trade::AcceptTrade& packet);

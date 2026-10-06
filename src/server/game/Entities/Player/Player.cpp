@@ -11496,8 +11496,8 @@ void Player::CastItemUseSpell(Item* item, SpellCastTargets const& targets, int32
         TriggerCastData triggerData;
         triggerData.triggerFlags = (count > 0) ? TriggerCastFlags(TRIGGERED_FULL_MASK &~ (TRIGGERED_CAST_DIRECTLY | TRIGGERED_IGNORE_SPELL_AND_CATEGORY_CD)) : TRIGGERED_NONE;
         triggerData.castItem = item;
-        triggerData.miscData0 = misc[0];
-        triggerData.miscData1 = misc[1];
+        triggerData.miscData0 = misc ? misc[0] : 0;
+        triggerData.miscData1 = misc ? misc[1] : 0;
         triggerData.spellGuid = SpellGuid;
         triggerData.SubType = SPELL_CAST_TYPE_ITEM;
 
@@ -11532,8 +11532,8 @@ void Player::CastItemUseSpell(Item* item, SpellCastTargets const& targets, int32
             TriggerCastData triggerData;
             triggerData.triggerFlags = (count > 0) ? TriggerCastFlags(TRIGGERED_FULL_MASK &~ (TRIGGERED_CAST_DIRECTLY | TRIGGERED_IGNORE_SPELL_AND_CATEGORY_CD)) : TRIGGERED_NONE;
             triggerData.castItem = item;
-            triggerData.miscData0 = misc[0];
-            triggerData.miscData1 = misc[1];
+            triggerData.miscData0 = misc ? misc[0] : 0;
+            triggerData.miscData1 = misc ? misc[1] : 0;
             triggerData.spellGuid = SpellGuid;
             triggerData.SubType = SPELL_CAST_TYPE_ITEM;
 

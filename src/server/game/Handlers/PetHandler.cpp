@@ -43,7 +43,7 @@ void WorldSession::HandlePetAction(WorldPackets::PetPackets::PetAction& packet)
     uint32 spellID = UNIT_ACTION_BUTTON_ACTION(packet.Action);
     uint8 flag = UNIT_ACTION_BUTTON_TYPE(packet.Action); //delete = 0x07 CastSpell = C1
 
-    TC_LOG_INFO("network", "HandlePetAction: Pet %u - flag: %u, spellID: %u, target: %u.", packet.PetGUID.GetGUIDLow(), uint32(flag), spellID, packet.TargetGUID.GetGUIDLow());
+    TC_LOG_DEBUG("network", "HandlePetAction: Pet %u - flag: %u, spellID: %u, target: %u.", packet.PetGUID.GetGUIDLow(), uint32(flag), spellID, packet.TargetGUID.GetGUIDLow());
 
     if (_player->IsMounted())
         return;
@@ -188,7 +188,7 @@ void WorldSession::HandlePetSetAction(WorldPackets::PetPackets::PetSetAction& pa
     if (actState == ACT_DECIDE && !charmInfo->GetActionBarEntry(packet.Index))
         return;
 
-    TC_LOG_INFO("network", "Player %s has changed pet spell action. Position: %u, Spell: %u, State: 0x%X HasSpell %i",
+    TC_LOG_DEBUG("network", "Player %s has changed pet spell action. Position: %u, Spell: %u, State: 0x%X HasSpell %i",
         _player->GetName(), packet.Index, spellID, uint32(actState), pet->HasSpell(spellID));
 
     //if it's act for spell (en/disable/cast) and there is a spell given (0 = remove spell) which pet doesn't know, don't add
@@ -257,15 +257,6 @@ void WorldSession::HandlePetRename(WorldPackets::PetPackets::PetRename& packet)
         return;
     }
 
-    pet->SetName(packet.RenameData.NewName);
-
-    pet->SetGroupUpdateFlag(GROUP_UPDATE_FLAG_PET_NAME);
-
-    pet->RemoveByteFlag(UNIT_FIELD_BYTES_2, UNIT_BYTES_2_OFFSET_PET_FLAGS, UNIT_CAN_BE_RENAMED);
-
-    petStable->GetCurrentPet()->Name = name;
-    petStable->GetCurrentPet()->WasRenamed = true;
-
     if (declinedname && sWorld->getBoolConfig(CONFIG_DECLINED_NAMES_USED))
     {
         std::wstring wname;
@@ -278,6 +269,15 @@ void WorldSession::HandlePetRename(WorldPackets::PetPackets::PetRename& packet)
             return;
         }
     }
+
+    pet->SetName(packet.RenameData.NewName);
+
+    pet->SetGroupUpdateFlag(GROUP_UPDATE_FLAG_PET_NAME);
+
+    pet->RemoveByteFlag(UNIT_FIELD_BYTES_2, UNIT_BYTES_2_OFFSET_PET_FLAGS, UNIT_CAN_BE_RENAMED);
+
+    petStable->GetCurrentPet()->Name = name;
+    petStable->GetCurrentPet()->WasRenamed = true;
 
     CharacterDatabaseTransaction trans = CharacterDatabase.BeginTransaction();
     if (declinedname && sWorld->getBoolConfig(CONFIG_DECLINED_NAMES_USED))
@@ -344,7 +344,7 @@ void WorldSession::HandlePetSpellAutocast(WorldPackets::PetPackets::PetSpellAuto
     }
 
     SpellInfo const* spellInfo = sSpellMgr->GetSpellInfo(packet.SpellID);
-    if (!pet->HasSpell(packet.SpellID) || spellInfo->IsAutocastable())
+    if (!spellInfo || !pet->HasSpell(packet.SpellID) || !spellInfo->IsAutocastable())
         return;
 
     CharmInfo* charmInfo = pet->GetCharmInfo();
@@ -387,35 +387,32 @@ void WorldSession::HandlePetCastSpellOpcode(WorldPackets::Spells::PetCastSpell& 
         return;
     }
 
-    bool triggered = false;
-    for (uint32 i = 0; i < MAX_SPELL_EFFECTS; ++i)
+    // Aimed vehicle and charmed-creature spells (siege cannons, quest turrets) are often missing from the
+    // creature's spell list. They stay castable, but only from such a caster and with every normal check.
+    bool aimedFromVehicle = false;
+    if (caster != _player->GetGuardianPet() && (caster->IsVehicle() || caster == _player->GetCharm()))
     {
-        if (spellInfo->EffectMask < uint32(1 << i))
-            break;
+        for (uint32 i = 0; i < MAX_SPELL_EFFECTS; ++i)
+        {
+            if (spellInfo->EffectMask < uint32(1 << i))
+                break;
 
-        if (spellInfo->Effects[i]->TargetA.GetTarget() == TARGET_DEST_TRAJ || spellInfo->Effects[i]->TargetB.GetTarget() == TARGET_DEST_TRAJ || spellInfo->Effects[i]->Effect == SPELL_EFFECT_TRIGGER_MISSILE)
-            triggered = true;
+            if (spellInfo->Effects[i]->TargetA.GetTarget() == TARGET_DEST_TRAJ || spellInfo->Effects[i]->TargetB.GetTarget() == TARGET_DEST_TRAJ || spellInfo->Effects[i]->Effect == SPELL_EFFECT_TRIGGER_MISSILE)
+                aimedFromVehicle = true;
+        }
     }
 
     // do not cast not learned spells
-    if (!caster->HasSpell(cast.Cast.SpellID) || spellInfo->IsPassive())
+    if ((!caster->HasSpell(cast.Cast.SpellID) && !aimedFromVehicle) || spellInfo->IsPassive())
     {
-        if (!triggered)
-        {
-            TC_LOG_ERROR("network", "HandlePetCastSpellOpcode: !HasSpell or IsPassive");
-            return;
-        }
+        TC_LOG_ERROR("network", "HandlePetCastSpellOpcode: !HasSpell or IsPassive");
+        return;
     }
-    else
-        triggered = false;
 
     caster->ClearUnitState(UNIT_STATE_FOLLOW);
 
-    uint32 triggeredCastFlags = triggered ? TRIGGERED_FULL_MASK : TRIGGERED_NONE;
-    triggeredCastFlags &= ~TRIGGERED_IGNORE_POWER_AND_REAGENT_COST;
-
     TriggerCastData triggerData;
-    triggerData.triggerFlags = TriggerCastFlags(triggeredCastFlags);
+    triggerData.triggerFlags = TRIGGERED_NONE;
     triggerData.miscData0 = cast.Cast.Misc[0];
     triggerData.miscData1 = cast.Cast.Misc[1];
     triggerData.spellGuid = cast.Cast.SpellGuid;
@@ -483,87 +480,9 @@ void WorldSession::HandlePetCastSpellOpcode(WorldPackets::Spells::PetCastSpell& 
     }
 }
 
-void WorldSession::HandleSetPetSlot(WorldPackets::PetPackets::SetPetSlot& packet)
+void WorldSession::HandleSetPetSlot(WorldPackets::PetPackets::SetPetSlot& /*packet*/)
 {
-    if (packet.PetIndex)
-    {
-        TC_LOG_INFO("network", "HandleSetPetSlot");
-    }
-//    if (!GetPlayer()->GetNPCIfCanInteractWith(packet.NpcGUID, UNIT_NPC_FLAG_STABLEMASTER))
-//    {
-//        TC_LOG_DEBUG("network", "Stablemaster (GUID:%u) not found or you can't interact with him.", packet.NpcGUID.GetGUIDLow());
-//        SendStableResult(STABLE_ERR_STABLE);
-//        return;
-//    }
-//
-//    if (packet.NewSlot > MAX_PET_STABLES)
-//    {
-//        SendStableResult(STABLE_ERR_STABLE);
-//        return;
-//    }
-//
-//    if (GetPlayer()->HasUnitState(UNIT_STATE_DIED))
-//        GetPlayer()->RemoveAurasByType(SPELL_AURA_FEIGN_DEATH);
-//
-//    Pet* pet = _player->GetPet();
-//    if (pet && pet->GetCharmInfo() && pet->GetCharmInfo()->GetPetNumber() == packet.PetIndex)
-//        _player->RemovePet(pet);
-//
-//    PetSlot currentSlot = GetPlayer()->GetSlotForPetId(GetPlayer()->m_currentPetNumber);
-//    if (pet && currentSlot == packet.NewSlot)
-//        _player->RemovePet(pet);
-//
-//    CharacterDatabasePreparedStatement* stmt = CharacterDatabase.GetPreparedStatement(CHAR_SEL_PET_BY_ID);
-//    stmt->setUInt64(0, _player->GetGUIDLow());
-//    stmt->setUInt32(1, packet.PetIndex);
-//
-//    _queryProcessor.AddQuery(CharacterDatabase.AsyncQuery(stmt).WithPreparedCallback(std::bind(&WorldSession::HandleStableChangeSlotCallback, this, std::placeholders::_1, packet.PetIndex)));
-}
-
-void WorldSession::HandleStableChangeSlotCallback(PreparedQueryResult const& result, uint8 new_slot)
-{
-//    if (!GetPlayer())
-//        return;
-//
-//    if (!result)
-//    {
-//        SendStableResult(STABLE_ERR_STABLE);
-//        return;
-//    }
-//
-//    Field *fields = result->Fetch();
-//
-//    uint32 pet_entry = fields[0].GetUInt32();
-//    uint32 pet_number = fields[1].GetUInt32();
-//    //bool isHunter = fields[2].GetUInt8() == HUNTER_PET;
-//
-//    PetSlot slot = GetPlayer()->GetSlotForPetId(pet_number);
-//
-//    if (!pet_entry)
-//    {
-//        SendStableResult(STABLE_ERR_STABLE);
-//        return;
-//    }
-//
-//    CreatureTemplate const* creatureInfo = sObjectMgr->GetCreatureTemplate(pet_entry);
-//    if (!creatureInfo || !creatureInfo->isTameable(_player))
-//    {
-//        // if problem in exotic pet
-//        if (creatureInfo && creatureInfo->isTameable(_player))
-//            SendStableResult(STABLE_ERR_EXOTIC);
-//        else
-//            SendStableResult(STABLE_ERR_STABLE);
-//        return;
-//    }
-//
-//    // Update if its a Hunter pet
-//    if (new_slot != 100)
-//    {
-//        // We need to remove and add the new pet to there diffrent slots
-//        GetPlayer()->SwapPetSlot(slot, static_cast<PetSlot>(new_slot));
-//    }
-//
-//    SendStableResult(STABLE_SUCCESS_STABLE);
+    // Moving a pet between stable slots is not implemented yet
 }
 
 void WorldSession::SendStableResult(StableResultCode res)
