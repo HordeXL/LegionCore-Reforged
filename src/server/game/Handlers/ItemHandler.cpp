@@ -113,6 +113,9 @@ void WorldSession::HandleAutoEquipItemSlotOpcode(WorldPackets::Item::AutoEquipIt
     if (!item || item->GetPos() != srcPos || srcPos == dstPos)
         return;
 
+    if ((Player::IsBankPos(srcPos) || Player::IsReagentBankPos(srcPos)) && !CanUseBank())
+        return;
+
     _player->SwapItem(srcPos, dstPos);
 }
 
@@ -160,6 +163,9 @@ void WorldSession::HandleAutoEquipItem(WorldPackets::Item::AutoEquipItem& autoEq
     if (!pSrcItem)
         return;
 
+    if ((_player->IsBankPos(autoEquipItem.PackSlot, autoEquipItem.Slot) || _player->IsReagentBankPos(autoEquipItem.PackSlot, autoEquipItem.Slot)) && !CanUseBank())
+        return;
+
     uint16 dest;
     InventoryResult msg = _player->CanEquipItem(NULL_SLOT, dest, pSrcItem, !pSrcItem->IsBag());
     if (msg != EQUIP_ERR_OK)
@@ -180,7 +186,7 @@ void WorldSession::HandleAutoEquipItem(WorldPackets::Item::AutoEquipItem& autoEq
             InventoryResult childEquipResult = _player->CanEquipChildItem(pSrcItem);
             if (childEquipResult != EQUIP_ERR_OK)
             {
-                _player->SendEquipError(msg, pSrcItem);
+                _player->SendEquipError(childEquipResult, pSrcItem);
                 return;
             }
         }
@@ -439,9 +445,9 @@ void WorldSession::HandleSellItemOpcode(WorldPackets::Item::SellItem& packet)
                     player->AddItemToBuyBackSlot(item);
                 }
 
-                uint32 money = SellPrice * packet.Amount;
-                player->ModifyMoney(money);
-                player->UpdateAchievementCriteria(CRITERIA_TYPE_MONEY_FROM_VENDORS, money);
+                uint64 money = uint64(SellPrice) * packet.Amount;
+                player->ModifyMoney(int64(money));
+                player->UpdateAchievementCriteria(CRITERIA_TYPE_MONEY_FROM_VENDORS, uint32(money));
                 player->SendSellError(SELL_ERR_OK, creature, packet.ItemGUID);
             }
             else
@@ -485,7 +491,7 @@ void WorldSession::HandleBuybackItem(WorldPackets::Item::BuyBackItem& packet)
         InventoryResult msg = player->CanStoreItem(NULL_BAG, NULL_SLOT, dest, item, false);
         if (msg == EQUIP_ERR_OK)
         {
-            player->ModifyMoney(-(int32)price);
+            player->ModifyMoney(-int64(price));
             player->RemoveItemFromBuyBackSlot(packet.Slot, false);
             player->ItemAddedQuestCheck(item->GetEntry(), item->GetCount());
             player->UpdateAchievementCriteria(CRITERIA_TYPE_RECEIVE_EPIC_ITEM, item->GetEntry(), item->GetCount());
@@ -556,6 +562,9 @@ void WorldSession::HandleAutoStoreBagItem(WorldPackets::Item::AutoStoreBagItem& 
         return;
     }
 
+    if ((player->IsBankPos(packet.ContainerSlotA, packet.SlotA) || player->IsReagentBankPos(packet.ContainerSlotA, packet.SlotA) || player->IsBankPos(packet.ContainerSlotB, NULL_SLOT)) && !CanUseBank())
+        return;
+
     uint16 src = item->GetPos();
     if (player->IsEquipmentPos (src) || player->IsBagPos (src))
     {
@@ -585,10 +594,13 @@ void WorldSession::HandleAutoStoreBagItem(WorldPackets::Item::AutoStoreBagItem& 
     player->StoreItem(dest, item, true);
 }
 
-void WorldSession::HandleBuyBankSlot(WorldPackets::Bank::BuyBankSlot& /*packet*/)
+void WorldSession::HandleBuyBankSlot(WorldPackets::Bank::BuyBankSlot& packet)
 {
     Player* player = GetPlayer();
     if (!player)
+        return;
+
+    if (!CanUseBank(packet.Guid))
         return;
 
     uint32 slot = player->GetBankBagSlotsValue();
@@ -612,6 +624,9 @@ void WorldSession::HandleAutoBankItem(WorldPackets::Bank::AutoBankItem& packet)
 {
     Player* player = GetPlayer();
     if (!player)
+        return;
+
+    if (!CanUseBank())
         return;
 
     Item* item = player->GetItemByPos(packet.Bag, packet.Slot);
@@ -657,6 +672,9 @@ void WorldSession::HandleAutoStoreBankItem(WorldPackets::Bank::AutoStoreBankItem
 {
     Player* player = GetPlayer();
     if (!player)
+        return;
+
+    if (!CanUseBank())
         return;
 
     Item* item = player->GetItemByPos(packet.Bag, packet.Slot);
@@ -793,7 +811,8 @@ void WorldSession::HandleWrapItem(WorldPackets::Item::WrapItem& packet)
     }
     CharacterDatabase.CommitTransaction(trans);
 
-    _player->DestroyItem(gift->GetBagSlot(), gift->GetSlot(), true);
+    uint32 count = 1;
+    _player->DestroyItemCount(gift, count, true);
 }
 
 void WorldSession::HandleSocketGems(WorldPackets::Item::SocketGems& packet)
@@ -840,6 +859,8 @@ void WorldSession::HandleSocketGems(WorldPackets::Item::SocketGems& packet)
                 gemData[i].BonusListIDs[b] = gem->GetDynamicValue(ITEM_DYNAMIC_FIELD_BONUS_LIST_IDS, b);
 
             gemProperties[i] = sGemPropertiesStore.LookupEntry(gem->GetTemplate()->GetGemProperties());
+            if (!gemProperties[i])
+                return;
         }
 
         oldGemData[i] = itemTarget->GetGem(i);
@@ -991,7 +1012,7 @@ void WorldSession::HandleSocketGems(WorldPackets::Item::SocketGems& packet)
                     itemTarget->SetDynamicValue(ITEM_DYNAMIC_FIELD_RELIC_TALENT_DATA, offset++, relicks[2].additionalThirdTier);
 
                     for (uint8 j = 0; j <= 5; ++j)
-                        if ((1 << j) & relicks[i + 2].firstTier)
+                        if ((1 << j) & relicks[2].firstTier)
                             itemTarget->AddOrRemoveSocketTalent(j, true, i + 2); // add new data
                 }
                 else
@@ -1635,6 +1656,9 @@ void WorldSession::HandleSortBags(WorldPackets::Item::SortBags& /*packet*/)
 
 void WorldSession::HandleSortBankBags(WorldPackets::Item::SortBankBags& /*packet*/)
 {
+    if (!CanUseBank())
+        return;
+
     _player->ApplyOnItems(2, [](Player* player, Item* item, uint8 /*bagSlot*/, uint8)
     {
         StoreItemInBanks(player, item);
@@ -1679,9 +1703,13 @@ void WorldSession::HandleSortBankBags(WorldPackets::Item::SortBankBags& /*packet
 
 void WorldSession::HandleSortReagentBankBags(WorldPackets::Item::SortReagentBankBags& /*packet*/)
 {
+    if (!CanUseBank() || !_player->CanUseReagentBank())
+        return;
+
+    // Stacks are merged inside the reagent bank itself: StoreItemInBanks moved reagents to the normal bank.
     _player->ApplyOnItems(3, [](Player* player, Item* item, uint8 /*bagSlot*/, uint8)
     {
-        StoreItemInBanks(player, item);
+        player->MoveItemReagentBank(item);
         return true;
     });
 
@@ -1724,20 +1752,35 @@ void WorldSession::HandleUseCritterItem(WorldPackets::Item::UseCritterItem& useC
     if (!item)
         return;
 
-    if (item->GetTemplate()->Effects.size() < 2)
+    bool isCritter = false;
+    for (ItemEffectEntry const* effect : item->GetTemplate()->Effects)
+        if (effect->TriggerType == ITEM_SPELLTRIGGER_LEARN_SPELL_ID && sDB2Manager.GetSpeciesBySpell(uint32(effect->SpellID)))
+            isCritter = true;
+
+    if (!isCritter)
         return;
 
+    ObjectGuid const itemGuid = item->GetGUID();
+    int32 misc[2] = { };
     SpellCastTargets targets;
     targets.Update(_player);
-    _player->CastItemUseSpell(item, targets, nullptr, ObjectGuid::Empty);
+    _player->CastItemUseSpell(item, targets, misc, ObjectGuid::Empty);
 
-    _player->DestroyItem(item->GetBagSlot(), item->GetSlot(), true);
+    // The learning spell can consume the item itself
+    if (Item* critter = _player->GetItemByGuid(itemGuid))
+    {
+        uint32 count = 1;
+        _player->DestroyItemCount(critter, count, true);
+    }
 }
 
 void WorldSession::HandleAutoBankReagent(WorldPackets::Item::AutoBankReagent& packet)
 {
     Player* player = GetPlayer();
     if (!player)
+        return;
+
+    if (!CanUseBank() || !player->CanUseReagentBank())
         return;
 
     Item* item = player->GetItemByPos(packet.PackSlot, packet.Slot);
@@ -1767,6 +1810,9 @@ void WorldSession::HandleAutostoreBankReagent(WorldPackets::Bank::AutostoreBankR
 {
     Player* player = GetPlayer();
     if (!player)
+        return;
+
+    if (!CanUseBank() || !player->CanUseReagentBank())
         return;
 
     Item* item = player->GetItemByPos(packet.Bag, packet.Slot);
@@ -1812,6 +1858,9 @@ void WorldSession::HandleBuyReagentBank(WorldPackets::Bank::BuyReagentBank& pack
 
     if (player->HasUnitState(UNIT_STATE_DIED))
         player->RemoveAurasByType(SPELL_AURA_FEIGN_DEATH);
+
+    if (player->CanUseReagentBank())
+        return;
 
     uint64 price = 1000000; // 100 gold
 

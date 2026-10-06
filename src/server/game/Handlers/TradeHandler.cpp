@@ -350,7 +350,7 @@ void WorldSession::HandleAcceptTrade(WorldPackets::Trade::AcceptTrade& acceptTra
 
         Spell* his_spell = nullptr;
         SpellCastTargets his_targets;
-        his_targets.SetCaster(player);
+        his_targets.SetCaster(trader);
 
         // not accept if spell can't be casted now (cheating)
         if (uint32 my_spell_id = myTrade->GetSpell())

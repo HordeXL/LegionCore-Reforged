@@ -51,6 +51,12 @@ void WorldSession::HandleVoidStorageUnlock(WorldPackets::VoidStorage::UnlockVoid
     if (player->IsVoidStorageUnlocked())
         return;
 
+    if (!player->HasEnoughMoney(uint64(VOID_STORAGE_UNLOCK)))
+    {
+        SendVoidStorageTransferResult(VOID_TRANSFER_ERROR_NOT_ENOUGH_MONEY);
+        return;
+    }
+
     player->ModifyMoney(-int64(VOID_STORAGE_UNLOCK));
     player->UnlockVoidStorage();
 }
@@ -210,6 +216,8 @@ void WorldSession::HandleVoidStorageTransfer(WorldPackets::VoidStorage::VoidStor
                 break;
             }
             item = player->StoreNewItem(dest, itemVS->ItemEntry, true, itemVS->ItemRandomPropertyId, GuidSet());
+            if (!item)
+                break;
 
             item->SetUInt32Value(ITEM_FIELD_PROPERTY_SEED, itemVS->ItemSuffixFactor);
             item->SetGuidValue(ITEM_FIELD_CREATOR, itemVS->CreatorGuid);

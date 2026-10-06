@@ -122,8 +122,6 @@ void TradeData::SetMoney(uint64 money)
     if (_money == money)
         return;
 
-    _money = money;
-
     if (!_player->HasEnoughMoney(money))
     {
         WorldPackets::Trade::TradeStatus info;
@@ -132,6 +130,8 @@ void TradeData::SetMoney(uint64 money)
         _player->GetSession()->SendTradeStatus(info);
         return;
     }
+
+    _money = money;
 
     SetAccepted(false);
     GetTraderData()->SetAccepted(false);
