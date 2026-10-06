@@ -27,6 +27,27 @@
 #include "ObjectMgr.h"
 #include "GlobalFunctional.h"
 #include "ScriptMgr.h"
+#include "Timer.h"
+#include <mutex>
+#include <unordered_map>
+
+// Each request walks every online player under the global player lock
+static bool WhoRequestAllowed(uint32 accountId)
+{
+    static std::mutex lock;
+    static std::unordered_map<uint32, uint32> lastRequest;
+
+    uint32 const cooldown = 1 * IN_MILLISECONDS;
+    uint32 const now = getMSTime();
+
+    std::lock_guard<std::mutex> guard(lock);
+    auto itr = lastRequest.find(accountId);
+    if (itr != lastRequest.end() && getMSTimeDiff(itr->second, now) < cooldown)
+        return false;
+
+    lastRequest[accountId] = now;
+    return true;
+}
 
 void WorldSession::HandleWhoOpcode(WorldPackets::Who::WhoRequestPkt& whoRequest)
 {
@@ -37,6 +58,14 @@ void WorldSession::HandleWhoOpcode(WorldPackets::Who::WhoRequestPkt& whoRequest)
 
     if (request.Words.size() > 4)
         return;
+
+    // Too soon: an empty answer, so the who frame or an addon waiting for one does not hang
+    if (!WhoRequestAllowed(GetAccountId()))
+    {
+        WorldPackets::Who::WhoResponsePkt empty;
+        SendPacket(empty.Write());
+        return;
+    }
 
     std::vector<std::wstring> wWords;
     wWords.resize(request.Words.size());
@@ -64,7 +93,8 @@ void WorldSession::HandleWhoOpcode(WorldPackets::Who::WhoRequestPkt& whoRequest)
     uint32 security = GetSecurity();
     bool allowTwoSideWhoList = sWorld->getBoolConfig(CONFIG_ALLOW_TWO_SIDE_WHO_LIST);
     uint32 gmLevelInWhoList  = sWorld->getIntConfig(CONFIG_GM_LEVEL_IN_WHO_LIST);
-    uint8 displaycount = 0;
+    uint32 const maxWho = sWorld->getIntConfig(CONFIG_MAX_WHO);
+    uint32 displaycount = 0;
     Player* target = nullptr;
 
     WorldPackets::Who::WhoResponsePkt response;
@@ -75,7 +105,13 @@ void WorldSession::HandleWhoOpcode(WorldPackets::Who::WhoRequestPkt& whoRequest)
     HashMapHolder<Player>::MapType const& m = sObjectAccessor->GetPlayers();
     for (HashMapHolder<Player>::MapType::const_iterator itr = m.begin(); itr != m.end(); ++itr)
     {
+        if (displaycount >= maxWho)
+            break;
+
         target = itr->second;
+        if (!target || !target->IsInWorld())
+            continue;
+
         if (AccountMgr::IsPlayerAccount(security))
         {
             if (target->GetTeam() != team && !allowTwoSideWhoList)
@@ -84,9 +120,6 @@ void WorldSession::HandleWhoOpcode(WorldPackets::Who::WhoRequestPkt& whoRequest)
             if (target->GetSession()->GetSecurity() > AccountTypes(gmLevelInWhoList))
                 continue;
         }
-
-        if (!target || !target->IsInWorld())
-            continue;
 
         if (!target->IsVisibleGloballyFor(_player))
             continue;
@@ -167,13 +200,7 @@ void WorldSession::HandleWhoOpcode(WorldPackets::Who::WhoRequestPkt& whoRequest)
 
         response.Response.Entries.push_back(whoEntry);
         playerGuids.insert(target->GetGUID());
-
-        if ((displaycount++) >= sWorld->getIntConfig(CONFIG_MAX_WHO))
-        {
-            if (sWorld->getBoolConfig(CONFIG_LIMIT_WHO_ONLINE))
-                break;
-            continue;
-        }
+        ++displaycount;
     }
     HashMapHolder<Player>::GetLock().unlock_shared();
 

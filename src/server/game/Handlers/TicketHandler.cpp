@@ -28,11 +28,36 @@
 #include "WorldSession.h"
 #include "DatabaseEnv.h"
 #include "WordFilterMgr.h"
+#include "Timer.h"
+#include <mutex>
+#include <unordered_map>
+
+// Every complaint is kept in memory and written to the database, and enough of them mute the offender
+static bool ComplaintAllowed(uint32 accountId)
+{
+    static std::mutex lock;
+    static std::unordered_map<uint32, uint32> lastComplaint;
+
+    uint32 const cooldown = 10 * IN_MILLISECONDS;
+    uint32 const now = getMSTime();
+
+    std::lock_guard<std::mutex> guard(lock);
+    auto itr = lastComplaint.find(accountId);
+    if (itr != lastComplaint.end() && getMSTimeDiff(itr->second, now) < cooldown)
+        return false;
+
+    lastComplaint[accountId] = now;
+    return true;
+}
 
 void WorldSession::HandleComplaint(WorldPackets::Ticket::Complaint& packet)
 {
-    uint64 complaintId = sObjectMgr->GenerateReportComplaintID();
-    if (sWordFilterMgr->AddComplaintForUser(packet.Offender.PlayerGuid, GetPlayer()->GetGUID(), complaintId, packet.Chat.MessageLog))
+    ObjectGuid const& offender = packet.Offender.PlayerGuid;
+    bool const valid = offender.IsPlayer() && offender != GetPlayer()->GetGUID() && sWorld->GetCharacterInfo(offender)
+        && ComplaintAllowed(GetAccountId());
+
+    uint64 complaintId = valid ? sObjectMgr->GenerateReportComplaintID() : 0;
+    if (valid && sWordFilterMgr->AddComplaintForUser(packet.Offender.PlayerGuid, GetPlayer()->GetGUID(), complaintId, packet.Chat.MessageLog))
     {
         uint8 index = 0;
         CharacterDatabasePreparedStatement* stmt = CharacterDatabase.GetPreparedStatement(CHAR_INS_CHARACTER_COMPLAINTS);

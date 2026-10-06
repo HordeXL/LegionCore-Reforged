@@ -749,6 +749,13 @@ void WorldSession::HandleChatAddonMessage(ChatMsg type, std::string const& prefi
             group->BroadcastAddonMessagePacket(packet.Write(), prefix, true, subGroup, sender->GetGUID());
             break;
         }
+        case CHAT_MSG_CHANNEL:
+        {
+            if (ChannelMgr* cMgr = channelMgr(sender->GetTeam()))
+                if (Channel* chn = cMgr->GetChannel(targetName, sender, false))
+                    chn->AddonSay(sender->GetGUID(), prefix, message);
+            break;
+        }
         default:
         {
             TC_LOG_ERROR("misc", "HandleAddonMessagechatOpcode: unknown addon message type %u", type);

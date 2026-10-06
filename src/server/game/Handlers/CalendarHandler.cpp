@@ -201,12 +201,38 @@ void WorldSession::HandleCalendarAddEvent(WorldPackets::Calendar::CalendarAddEve
         if (packet.EventInfo.Invites.size() > 1)
             trans = CharacterDatabase.BeginTransaction();
 
+        // The list at creation is checked like an invitation added later (existence, faction, ignore list);
+        // the packet array already caps it at CALENDAR_MAX_INVITES.
+        std::set<ObjectGuid> ignoringCreator;
+        if (std::any_of(packet.EventInfo.Invites.begin(), packet.EventInfo.Invites.end(), [guid](WorldPackets::Calendar::CalendarAddEventInviteInfo const& invite) { return invite.Guid != guid; }))
+        {
+            if (QueryResult result = CharacterDatabase.PQuery("SELECT guid FROM character_social WHERE friend = %u AND (flags & %u) <> 0", guid.GetGUIDLow(), uint32(SOCIAL_FLAG_IGNORED)))
+            {
+                do
+                    ignoringCreator.insert(ObjectGuid::Create<HighGuid::Player>(result->Fetch()[0].GetUInt64()));
+                while (result->NextRow());
+            }
+        }
+
         std::set<ObjectGuid> invited;
         for (auto i = 0; i < packet.EventInfo.Invites.size(); ++i)
         {
             // a forged list could name the same player many times: one invite, one alert each
             if (!invited.insert(packet.EventInfo.Invites[i].Guid).second)
                 continue;
+
+            if (packet.EventInfo.Invites[i].Guid != guid)
+            {
+                CharacterInfo const* inviteeInfo = sWorld->GetCharacterInfo(packet.EventInfo.Invites[i].Guid);
+                if (!inviteeInfo || inviteeInfo->IsDeleted)
+                    continue;
+
+                if (_player->GetTeam() != Player::TeamForRace(inviteeInfo->Race) && !sWorld->getBoolConfig(CONFIG_ALLOW_TWO_SIDE_INTERACTION_CALENDAR))
+                    continue;
+
+                if (ignoringCreator.count(packet.EventInfo.Invites[i].Guid))
+                    continue;
+            }
 
             CalendarInvite* invite = new CalendarInvite(sCalendarMgr->GetFreeInviteId(), calendarEvent->GetEventId(), packet.EventInfo.Invites[i].Guid,
                 guid, CALENDAR_DEFAULT_RESPONSE_TIME, CalendarInviteStatus(packet.EventInfo.Invites[i].Status),

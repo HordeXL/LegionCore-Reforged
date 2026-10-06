@@ -478,8 +478,6 @@ std::vector<BadSentenceInfo> WordFilterMgr::GetBadSentenceList(uint32 page)
 
 bool WordFilterMgr::AddComplaintForUser(const ObjectGuid & offender, const ObjectGuid & complainant, uint64 complaintId, const std::string & fullInfo)
 {
-    ComplaintInfoUser& info = m_complaints[offender];
-
     auto itr = fullInfo.find("Text: [");
     if (itr == std::string::npos)
         return false;
@@ -494,11 +492,21 @@ bool WordFilterMgr::AddComplaintForUser(const ObjectGuid & offender, const Objec
     if (text.empty())
         return false;
 
+    // Created only once the complaint is valid: invented offender GUIDs no longer grow the map
+    ComplaintInfoUser& info = m_complaints[offender];
+
     if (info.m_muteTime > static_cast<uint64>(GameTime::GetGameTime()) && info.m_muteCount >= 2) // just banned maximum ??
         return false;
 
     if (info.m_complaintsByUsers.find(complainant) != info.m_complaintsByUsers.end())
         return false;
+
+    // One complainant per account: several characters of one account must not reach the penalty threshold alone
+    if (CharacterInfo const* complainantInfo = sWorld->GetCharacterInfo(complainant))
+        for (auto const& previous : info.m_complaintsByUsers)
+            if (CharacterInfo const* previousInfo = sWorld->GetCharacterInfo(previous.first))
+                if (previousInfo->AccountId == complainantInfo->AccountId)
+                    return false;
 
     info.m_complaintsByUsers[complainant] = complaintId;
 
