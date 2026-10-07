@@ -2408,6 +2408,10 @@ class TC_GAME_API Player : public Unit, public GridObject<Player>
         void SetPvP(bool state) override;
         void UpdatePvP(bool state, bool override=false);
         void UpdateZone(uint32 newZone, uint32 newArea);
+        void CheckInstancePortals();
+        uint32 m_portalCheckTimer = 0;
+        uint32 m_portalMapId = 0;
+        uint32 m_insidePortal = 0;
         void UpdateArea(uint32 newArea);
         void ChaeckSeamlessTeleport(uint32 newZoneOrArea, bool isArea = false);
         void ZoneTeleport(uint32 zoneId);

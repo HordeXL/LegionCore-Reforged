@@ -2103,6 +2103,7 @@ void World::SetInitialWorldSettings()
     sSpellMgr->LoadSpellAreas();
 
     sAreaTriggerDataStore->LoadAreaTriggerTeleports();
+    sAreaTriggerDataStore->LoadInstancePortals();
 
     TC_LOG_INFO("server.loading", "Loading Access Requirements...");
     sObjectMgr->LoadAccessRequirements();                        // must be after item template load

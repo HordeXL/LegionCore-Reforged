@@ -46,6 +46,16 @@ typedef std::unordered_map<uint32, uint32> AreaTriggerScriptContainer;
 typedef std::unordered_map<uint32, std::unordered_set<uint32>> QuestAreaTriggerContainer;
 typedef std::set<uint32> TavernAreaTriggerContainer;
 
+// Legion instance entrances and exits: the 7.3.5 client has no area trigger for them, they are placed server side
+// (world.instance_portals) and walked into
+struct InstancePortal
+{
+    uint32 ID;
+    float X, Y, Z, Radius;
+    uint32 TargetMap;
+    float TargetX, TargetY, TargetZ, TargetO;
+};
+
 class TC_GAME_API AreaTriggerDataStoreMgr
 {
     AreaTriggerDataStoreMgr();
@@ -55,6 +65,8 @@ public:
     static AreaTriggerDataStoreMgr* instance();
 
     void LoadAreaTriggerTeleports();
+    void LoadInstancePortals();
+    std::vector<InstancePortal> const* GetInstancePortals(uint32 mapId) const;
     void LoadQuestAreaTriggers();
     void LoadAreaTriggerScripts();
     void LoadTavernAreaTriggers();
@@ -78,6 +90,7 @@ private:
     QuestAreaTriggerContainer _questAreaTriggerStore;
     TavernAreaTriggerContainer _tavernAreaTriggerStore;
     AreaTriggerContainer _areaTriggerStore;
+    std::unordered_map<uint32, std::vector<InstancePortal>> _instancePortals;
     AreaTriggerScriptContainer _areaTriggerScriptStore;
     AreaTriggerInfoMap _areaTriggerData;
     AreaTriggerInfoMap _areaTriggerDataByEntry;

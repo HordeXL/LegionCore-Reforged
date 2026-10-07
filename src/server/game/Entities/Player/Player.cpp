@@ -1593,6 +1593,14 @@ void Player::Update(uint32 p_time)
     if (m_zoneForce)
         UpdateZone(m_zoneId, m_areaId);
 
+    if (m_portalCheckTimer <= p_time)
+    {
+        m_portalCheckTimer = 500;
+        CheckInstancePortals();
+    }
+    else
+        m_portalCheckTimer -= p_time;
+
     if (m_zoneUpdateTimer > 0 && m_zoneUpdateAllow)
     {
         if (p_time >= m_zoneUpdateTimer)
@@ -10240,6 +10248,34 @@ void Player::UpdateArea(uint32 newArea)
     {
         GetPhaseMgr().RemoveUpdateFlag(PHASE_UPDATE_FLAG_AREA_UPDATE);
     });
+}
+
+// Walking into an instance portal of instance_portals: only on entering it, never where a teleport lands
+void Player::CheckInstancePortals()
+{
+    if (!IsInWorld() || IsBeingTeleported())
+        return;
+
+    InstancePortal const* inside = nullptr;
+    if (std::vector<InstancePortal> const* portals = sAreaTriggerDataStore->GetInstancePortals(GetMapId()))
+        for (InstancePortal const& portal : *portals)
+            if (GetExactDistSq(portal.X, portal.Y, portal.Z) <= portal.Radius * portal.Radius)
+            {
+                inside = &portal;
+                break;
+            }
+
+    bool entered = inside && m_portalMapId == GetMapId() && m_insidePortal != inside->ID;
+    m_portalMapId = GetMapId();
+    m_insidePortal = inside ? inside->ID : 0;
+
+    if (!entered || isInFlight() || GetVehicle())
+        return;
+
+    if (!sMapMgr->CanPlayerEnter(inside->TargetMap, this, false))
+        return;
+
+    TeleportTo(inside->TargetMap, inside->TargetX, inside->TargetY, inside->TargetZ, inside->TargetO);
 }
 
 void Player::UpdateZone(uint32 newZone, uint32 newArea)

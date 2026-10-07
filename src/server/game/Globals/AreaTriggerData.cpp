@@ -215,6 +215,51 @@ void AreaTriggerDataStoreMgr::LoadAreaTriggerTeleports()
     TC_LOG_INFO("server.loading", "AreaTriggerDataStoreMgr::LoadAreaTriggerTeleports() >> Loaded %u area trigger teleport definitions in %u ms", count, GetMSTimeDiffToNow(oldMSTime));
 }
 
+void AreaTriggerDataStoreMgr::LoadInstancePortals()
+{
+    uint32 oldMSTime = getMSTime();
+    _instancePortals.clear();
+
+    QueryResult result = WorldDatabase.Query("SELECT ID, Map, X, Y, Z, Radius, TargetMap, TargetX, TargetY, TargetZ, TargetO FROM instance_portals");
+    if (!result)
+        return;
+
+    uint32 count = 0;
+    do
+    {
+        Field* fields = result->Fetch();
+        InstancePortal portal;
+        portal.ID = fields[0].GetUInt32();
+        uint32 mapId = fields[1].GetUInt32();
+        portal.X = fields[2].GetFloat();
+        portal.Y = fields[3].GetFloat();
+        portal.Z = fields[4].GetFloat();
+        portal.Radius = fields[5].GetFloat();
+        portal.TargetMap = fields[6].GetUInt32();
+        portal.TargetX = fields[7].GetFloat();
+        portal.TargetY = fields[8].GetFloat();
+        portal.TargetZ = fields[9].GetFloat();
+        portal.TargetO = fields[10].GetFloat();
+
+        if (!sMapStore.LookupEntry(mapId) || !sMapStore.LookupEntry(portal.TargetMap))
+        {
+            TC_LOG_ERROR("sql.sql", "Table `instance_portals`: portal %u uses a map that does not exist, skipped.", portal.ID);
+            continue;
+        }
+
+        _instancePortals[mapId].push_back(portal);
+        ++count;
+    } while (result->NextRow());
+
+    TC_LOG_INFO("server.loading", ">> Loaded %u instance portals in %u ms", count, GetMSTimeDiffToNow(oldMSTime));
+}
+
+std::vector<InstancePortal> const* AreaTriggerDataStoreMgr::GetInstancePortals(uint32 mapId) const
+{
+    auto itr = _instancePortals.find(mapId);
+    return itr != _instancePortals.end() ? &itr->second : nullptr;
+}
+
 AreaTriggerStruct const* AreaTriggerDataStoreMgr::GetGoBackTrigger(uint32 Map) const
 {
     bool useParentDbValue = false;
