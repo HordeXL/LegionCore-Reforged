@@ -400,6 +400,12 @@ uint32 Scenario::GetScenarioCriteriaByStep(uint8 step)
     return 0;
 }
 
+void Scenario::ResetStepCriteria(uint8 step)
+{
+    if (CriteriaTree const* tree = sAchievementMgr->GetCriteriaTree(GetScenarioCriteriaByStep(step)))
+        m_achievementMgr.ResetCriteriaTreeProgress(tree);
+}
+
 void Scenario::Reward(bool bonus, uint32 rewardStep)
 {
     // TC_LOG_DEBUG("challenge", "Scenario::Reward bonus %u rewarded %u bonusRewarded %u rewardStep %u", bonus, rewarded, bonusRewarded, rewardStep);

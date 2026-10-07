@@ -54,6 +54,7 @@ ScenarioMgr::~ScenarioMgr()
 
 void ScenarioMgr::UnloadAll()
 {
+    std::shared_lock<std::shared_mutex> lock(_scenarioLock);
     for (auto v : _scenarioStore)
         v.second->GetAchievementMgr().ClearMap();
 }
@@ -66,6 +67,7 @@ ScenarioMgr* ScenarioMgr::instance()
 
 void ScenarioMgr::RemoveScenario(uint32 instanceId)
 {
+    std::unique_lock<std::shared_mutex> lock(_scenarioLock);
     ScenarioMap::iterator itr = _scenarioStore.find(instanceId);
     if (itr == _scenarioStore.end())
         return;
@@ -84,6 +86,7 @@ ScenarioSteps const* ScenarioMgr::GetScenarioSteps(uint32 scenarioId, bool Teemi
 
 Scenario* ScenarioMgr::AddScenario(Map* map, lfg::LFGDungeonData const* dungeonData, Player* player, bool find)
 {
+    std::unique_lock<std::shared_mutex> lock(_scenarioLock);
     if (_scenarioStore.find(map->GetInstanceId()) != _scenarioStore.end())
         return nullptr;
 
@@ -95,6 +98,7 @@ Scenario* ScenarioMgr::AddScenario(Map* map, lfg::LFGDungeonData const* dungeonD
 
 Scenario* ScenarioMgr::GetScenario(uint32 instanceId)
 {
+    std::shared_lock<std::shared_mutex> lock(_scenarioLock);
     return Trinity::Containers::MapGetValuePtr(_scenarioStore, instanceId);
 }
 

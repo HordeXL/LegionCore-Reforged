@@ -20,6 +20,7 @@
 
 #include "Common.h"
 #include "Scenario.h"
+#include <shared_mutex>
 
 class Scenario;
 struct ScenarioStepEntry;
@@ -48,6 +49,8 @@ public:
 
 private:
     ScenarioMap _scenarioStore;
+    // each map thread adds, removes and looks up its own scenario in this shared store
+    std::shared_mutex _scenarioLock;
 
     ScenarioStepsByScenarioMap m_stepMap;
     ScenarioStepsByScenarioMap m_stepTeemingMap;

@@ -63,6 +63,10 @@ public:
                 break;
             case GOSSIP_ACTION_INFO_DEF+2:
                 player->CLOSE_GOSSIP_MENU();
+                // only from a fresh or failed event: a menu left open must not restart a running one
+                if (InstanceScript* instance = creature->GetInstanceScript())
+                    if (instance->GetData(DATA_MAIN_EVENT_PHASE) != NOT_STARTED && instance->GetData(DATA_MAIN_EVENT_PHASE) != FAIL)
+                        break;
                 CAST_AI(npc_sinclari_vh_leg::npc_sinclariAI, (creature->AI()))->uiPhase = 1;
                 if (InstanceScript* instance = creature->GetInstanceScript())
                     instance->SetData(DATA_MAIN_EVENT_PHASE, SPECIAL);
@@ -96,7 +100,7 @@ public:
             me->SetFlag(UNIT_FIELD_NPC_FLAGS, UNIT_NPC_FLAG_GOSSIP);
 
             std::list<Creature*> GuardList;
-            me->GetCreatureListWithEntryInGrid(GuardList, NPC_VIOLET_HOLD_GUARD, 40.0f);
+            me->GetCreatureListWithEntryInGrid(GuardList, NPC_VIOLET_HOLD_GUARD, 300.0f);
             if (!GuardList.empty())
             {
                 for (std::list<Creature*>::const_iterator itr = GuardList.begin(); itr != GuardList.end(); ++itr)
@@ -136,28 +140,38 @@ public:
                             uiTimer = 4000;
                             uiPhase = 2;
                             break;
+                        // the guards fall back first, then the crystal clears the demons
                         case 2:
                         {
                             std::list<Creature*> GuardList;
-                            me->GetCreatureListWithEntryInGrid(GuardList, NPC_VIOLET_HOLD_GUARD, 40.0f);
+                            me->GetCreatureListWithEntryInGrid(GuardList, NPC_VIOLET_HOLD_GUARD, 300.0f);
                             if (!GuardList.empty())
                                 for (std::list<Creature*>::const_iterator itr = GuardList.begin(); itr != GuardList.end(); ++itr)
                                 {
                                     if (Creature* pGuard = *itr)
                                     {
+                                        // they run for the exit without fighting back, whatever hits them
+                                        pGuard->CombatStop(true);
                                         pGuard->SetReactState(REACT_PASSIVE);
+                                        pGuard->SetFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_IMMUNE_TO_PC | UNIT_FLAG_NOT_SELECTABLE); // the demons keep after them
                                         pGuard->SetWalk(false);
                                         pGuard->GetMotionMaster()->MovePoint(0, exitPos);
                                     }
                                 }
-                            uiTimer = 6000;
+                            uiTimer = 3000;
                             uiPhase = 3;
                             break;
                         }
                         case 3:
+                            if (instance)
+                                instance->SetData(DATA_INTRO_CRYSTAL, 1);
+                            uiTimer = 3000;
+                            uiPhase = 4;
+                            break;
+                        case 4:
                         {
                             std::list<Creature*> GuardList;
-                            me->GetCreatureListWithEntryInGrid(GuardList, NPC_VIOLET_HOLD_GUARD, 40.0f);
+                            me->GetCreatureListWithEntryInGrid(GuardList, NPC_VIOLET_HOLD_GUARD, 300.0f);
                             if (!GuardList.empty())
                                 for (std::list<Creature*>::const_iterator itr = GuardList.begin(); itr != GuardList.end(); ++itr)
                                 {
@@ -168,16 +182,16 @@ public:
                                     }
                                 }
                             uiTimer = 2000;
-                            uiPhase = 4;
+                            uiPhase = 5;
                             break;
                         }
-                        case 4:
+                        case 5:
                             Talk(SAY_SINCLARI_2);
                             me->GetMotionMaster()->MovePoint(0, exitPos);
                             uiTimer = 4000;
-                            uiPhase = 5;
+                            uiPhase = 6;
                             break;
-                        case 5:
+                        case 6:
                             if (instance)
                                 instance->SetData(DATA_MAIN_EVENT_PHASE, IN_PROGRESS);
                             uiTimer = 0;
@@ -200,7 +214,7 @@ public:
     }
 };
 
-//102267
+//102279
 class npc_teleportation_portal_vh_leg : public CreatureScript
 {
 public:
@@ -208,16 +222,29 @@ public:
 
     struct npc_teleportation_portalAI : public ScriptedAI
     {
-        npc_teleportation_portalAI(Creature* creature) : ScriptedAI(creature), uiSpawnTimer(0), summons(me)
+        npc_teleportation_portalAI(Creature* creature) : ScriptedAI(creature), uiSpawnTimer(10000), summons(me)
         {
             instance = creature->GetInstanceScript();
-            uiTypeOfMobsPortal = urand(0, 1); // 0 - elite mobs   1 - portal guardian or portal keeper with regular mobs
+            uiTypeOfMobsPortal = urand(0, 99) < 30 ? 0 : 1; // 0 - elite squad (30%)   1 - portal guardian or portal keeper with regular mobs
+            // an elite squad comes out while Malgath still channels, the portal closes as he leaves
+            uiSpawnTimer = uiTypeOfMobsPortal ? 10000 : 4000;
             bPortalGuardianOrKeeperOrEliteSpawn = false;
         }
 
         uint32 uiSpawnTimer;
         bool bPortalGuardianOrKeeperOrEliteSpawn;
         uint8 uiTypeOfMobsPortal;
+        ObjectGuid guardianGUID;
+
+        // the instance decides the kind of portal when it opens it (OpenPortal)
+        void SetData(uint32 id, uint32 value) override
+        {
+            if (id != DATA_PORTAL_KIND)
+                return;
+
+            uiTypeOfMobsPortal = uint8(value);
+            uiSpawnTimer = uiTypeOfMobsPortal ? 10000 : 4000;
+        }
 
         SummonList summons;
 
@@ -225,43 +252,37 @@ public:
 
         void Reset() override
         {
-            uiSpawnTimer = 10000;
+            uiSpawnTimer = uiTypeOfMobsPortal ? 10000 : 4000;
             bPortalGuardianOrKeeperOrEliteSpawn = false;
-            DoCast(me, SPELL_PORTAL_PERIODIC);
         }
 
         void UpdateAI(uint32 diff) override
         {
             if (!instance) //Massive usage of instance, global check
                 return;
-            
-            if (instance->GetData(DATA_REMOVE_NPC) == 1)
-            {
-                me->DespawnOrUnsummon();
-                instance->SetData(DATA_REMOVE_NPC, 0);
-            }
 
-            uint8 uiWaveCount = instance->GetData(DATA_WAVE_COUNT);
-            if ((uiWaveCount == 6) || (uiWaveCount == 12)) //Don't spawn mobs on boss encounters
-                return;
+            // no new enemies once the step's invasion forces are beaten
+            bool wavesActive = instance->GetData(DATA_WAVES_ACTIVE) != 0;
+            uint8 step = instance->GetData(DATA_STEP);
 
             switch (uiTypeOfMobsPortal)
             {
-                // spawn elite mobs and then set portals visibility to make it look like it dissapeard
+                // spawn the elite squad and then set portals visibility to make it look like it dissapeard
                 case 0:
                     if (!bPortalGuardianOrKeeperOrEliteSpawn)
                     {
+                        if (!wavesActive)
+                            break;
+
                         if (uiSpawnTimer <= diff)
                         {
-                            if (Creature* announcer = me->FindNearestCreature(102278, 500.0f))
+                            if (Creature* announcer = me->FindNearestCreature(NPC_LIEUTENANT_SINCLARI, 500.0f))
                                 announcer->AI()->ZoneTalk(SAY_ELITE);
                             bPortalGuardianOrKeeperOrEliteSpawn = true;
-                            uint8 k = uiWaveCount < 12 ? 2 : 3;
+                            uint8 k = step < 2 ? 2 : 3;
+                            uint8 first = urand(0, 3);
                             for (uint8 i = 0; i < k; ++i)
-                            {
-                                uint32 entry = RAND(NPC_FELGUARD_DESTROYER_1, NPC_FELGUARD_DESTROYER_2, NPC_EREDAR_SHADOW_MENDER, NPC_SHADOW_COUNCIL_WARLOCK);
-                                DoSummon(entry, me, 2.0f, 20000, TEMPSUMMON_CORPSE_TIMED_DESPAWN);
-                            }
+                                DoSummon(eliteSquadEntries[(first + i) % 4], me, 2.0f, 20000, TEMPSUMMON_CORPSE_TIMED_DESPAWN);
                             me->SetVisible(false);
                         } else uiSpawnTimer -= diff;
                     }
@@ -281,22 +302,20 @@ public:
                     {
                         if (bPortalGuardianOrKeeperOrEliteSpawn)
                         {
-                            uint8 k = instance->GetData(DATA_WAVE_COUNT) < 12 ? 3 : 4;
-                            for (uint8 i = 0; i < k; ++i)
-                            {
-                                uint32 entry = RAND(NPC_EREDAR_INVADER_1, NPC_EREDAR_INVADER_2, NPC_WRATHLORD_BULWARK, NPC_FELSTALKER_RAVENER_1, NPC_FELSTALKER_RAVENER_2, NPC_INFILTRATOR_ASSASSIN);
-                                DoSummon(entry, me, 2.0f, 20000, TEMPSUMMON_CORPSE_TIMED_DESPAWN);
-                            }
+                            uint8 k = step < 2 ? 3 : 4;
+                            for (uint8 i = 0; i < k && wavesActive; ++i)
+                                DoSummon(portalTrashEntries[urand(0, 3)], me, 2.0f, 20000, TEMPSUMMON_CORPSE_TIMED_DESPAWN);
                         }
-                        else
+                        else if (wavesActive)
                         {
                             bPortalGuardianOrKeeperOrEliteSpawn = true;
                             uint32 entry = RAND(NPC_PORTAL_GUARDIAN_1, NPC_PORTAL_GUARDIAN_2, NPC_PORTAL_KEEPER_1, NPC_PORTAL_KEEPER_2);
                             if (Creature* pPortalKeeper = DoSummon(entry, me, 2.0f, 20000, TEMPSUMMON_CORPSE_TIMED_DESPAWN))
                             {
+                                guardianGUID = pPortalKeeper->GetGUID();
                                 me->CastSpell(pPortalKeeper, SPELL_PORTAL_CHANNEL, true);
                                 pPortalKeeper->AI()->Talk(0);
-                                if(Creature* announcer = me->FindNearestCreature(102278, 500.0f))
+                                if (Creature* announcer = me->FindNearestCreature(NPC_LIEUTENANT_SINCLARI, 500.0f))
                                 {
                                     if (entry == NPC_PORTAL_GUARDIAN_1 || entry == NPC_PORTAL_GUARDIAN_2)
                                         announcer->AI()->ZoneTalk(SAY_GUARDIAN);
@@ -308,7 +327,9 @@ public:
                         uiSpawnTimer = SPAWN_TIME;
                     } else uiSpawnTimer -= diff;
 
-                    if (bPortalGuardianOrKeeperOrEliteSpawn && !me->IsNonMeleeSpellCast(false))
+                    // the portal stays open, sending reinforcements, until its guardian dies
+                    Creature* guardian = guardianGUID.IsEmpty() ? nullptr : ObjectAccessor::GetCreature(*me, guardianGUID);
+                    if (bPortalGuardianOrKeeperOrEliteSpawn && (!guardian || !guardian->IsAlive()))
                     {
                         me->Kill(me, false);
                         me->RemoveCorpse();
@@ -316,12 +337,11 @@ public:
                     break;
             }
         }
-        
 
         void JustDied(Unit* /*killer*/) override
         {
             if (instance)
-                instance->SetData(DATA_WAVE_COUNT, instance->GetData(DATA_WAVE_COUNT)+1);
+                instance->SetGuidData(DATA_PORTAL_CLOSED, me->GetGUID());
         }
 
         void JustSummoned(Creature* summoned) override
@@ -353,21 +373,30 @@ public:
 
     struct npc_lord_malgathAI : public ScriptedAI
     {
-        npc_lord_malgathAI(Creature* creature) : ScriptedAI(creature), waveCount(0)
+        enum Modes
+        {
+            MODE_NONE       = 0,
+            MODE_OPEN_CELL  = 1,
+            MODE_FIGHT      = 2,
+        };
+
+        npc_lord_malgathAI(Creature* creature) : ScriptedAI(creature)
         {
             instance = creature->GetInstanceScript();
             me->SetReactState(REACT_PASSIVE);
             me->SetFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_IMMUNE_TO_PC | UNIT_FLAG_NON_ATTACKABLE);
             uiBoss = 0;
+            mode = MODE_NONE;
             eFight = false;
         }
 
         InstanceScript* instance;
         EventMap events;
+        ObjectGuid portalGUID;
 
         bool eFight;
-        uint8 waveCount;
         uint8 uiBoss;
+        uint8 mode;
 
         void Reset() override {}
 
@@ -375,30 +404,61 @@ public:
         {
             events.RescheduleEvent(EVENT_6, urand(12000, 17000)); //205046
             events.RescheduleEvent(EVENT_7, 30000); //204962
-            events.RescheduleEvent(EVENT_8, 18000); //204963 
+            events.RescheduleEvent(EVENT_8, 18000); //204963
             events.RescheduleEvent(EVENT_9, 19000); //204966
         }
-        
-        void IsSummonedBy(Unit* summoner) override
-        {
-            if (instance && !uiBoss)
-            {
-                waveCount = instance->GetData(DATA_WAVE_COUNT);
-                uiBoss = waveCount == 6 ? instance->GetData(DATA_FIRST_BOSS) : instance->GetData(DATA_SECOND_BOSS);
-            }
 
-            if (waveCount == 6 || waveCount == 12)
-                events.RescheduleEvent(EVENT_1, 2000);
-            else
-                events.RescheduleEvent(EVENT_4, 2000);
+        void DoAction(int32 const action) override
+        {
+            switch (action)
+            {
+                // end of the first two steps: he frees a prisoner
+                case ACTION_MALGATH_OPEN_CELL:
+                    uiBoss = instance ? instance->GetData(DATA_STEP_BOSS) : 0;
+                    if (uiBoss >= DATA_BETRUG)
+                    {
+                        me->DespawnOrUnsummon();
+                        return;
+                    }
+                    mode = MODE_OPEN_CELL;
+                    Talk(malgathCellSay[uiBoss]);
+                    events.RescheduleEvent(EVENT_1, 2000);
+                    break;
+                // end of the last step: he comes down himself
+                case ACTION_MALGATH_FIGHT:
+                    mode = MODE_FIGHT;
+                    Talk(SAY_MALGATH_AGGRO);
+                    events.RescheduleEvent(EVENT_4, 2000);
+                    break;
+                default:
+                    break;
+            }
         }
-        
+
+        void SetGUID(ObjectGuid const& guid, int32 id) override
+        {
+            if (id != ACTION_MALGATH_OPEN_PORTAL)
+                return;
+
+            portalGUID = guid;
+            events.RescheduleEvent(EVENT_10, 1000);
+        }
+
+        void KilledUnit(Unit* victim) override
+        {
+            if (victim->IsPlayer())
+                Talk(SAY_MALGATH_KILL);
+        }
+
         void JustDied(Unit* /*killer*/) override
         {
-            instance->SetGuidData(DATA_DEL_TRASH_MOB, me->GetGUID());
+            Talk(SAY_MALGATH_DEATH);
 
-            if (Creature* betrug = instance->instance->GetCreature(instance->GetGuidData(DATA_BETRUG)))
-                betrug->AI()->DoAction(true);
+            if (!instance)
+                return;
+
+            instance->SetGuidData(DATA_DEL_TRASH_MOB, me->GetGUID());
+            instance->SetData(DATA_MALGATH_DIED, DONE);
         }
 
         void MovementInform(uint32 type, uint32 id) override
@@ -406,12 +466,12 @@ public:
             if (type != POINT_MOTION_TYPE)
                 return;
 
-            if (waveCount == 6 || waveCount == 12)
+            if (mode == MODE_OPEN_CELL)
                 events.RescheduleEvent(EVENT_2, 1000);
-            else
+            else if (mode == MODE_FIGHT)
                 events.RescheduleEvent(EVENT_5, 1000);
         }
-        
+
         void JustReachedHome() override
         {
             me->RemoveFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_IMMUNE_TO_PC | UNIT_FLAG_NON_ATTACKABLE);
@@ -434,8 +494,8 @@ public:
                 switch (eventId)
                 {
                     case EVENT_1:
-                        me->GetMotionMaster()->MovePoint(uiBoss, saboMovePos[uiBoss].GetPositionX(), 
-                                                                 saboMovePos[uiBoss].GetPositionY(), 
+                        me->GetMotionMaster()->MovePoint(uiBoss, saboMovePos[uiBoss].GetPositionX(),
+                                                                 saboMovePos[uiBoss].GetPositionY(),
                                                                  saboMovePos[uiBoss].GetPositionZ(), false);
                         break;
                     case EVENT_2:
@@ -443,7 +503,7 @@ public:
                         events.RescheduleEvent(EVENT_3, 7000);
                         break;
                     case EVENT_3:
-                        if (instance->GetData(DATA_MAIN_EVENT_PHASE) == IN_PROGRESS)
+                        if (instance && instance->GetData(DATA_MAIN_EVENT_PHASE) == IN_PROGRESS)
                             instance->SetData(DATA_START_BOSS_ENCOUNTER, 1);
                         me->DespawnOrUnsummon(1000);
                         break;
@@ -452,6 +512,8 @@ public:
                         break;
                     case EVENT_5:
                         eFight = true;
+                        me->SetDisableGravity(false);
+                        me->SetCanFly(false);
                         instance->SetGuidData(DATA_ADD_TRASH_MOB, me->GetGUID());
                         me->SetOrientation(3.13f);
                         me->RemoveFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_IMMUNE_TO_PC | UNIT_FLAG_NON_ATTACKABLE);
@@ -470,11 +532,20 @@ public:
                         break;
                     case EVENT_8:
                         DoCast(204963);
-                        events.RescheduleEvent(EVENT_8, 18000); //204963 
+                        events.RescheduleEvent(EVENT_8, 18000); //204963
                         break;
                     case EVENT_9:
                         DoCast(204966);
                         events.RescheduleEvent(EVENT_9, 19000); //204966
+                        break;
+                    // he only shows up to open the portal, then leaves
+                    case EVENT_10:
+                        if (Creature* portal = ObjectAccessor::GetCreature(*me, portalGUID))
+                        {
+                            me->SetFacingToObject(portal);
+                            DoCast(portal, SPELL_PORTAL_PERIODIC, true);
+                        }
+                        me->DespawnOrUnsummon(5000);
                         break;
                     default:
                         break;
@@ -490,7 +561,7 @@ public:
     }
 };
 
-//102272,102368,102380,102395,102400,102397,102269,102369,102270,102370, 102336, 102302, 102337, 102335
+//102272,102368,102380,102395,102400,102397,102398,102269,102369,102270,102370, 102336, 102302, 102337, 102335
 class npc_violet_hold_trash : public CreatureScript
 {
 public:
@@ -503,18 +574,30 @@ public:
             instance = creature->GetInstanceScript();
             me->SetReactState(REACT_DEFENSIVE);
             attackDoorTimer = 0;
+            intro = false;
         }
 
         InstanceScript* instance;
         EventMap events;
 
         uint32 attackDoorTimer;
+        bool intro;
+
+        void AttackNearestGuard()
+        {
+            if (Creature* guard = me->FindNearestCreature(NPC_VIOLET_HOLD_GUARD, 100.0f))
+            {
+                me->SetReactState(REACT_AGGRESSIVE);
+                AttackStart(guard);
+            }
+        }
 
         void Reset() override {}
 
         void EnterCombat(Unit* who) override
         {
-            if (who->GetTypeId() != TYPEID_PLAYER)
+            // a pet often opens the fight: the abilities have to start then too, or never at all
+            if (!who->GetCharmerOrOwnerPlayerOrPlayerItself())
                 return;
 
             attackDoorTimer = 0;
@@ -579,6 +662,13 @@ public:
         
         void IsSummonedBy(Unit* summoner) override
         {
+           if (summoner->GetEntry() == NPC_INTRO_PORTAL)
+           {
+               intro = true;
+               AttackNearestGuard();
+               return;
+           }
+
            if (me->GetEntry() !=102336 && me->GetEntry() != 102302 && me->GetEntry() != 102337 && me->GetEntry() != 102335)
            {
                me->GetMotionMaster()->MovePoint(1, movDoorPos.GetPositionX() + irand(-5,5), movDoorPos.GetPositionY() + irand(-5,5), movDoorPos.GetPositionZ());
@@ -588,6 +678,12 @@ public:
 
         void JustReachedHome() override
         {
+           if (intro)
+           {
+               AttackNearestGuard();
+               return;
+           }
+
            if (me->GetEntry() !=102336 && me->GetEntry() != 102302 && me->GetEntry() != 102337 && me->GetEntry() != 102335)
                CreatureStartAttackDoor();
         }
@@ -597,7 +693,7 @@ public:
             if (type != POINT_MOTION_TYPE)
                 return;
 
-            if (id == 1)
+            if (id == 1 && !intro)
                 CreatureStartAttackDoor();
         }
 
@@ -822,8 +918,65 @@ class spell_shadow_bomb : public SpellScriptLoader
         }
 };
 
+// 102266 - Violet Hold Guard: before the start each hit takes 4% of the demon's health, so the fight in front of
+// the intro portals lasts and looks real
+struct npc_violet_hold_guard_leg : public ScriptedAI
+{
+    npc_violet_hold_guard_leg(Creature* creature) : ScriptedAI(creature) { }
+
+    uint32 searchTimer = 0;
+    ObjectGuid finishTarget;
+
+    // Taken straight from the health: the core cancels NPC on NPC damage below 85% for creatures with action data
+    // (Unit::DealDamage, IsNoDamage), which left the Felguard Destroyers stuck at 84%
+    void DamageDealt(Unit* victim, uint32& damage, DamageEffectType /*damageType*/) override
+    {
+        if (victim->GetTypeId() != TYPEID_UNIT)
+            return;
+
+        uint32 hit = std::max<uint32>(1, uint32(victim->GetMaxHealth() * 0.04f));
+        damage = 0;
+        if (victim->GetHealth() > hit)
+            victim->ModifyHealth(-int32(hit));
+        else
+            finishTarget = victim->GetGUID();
+    }
+
+    // the guards stay on the demons until they are dead instead of walking back to their post
+    void UpdateAI(uint32 diff) override
+    {
+        if (me->HasReactState(REACT_PASSIVE))         // falling back when the event starts
+            return;
+
+        if (!UpdateVictim())
+        {
+
+            if (searchTimer <= diff)
+            {
+                searchTimer = 1000;
+                if (Unit* demon = me->SelectNearestTarget(30.0f))
+                    AttackStart(demon);
+            }
+            else
+                searchTimer -= diff;
+            return;
+        }
+
+        if (!finishTarget.IsEmpty())
+        {
+            if (Creature* demon = ObjectAccessor::GetCreature(*me, finishTarget))
+                if (demon->IsAlive())
+                    me->Kill(demon);
+            finishTarget.Clear();
+        }
+
+        DoMeleeAttackIfReady();
+    }
+};
+
 void AddSC_violet_hold_legion()
 {
+    RegisterCreatureAI(npc_violet_hold_guard_leg);
     new npc_sinclari_vh_leg();
     new npc_teleportation_portal_vh_leg();
     new npc_lord_malgath();

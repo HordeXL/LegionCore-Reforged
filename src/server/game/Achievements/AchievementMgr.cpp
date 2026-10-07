@@ -568,6 +568,7 @@ void AchievementMgr<Scenario>::RemoveCriteriaProgress(const CriteriaTree* /*crit
 // Puts every criteria under the tree back to 0 and tells the client, without touching the other trees (a failed
 // scenario step is replayed while the steps already done are kept)
 template<class T>
+void AchievementMgr<T>::ResetCriteriaTreeProgress(CriteriaTree const* tree)
 {
     if (!tree)
         return;

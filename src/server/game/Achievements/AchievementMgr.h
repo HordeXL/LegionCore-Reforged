@@ -388,6 +388,7 @@ class TC_GAME_API AchievementMgr
         bool CheckModifierTree(uint32 modifierTreeId, Player* referencePlayer);
         bool CheckModifierTree(uint32 modifierTreeId, AchievementCachePtr cachePtr);
         void RemoveCriteriaProgress(CriteriaTree const* criteriaTree);
+        void ResetCriteriaTreeProgress(CriteriaTree const* tree);
 
         uint64 m_canUpdateAchiev = 0;
 

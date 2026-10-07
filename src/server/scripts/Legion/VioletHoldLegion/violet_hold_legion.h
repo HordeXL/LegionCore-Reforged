@@ -28,11 +28,16 @@ enum eData
     DATA_START_BOSS_ENCOUNTER,
     DATA_FIRST_BOSS,
     DATA_SECOND_BOSS,
+    DATA_FINAL_BOSS,
     DATA_SINCLARI,
-    DATA_WAVE_COUNT,
+    DATA_STEP,
+    DATA_STEP_BOSS,
+    DATA_WAVES_ACTIVE,
+    DATA_PORTAL_CLOSED,
+    DATA_INTRO_CRYSTAL,
+    DATA_MALGATH_DIED,
     DATA_MAIN_DOOR,
     DATA_DOOR_INTEGRITY,
-    DATA_REMOVE_NPC,
     DATA_KAAHRJ_CELL,
     DATA_MILLIFICENT_CELL,
     DATA_FESTERFACE_CELL,
@@ -46,7 +51,8 @@ enum eCreatures
 {
     NPC_LIEUTENANT_SINCLARI         = 102278,
     NPC_VIOLET_HOLD_GUARD           = 102266,
-    NPC_TELEPORTATION_PORTAL        = 102267,
+    NPC_TELEPORTATION_PORTAL        = 102279,
+    NPC_INTRO_PORTAL                = 102281,
     NPC_DEFENSE_SYSTEM              = 30837,
     NPC_LORD_MALGATH                = 102282,
 
@@ -61,10 +67,18 @@ enum eCreatures
     NPC_INFILTRATOR_ASSASSIN        = 102395,
     NPC_EREDAR_SHADOW_MENDER        = 102400,
     NPC_WRATHLORD_BULWARK           = 102397,
+    NPC_BLAZING_INFERNAL            = 102398,
     NPC_FELSTALKER_RAVENER_1        = 102269,
     NPC_FELSTALKER_RAVENER_2        = 102369,
     NPC_EREDAR_INVADER_1            = 102270,
     NPC_EREDAR_INVADER_2            = 102370,
+
+    //Mythic elite squad
+    NPC_WRATHGUARD_DECIMATOR        = 112741,
+    NPC_SHADOWY_OVERFIEND           = 112739,
+    NPC_BROOD_OF_SAELORN            = 112732,
+    NPC_VENOMHIDE_SHADOWSPINNER     = 112733,
+    NPC_ACOLYTE_OF_SAELORN          = 112738,
 
     //Lord Malgath summons
     NPC_SHADOW_BEAST                = 103561,
@@ -119,7 +133,60 @@ enum Events
     EVENT_ACTIVATE_CRYSTAL = 20001,
 
     ACTION_REMOVE_LOOT = 100,
+    ACTION_MALGATH_OPEN_CELL = 101,
+    ACTION_MALGATH_FIGHT = 102,
+    ACTION_MALGATH_OPEN_PORTAL = 103,
+    DATA_PORTAL_KIND = 104,                 // 0 elite squad, 1 portal guardian or keeper
 };
+
+enum MalgathSays
+{
+    SAY_MALGATH_INTRO       = 0,
+    SAY_MALGATH_THIRD_STEP  = 7,
+    SAY_MALGATH_AGGRO       = 8,
+    SAY_MALGATH_KILL        = 9,
+    SAY_MALGATH_DEATH       = 10,
+};
+
+// Lord Malgath introduces the prisoner he releases, indexed by boss data id (Sael'orn and Betrug are never released by him)
+uint8 const malgathCellSay[7] = { 1, 2, 3, 4, 5, 0, 6 };
+
+// Scenario 1027 / 1251: "Invasion Forces" needs 75 weighted points per step, Lord Malgath is worth 25 in the last one
+uint32 const INVASION_FORCES_POINTS = 75;
+uint32 const MALGATH_POINTS         = 25;
+
+// SCRIPT_EVENT_2 assets of the "boss defeated" criteria of each step
+uint32 const stepBossCriteria[3] = { 41195, 41196, 48726 };
+
+uint32 const eliteSquadEntries[4] = { NPC_EREDAR_SHADOW_MENDER, NPC_BLAZING_INFERNAL, NPC_INFILTRATOR_ASSASSIN, NPC_WRATHLORD_BULWARK };
+uint32 const portalTrashEntries[4] = { NPC_FELGUARD_DESTROYER_2, NPC_FELSTALKER_RAVENER_2, NPC_EREDAR_INVADER_2, NPC_SHADOW_COUNCIL_WARLOCK };
+uint32 const introDemonEntries[3] = { NPC_FELGUARD_DESTROYER_1, NPC_FELSTALKER_RAVENER_1, NPC_EREDAR_INVADER_1 };
+
+inline uint32 GetInvasionForcesWeight(uint32 entry)
+{
+    switch (entry)
+    {
+        case NPC_PORTAL_GUARDIAN_1:
+        case NPC_PORTAL_GUARDIAN_2:
+        case NPC_PORTAL_KEEPER_1:
+        case NPC_PORTAL_KEEPER_2:
+            return 15;
+        case NPC_EREDAR_SHADOW_MENDER:
+        case NPC_BLAZING_INFERNAL:
+        case NPC_INFILTRATOR_ASSASSIN:
+        case NPC_WRATHLORD_BULWARK:
+        case NPC_WRATHGUARD_DECIMATOR:
+        case NPC_SHADOWY_OVERFIEND:
+        case NPC_BROOD_OF_SAELORN:
+        case NPC_VENOMHIDE_SHADOWSPINNER:
+        case NPC_ACOLYTE_OF_SAELORN:
+            return 5;
+        case NPC_LORD_MALGATH:
+            return MALGATH_POINTS;
+        default:
+            return 0;
+    }
+}
 
 Position const PortalLocation[5] =
 {

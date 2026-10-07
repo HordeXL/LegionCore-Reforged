@@ -96,6 +96,7 @@ public:
     void SendCriteriaUpdate(CriteriaProgress const* progress, uint32 timeElapsed = 0);
     void BroadCastPacket(const WorldPacket* data);
     uint32 GetScenarioCriteriaByStep(uint8 step);
+    void ResetStepCriteria(uint8 step);
 
     bool CanUpdateCriteria(uint32 criteriaTreeId, uint32 recursTree = 0) const;
 
