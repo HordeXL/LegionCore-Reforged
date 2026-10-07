@@ -1555,6 +1555,13 @@ void World::LoadConfigSettings(bool reload)
     m_int_configs[CONFIG_LEGION_ENABLED_PATCH] = sConfigMgr->GetIntDefault("Game.Patch", PATCH_7_3);
 
     m_bool_configs[CONFIG_ITEMLEVEL_CATCHUP_ENABLE] = sConfigMgr->GetBoolDefault("Custom.ItemLevel.Catchup.Enable", false);
+    m_int_configs[CONFIG_ITEMLEVEL_DUNGEON_TIER] = sConfigMgr->GetIntDefault("Custom.ItemLevel.DungeonTier", 0);
+    if (m_int_configs[CONFIG_ITEMLEVEL_DUNGEON_TIER] > PATCH_7_3)
+    {
+        TC_LOG_ERROR("server.loading", "Custom.ItemLevel.DungeonTier (%u) must be in the range 0..%u. Set to 0.",
+            m_int_configs[CONFIG_ITEMLEVEL_DUNGEON_TIER], uint32(PATCH_7_3));
+        m_int_configs[CONFIG_ITEMLEVEL_DUNGEON_TIER] = 0;
+    }
     m_int_configs[CONFIG_LEGIONFALL_CONTRIBUTIONS_REQUIRED] = sConfigMgr->GetIntDefault("Legionfall.ContributionsRequired", 200);
     m_bool_configs[CONFIG_LEGIONFALL_MAGE_TOWER_ALWAYS_BUILT] = sConfigMgr->GetBoolDefault("Legionfall.MageTower.AlwaysBuilt", false);
     m_bool_configs[CONFIG_LEGION_INVASIONS_ENABLE] = sConfigMgr->GetBoolDefault("Custom.LegionInvasions.Enable", false);

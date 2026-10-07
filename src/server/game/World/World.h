@@ -487,6 +487,10 @@ enum WorldIntConfigs
     CONFIG_WORLD_QUEST_DAILY_RESET,
     CONFIG_INVASION_POINT_RESET,
     CONFIG_ARTIFACT_KNOWLEDGE_CAP,
+    // Content tier whose dungeon item levels the client is shown, independent of Game.Patch:
+    // a realm can run 7.3 content while still advertising - and handing out - launch values.
+    // 0 leaves the DB2 alone, 1..5 map onto 7.0, 7.1, 7.1.5, 7.2 and 7.3.
+    CONFIG_ITEMLEVEL_DUNGEON_TIER,
     CONFIG_ARTIFACT_KNOWLEDGE_START,
     CONFIG_WORLD_QUEST_MIN_ITEMLEVEL,
     CONFIG_WORLD_QUEST_ITEMLEVEL_CAP,

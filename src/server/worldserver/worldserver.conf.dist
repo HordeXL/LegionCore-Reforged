@@ -74,6 +74,27 @@ Legionfall.MageTower.AlwaysBuilt = 0
 Custom.ItemLevel.Catchup.Enable = 0
 
 #
+#    Custom.ItemLevel.DungeonTier
+#        Content tier whose dungeon item levels the client is shown, and hands out.
+#        Blizzard raised dungeon rewards over the expansion to keep them a catch-up path:
+#        805/825/840 for normal, heroic and mythic at launch, against 845/865/885 by 7.3.
+#        The client reads those numbers from ItemLevelSelector, so on a realm running an
+#        earlier tier the Adventure Guide promises rewards that never come.
+#        This is deliberately its own setting, NOT tied to Game.Patch: a realm can open 7.3
+#        content while still handing out launch rewards.
+#              0   leave the client data alone (7.3 values, 845/865/885)
+#              1   7.0    805 / 825 / 840, timewalking 820
+#              2   7.1    same as 7.0
+#              3   7.1.5  same as 7.0
+#              4   7.2    825 / 845 / 860, timewalking 840
+#              5   7.3    845 / 865 / 885, timewalking 880 - what the DB2 already holds
+#        Raids are untouched: their values are per tier and were never inflated. Karazhan
+#        keeps its own per-wing levels (855/860/875).
+#        Default: 0 - leave the client data alone
+
+Custom.ItemLevel.DungeonTier = 0
+
+#
 #    Custom.LegionInvasions.Enable
 #        Legion Assaults on the Broken Isles (7.2 content).
 #        Independent from Game.Patch: turn the event on or off whenever you want.

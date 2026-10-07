@@ -420,6 +420,11 @@ public:
     static DB2StorageBase const* GetStorage(uint32 type);
     void LoadingExtraHotfixData();
 
+    // Rewrites the dungeon ItemLevelSelector rows for the given content tier, so the Adventure
+    // Guide advertises what the realm actually hands out. Returns the number of rows changed;
+    // at tier 7.3 that is zero, the shipped values already match.
+    uint32 ApplyDungeonItemLevels(uint32 patch);
+
     void LoadHotfixData();
     static std::map<uint64, int32> const& GetHotfixData();
 

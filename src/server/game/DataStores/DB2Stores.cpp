@@ -2227,6 +2227,84 @@ DB2StorageBase const* DB2Manager::GetStorage(uint32 type)
     return Trinity::Containers::MapGetValuePtr(_stores, type);
 }
 
+namespace
+{
+    // Dungeon rewards were raised over the expansion: 805/825/840 at launch against 845/865/885
+    // by 7.3, because Blizzard kept dungeons relevant as the catch-up path. A realm running an
+    // earlier tier hands out the launch values, but the client keeps advertising the 7.3 ones in
+    // the Adventure Guide, so the player is promised rewards that never come.
+    //
+    // The number the client shows comes from ItemLevelSelector, reached through the bonus tree of
+    // the item: tree 463 carries all 1477 Legion dungeon items and points at one selector per
+    // difficulty context. Rewriting those three rows moves the whole set at once. Karazhan hangs
+    // off its own trees (855/860/875 per wing) and is deliberately left alone.
+    struct DungeonItemLevels
+    {
+        uint16 Normal;
+        uint16 Heroic;
+        uint16 Mythic;
+        uint16 Timewalking;
+    };
+
+    // Indexed by Custom.ItemLevel.DungeonTier - 1, deliberately its own setting rather than
+    // Game.Patch: a realm may want to open 7.3 content while still handing out launch rewards.
+    // The last row is what the DB2 already ships, so tier 7.3 rewrites nothing. The 7.2 row is
+    // an interpolation and should be corrected when real values turn up.
+    DungeonItemLevels const DungeonLevelsByPatch[] =
+    {
+        { 805, 825, 840, 820 },     // 7.0  Emerald Nightmare
+        { 805, 825, 840, 820 },     // 7.1  Trial of Valor
+        { 805, 825, 840, 820 },     // 7.1.5 Nighthold
+        { 825, 845, 860, 840 },     // 7.2  Tomb of Sargeras
+        { 845, 865, 885, 880 },     // 7.3  Antorus - the shipped values
+    };
+
+    // The selectors tree 463 points at, one per difficulty context, plus the timewalking one.
+    uint32 const SELECTOR_DUNGEON_NORMAL = 13;      // context 1
+    uint32 const SELECTOR_DUNGEON_HEROIC = 12;      // context 2
+    uint32 const SELECTOR_DUNGEON_MYTHIC = 17;      // context 23
+    uint32 const SELECTOR_TIMEWALKING    = 108;     // context 22
+
+    // The generator takes a plain function pointer, so the value travels through a file static.
+    uint16 WantedItemLevel = 0;
+
+    void SetSelectorItemLevel(ItemLevelSelectorEntry* entry)
+    {
+        entry->MinItemLevel = WantedItemLevel;
+    }
+}
+
+uint32 DB2Manager::ApplyDungeonItemLevels(uint32 patch)
+{
+    if (!patch || patch > std::extent<decltype(DungeonLevelsByPatch)>::value)
+        return 0;
+
+    DungeonItemLevels const& levels = DungeonLevelsByPatch[patch - 1];
+    DB2HotfixGenerator<ItemLevelSelectorEntry> selectors(sItemLevelSelectorStore);
+    uint32 applied = 0;
+
+    struct { uint32 Selector; uint16 Level; } const targets[] =
+    {
+        { SELECTOR_DUNGEON_NORMAL, levels.Normal },
+        { SELECTOR_DUNGEON_HEROIC, levels.Heroic },
+        { SELECTOR_DUNGEON_MYTHIC, levels.Mythic },
+        { SELECTOR_TIMEWALKING,    levels.Timewalking },
+    };
+
+    for (auto const& target : targets)
+    {
+        ItemLevelSelectorEntry const* entry = sItemLevelSelectorStore.LookupEntry(target.Selector);
+        if (!entry || entry->MinItemLevel == target.Level)
+            continue;
+
+        WantedItemLevel = target.Level;
+        selectors.ApplyHotfix(target.Selector, &SetSelectorItemLevel, true);
+        ++applied;
+    }
+
+    return applied;
+}
+
 void DB2Manager::LoadingExtraHotfixData()
 {
     DB2HotfixGenerator<AchievementEntry> achHotfixes(sAchievementStore);
@@ -2238,6 +2316,10 @@ void DB2Manager::LoadingExtraHotfixData()
     uint8 activeSeason = sWorld->getIntConfig(CONFIG_PVP_ACTIVE_SEASON);
 
     DB2HotfixGenerator<ItemSparseEntry> itemSparseHotfixes(sItemSparseStore);
+
+    if (uint32 const tier = sWorld->getIntConfig(CONFIG_ITEMLEVEL_DUNGEON_TIER))
+        if (uint32 const rows = ApplyDungeonItemLevels(tier))
+            TC_LOG_INFO("server.loading", ">> Rewrote %u dungeon item level selector(s) for content tier %u", rows, tier);
 
     // Artifact research notes (139390 class hall research order, 146745 completed notes).
     // Patch 7.3 replaced the flavour text with "these notes became obsolete the moment class
