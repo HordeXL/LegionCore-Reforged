@@ -17,10 +17,23 @@
 */
 
 #include "TalentPackets.h"
+
+#ifdef ELUNA_TRINITY
+#include "ElunaConfig.h"
+#include "ElunaMgr.h"
+#include "LuaEngine.h"
+#endif
 #include "MiscPackets.h"
 
 void WorldSession::HandleLearnTalent(WorldPackets::Talent::LearnTalent& packet)
 {
+#ifdef ELUNA_TRINITY
+    if (Player* plr = GetPlayer())
+        if (sElunaConfig->IsElunaEnabled())
+            if (Eluna* e = sElunaMgr->Get(ElunaInfoKey(plr->GetMapId(), plr->GetInstanceId())))
+                for (uint32 talentId : packet.Talents)
+                    e->OnLearnTalents(plr, talentId, 1, 0);
+#endif
     Player* player = GetPlayer();
     if (player->GetMap() && player->GetMap()->isChallenge())
         return;

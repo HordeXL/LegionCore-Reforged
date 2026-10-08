@@ -17,6 +17,17 @@
  */
 
 #include "SpellPackets.h"
+
+#ifdef ELUNA_TRINITY
+#include "ElunaConfig.h"
+#include "ElunaMgr.h"
+#include "LuaEngine.h"
+#endif
+
+#ifdef ELUNA_TRINITY
+#include "ElunaMgr.h"
+#include "LuaEngine.h"
+#endif
 #include "ScriptMgr.h"
 #include "Garrison.h"
 #include "GameObjectAI.h"
@@ -74,6 +85,13 @@ void WorldSession::HandleUseItemOpcode(WorldPackets::Spells::ItemUse& cast)
         pUser->SendEquipError(msg, pItem, nullptr);
         return;
     }
+
+#ifdef ELUNA_TRINITY
+    // Let Eluna handle the item use first (for item gossip menus, etc.)
+    if (Eluna* e = sElunaMgr->Get(ElunaInfoKey(pUser->GetMapId(), pUser->GetInstanceId())))
+        if (e->OnItemUse(pUser, pItem, targets))
+            return; // Eluna handled it (e.g. gossip menu)
+#endif
 
     // only allow conjured consumable, bandage, poisons (all should have the 2^21 item flag set in DB)
     if (proto->GetClass() == ITEM_CLASS_CONSUMABLE && !(proto->GetFlags() & ITEM_FLAG_IGNORE_DEFAULT_ARENA_RESTRICTIONS) && pUser->InArena())
@@ -152,6 +170,14 @@ void WorldSession::HandleUseItemOpcode(WorldPackets::Spells::ItemUse& cast)
 
 void WorldSession::HandleGameObjectUse(WorldPackets::GameObject::GameObjectUse& packet)
 {
+#ifdef ELUNA_TRINITY
+    if (Player* plr = GetPlayer())
+        if (sElunaConfig->IsElunaEnabled())
+            if (Eluna* e = sElunaMgr->Get(ElunaInfoKey(plr->GetMapId(), plr->GetInstanceId())))
+                if (GameObject* go = plr->GetMap()->GetGameObject(packet.Guid))
+                    if (e->OnGameObjectUse(plr, go))
+                        return;
+#endif
     if (_player->GetUnitBeingMoved() != _player || !_player->CanContact() || _player->IsSpectator())
         return;
 

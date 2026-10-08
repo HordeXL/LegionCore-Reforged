@@ -111,6 +111,12 @@
 #include "WorldPacket.h"
 #include "WorldSession.h"
 #include "WorldStateMgr.h"
+
+#ifdef ELUNA_TRINITY
+#include "ElunaConfig.h"
+#include "ElunaMgr.h"
+#include "ElunaLoader.h"
+#endif
 #include <atomic>
 #include <boost/algorithm/string.hpp>
 #include <boost/filesystem/operations.hpp>
@@ -1751,6 +1757,18 @@ void World::SetInitialWorldSettings()
     ///- Initialize config settings
     LoadConfigSettings();
 
+#ifdef ELUNA_TRINITY
+    ///- Initialize Eluna Lua Engine
+    sElunaConfig->Initialize();
+    if (sElunaConfig->IsElunaEnabled())
+    {
+        TC_LOG_INFO("misc", ">> Initializing Eluna Lua Engine");
+        sElunaLoader->LoadScripts();
+        // global state (boundMap == nullptr): runs scripts tagged for all maps,
+        // handles world/guild/auction/weather events with no map context
+        sElunaMgr->Create(nullptr, ElunaInfo(ElunaInfoKey::MakeGlobalKey(0)));
+    }
+#endif
     ///- Open or close the content of each tier to match Game.Patch, before anything reads it
     if (!ApplyContentTierScripts(m_int_configs[CONFIG_LEGION_ENABLED_PATCH]))
     {
@@ -2751,6 +2769,27 @@ void World::Update(uint32 diff)
     sPetBattleSystem->Update(diff);
 
     sInstanceSaveMgr->Update();
+
+#ifdef ELUNA_TRINITY
+    if (sElunaConfig->IsElunaEnabled())
+    {
+        // global state: Lua timed events + OnWorldUpdate hook
+        if (Eluna* ge = sElunaMgr->Get(ElunaInfoKey::MakeGlobalKey(0)))
+        {
+            ge->UpdateEluna(diff);
+            ge->OnWorldUpdate(diff);
+        }
+
+        // Check for Lua script changes every ~5 seconds
+        static uint32 elunaReloadTimer = 0;
+        elunaReloadTimer += diff;
+        if (elunaReloadTimer >= 5000)
+        {
+            elunaReloadTimer = 0;
+            sElunaLoader->CheckForScriptChanges();
+        }
+    }
+#endif
 
     // And last, but not least handle the issued cli commands
     ProcessCliCommands();

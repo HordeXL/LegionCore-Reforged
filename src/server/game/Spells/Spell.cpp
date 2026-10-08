@@ -17,6 +17,12 @@
  */
 
 #include "Battlefield.h"
+
+#ifdef ELUNA_TRINITY
+#include "ElunaConfig.h"
+#include "ElunaMgr.h"
+#include "LuaEngine.h"
+#endif
 #include "BattlefieldMgr.h"
 #include "Battleground.h"
 #include "CellImpl.h"
@@ -2897,6 +2903,18 @@ void Spell::DoAllEffectOnTarget(TargetInfoPtr target)
 
         // Add bonuses and fill damageInfo struct
         caster->CalculateSpellDamageTaken(&damageInfo, m_damage, m_spellInfo, mask, m_attackType, mCriticalDamageBonus, target->HasMask(TARGET_INFO_CRIT));
+#ifdef ELUNA_TRINITY
+        if (sElunaConfig->IsElunaEnabled())
+            if (Eluna* e = sElunaMgr->Get(ElunaInfoKey(m_caster->GetMapId(), m_caster->GetInstanceId())))
+            {
+                DamageInfo dmgInfoView(damageInfo, m_spellInfo);
+                uint32 elunaResist = damageInfo.resist;
+                int32 elunaAbsorb = static_cast<int32>(damageInfo.absorb);
+                e->OnEffectCalcAbsorb(this, dmgInfoView, elunaResist, elunaAbsorb);
+                damageInfo.resist = elunaResist;
+                damageInfo.absorb = static_cast<uint32>(elunaAbsorb);
+            }
+#endif
 
         _mss = GetMSTimeDiffToNow(_ss);
         if (_mss > 250)
@@ -3103,6 +3121,11 @@ SpellMissInfo Spell::DoSpellHitOnUnit(Unit* unit, uint32 effectMask, bool scaleA
 
     PrepareScriptHitHandlers();
     CallScriptBeforeHitHandlers();
+#ifdef ELUNA_TRINITY
+    if (sElunaConfig->IsElunaEnabled())
+        if (Eluna* e = sElunaMgr->Get(ElunaInfoKey(m_caster->GetMapId(), m_caster->GetInstanceId())))
+            e->OnBeforeSpellHit(this, uint8(SPELL_MISS_NONE));
+#endif
 
     LinkedSpell(unit, unit, SPELL_LINK_BEFORE_HIT, effectMask);
 
@@ -3389,6 +3412,11 @@ SpellMissInfo Spell::DoSpellHitOnUnit(Unit* unit, uint32 effectMask, bool scaleA
         }
     }
 
+#ifdef ELUNA_TRINITY
+    if (sElunaConfig->IsElunaEnabled())
+        if (Eluna* e = sElunaMgr->Get(ElunaInfoKey(m_caster->GetMapId(), m_caster->GetInstanceId())))
+            e->OnSpellHit(this);
+#endif
     for (uint32 effectNumber = 0; effectNumber < MAX_SPELL_EFFECTS; ++effectNumber)
     {
         if (m_spellInfo->EffectMask < uint32(1 << effectNumber))
@@ -3398,6 +3426,11 @@ SpellMissInfo Spell::DoSpellHitOnUnit(Unit* unit, uint32 effectMask, bool scaleA
             HandleEffects(unit, nullptr, nullptr, effectNumber, SPELL_EFFECT_HANDLE_HIT_TARGET);
     }
 
+#ifdef ELUNA_TRINITY
+    if (sElunaConfig->IsElunaEnabled())
+        if (Eluna* e = sElunaMgr->Get(ElunaInfoKey(m_caster->GetMapId(), m_caster->GetInstanceId())))
+            e->OnAfterSpellHit(this);
+#endif
     return SPELL_MISS_NONE;
 }
 
@@ -4090,6 +4123,11 @@ void Spell::cancel()
 
 void Spell::cast(bool skipCheck)
 {
+#ifdef ELUNA_TRINITY
+    if (sElunaConfig->IsElunaEnabled())
+        if (Eluna* e = sElunaMgr->Get(ElunaInfoKey(m_caster->GetMapId(), m_caster->GetInstanceId())))
+            e->OnBeforeCast(this);
+#endif
     if (!m_caster->CheckAndIncreaseCastCounter())
     {
         if (m_triggeredByAuraSpell)
@@ -5056,6 +5094,12 @@ void Spell::finish(bool ok)
 {
     if (!m_caster)
         return;
+
+#ifdef ELUNA_TRINITY
+    if (ok && sElunaConfig->IsElunaEnabled())
+        if (Eluna* e = sElunaMgr->Get(ElunaInfoKey(m_caster->GetMapId(), m_caster->GetInstanceId())))
+            e->OnAfterCast(this);
+#endif
 
     if (m_CastItem)
         m_CastItem->SetInUse(false);
@@ -6496,6 +6540,17 @@ void Spell::HandleEffects(Unit* pUnitTarget, Item* pItemTarget, GameObject* pGOT
         damage = saveDamageCalculate[i];
 
     bool preventDefault = CallScriptEffectHandlers((SpellEffIndex)i, mode);
+#ifdef ELUNA_TRINITY
+    if (sElunaConfig->IsElunaEnabled())
+        if (Eluna* e = sElunaMgr->Get(ElunaInfoKey(m_caster->GetMapId(), m_caster->GetInstanceId())))
+        {
+            uint8 effMode = uint8(mode);
+            if (mode == SPELL_EFFECT_HANDLE_HIT_TARGET)
+                preventDefault = e->OnEffectHitTarget(this, uint8(i), effMode, preventDefault);
+            else
+                preventDefault = e->OnEffectHit(this, uint8(i), effMode, preventDefault);
+        }
+#endif
     if (!preventDefault)
         preventDefault = CheckEffFromDummy(unitTarget, i);
 
@@ -6595,6 +6650,15 @@ bool Spell::CheckEffFromDummy(Unit* target, uint32 eff)
 SpellCastResult Spell::CheckCast(bool strict)
 {
     SpellCastResult castResult = CallScriptCheckCastHandlers();
+#ifdef ELUNA_TRINITY
+    if (sElunaConfig->IsElunaEnabled())
+        if (Eluna* e = sElunaMgr->Get(ElunaInfoKey(m_caster->GetMapId(), m_caster->GetInstanceId())))
+        {
+            SpellCastResult elunaResult = SpellCastResult(e->OnCheckCast(this));
+            if (elunaResult != SPELL_CAST_OK)
+                return elunaResult;
+        }
+#endif
     
     if (Player* plr = m_caster->ToPlayer())
     {
@@ -9391,6 +9455,11 @@ void Spell::HandleLaunchPhase()
             if (m_spellInfo->GetEffect(i, m_diffMode)->TargetA.GetTarget() == TARGET_UNIT_CASTER)
                 continue;
 
+#ifdef ELUNA_TRINITY
+        if (sElunaConfig->IsElunaEnabled())
+            if (Eluna* e = sElunaMgr->Get(ElunaInfoKey(m_caster->GetMapId(), m_caster->GetInstanceId())))
+                e->OnEffectLaunch(this, uint8(i), uint8(SPELL_EFFECT_HANDLE_LAUNCH), false);
+#endif
         HandleEffects(nullptr, nullptr, nullptr, i, SPELL_EFFECT_HANDLE_LAUNCH);
     }
 
@@ -9449,6 +9518,11 @@ void Spell::DoAllEffectOnLaunchTarget(TargetInfoPtr targetInfo, float* multiplie
             m_damage = 0;
             m_healing = 0;
 
+#ifdef ELUNA_TRINITY
+            if (sElunaConfig->IsElunaEnabled())
+                if (Eluna* e = sElunaMgr->Get(ElunaInfoKey(m_caster->GetMapId(), m_caster->GetInstanceId())))
+                    e->OnEffectLaunchTarget(this, uint8(i), uint8(SPELL_EFFECT_HANDLE_LAUNCH_TARGET), false);
+#endif
             HandleEffects(unit, nullptr, nullptr, i, SPELL_EFFECT_HANDLE_LAUNCH_TARGET);
 
             if (m_damage > 0)
@@ -9973,6 +10047,11 @@ void Spell::CallScriptObjectAreaTargetSelectHandlers(std::list<WorldObject*>& ta
 
         m_loadedScript->_FinishScriptCall();
     }
+#ifdef ELUNA_TRINITY
+    if (sElunaConfig->IsElunaEnabled())
+        if (Eluna* e = sElunaMgr->Get(ElunaInfoKey(m_caster->GetMapId(), m_caster->GetInstanceId())))
+            e->OnObjectAreaTargetSelect(this, uint8(effIndex), targets);
+#endif
     CustomTargetSelector(targets, effIndex, targetId);
 }
 
@@ -10445,6 +10524,11 @@ void Spell::CallScriptObjectTargetSelectHandlers(WorldObject*& target, SpellEffI
 
         m_loadedScript->_FinishScriptCall();
     }
+#ifdef ELUNA_TRINITY
+    if (sElunaConfig->IsElunaEnabled())
+        if (Eluna* e = sElunaMgr->Get(ElunaInfoKey(m_caster->GetMapId(), m_caster->GetInstanceId())))
+            e->OnObjectTargetSelect(this, uint8(effIndex), target);
+#endif
 }
 
 void Spell::CallScriptObjectJumpTargetHandlers(int32& AdditionalTarget, SpellEffIndex effIndex)

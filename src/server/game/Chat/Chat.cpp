@@ -37,6 +37,11 @@
 #include "ChatPackets.h"
 #include "ObjectVisitors.hpp"
 #include "GlobalFunctional.h"
+
+#ifdef ELUNA_TRINITY
+#include "ElunaMgr.h"
+#include "LuaEngine.h"
+#endif
 #include "SpellAuraEffects.h"
 #include "GuildMgr.h"
 
@@ -393,6 +398,21 @@ int ChatHandler::ParseCommands(const char* text)
     if (text[0] == '!' || text[0] == '.')
         ++text;
 
+#ifdef ELUNA_TRINITY
+    // Let Eluna handle the command first
+    if (m_session && m_session->GetPlayer())
+    {
+        if (Player* player = m_session->GetPlayer())
+        {
+            ElunaInfoKey key(player->GetMapId(), player->GetInstanceId());
+            if (Eluna* e = sElunaMgr->Get(key))
+            {
+                if (!e->OnCommand(player, fullcmd.c_str()))
+                    return 1;
+            }
+        }
+    }
+#endif
     if (!ExecuteCommandInTable(getCommandTable(), text, fullcmd))
     {
         if (m_session && AccountMgr::IsPlayerAccount(m_session->GetSecurity()))

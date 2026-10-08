@@ -17,6 +17,12 @@
 */
 
 #include "Common.h"
+
+#ifdef ELUNA_TRINITY
+#include "ElunaConfig.h"
+#include "ElunaMgr.h"
+#include "LuaEngine.h"
+#endif
 #include "Opcodes.h"
 #include "WorldPacket.h"
 #include "WorldSession.h"
@@ -597,6 +603,12 @@ bool Group::AddCreatureMember(Creature* creature)
 
 bool Group::AddMember(Player* player)
 {
+#ifdef ELUNA_TRINITY
+    if (sElunaConfig->IsElunaEnabled())
+        if (Eluna* e = sElunaMgr->Get(ElunaInfoKey::MakeGlobalKey(0)))
+            if (!e->OnMemberAccept(this, player))
+                return false;
+#endif
     if (!player)
         return false;
 

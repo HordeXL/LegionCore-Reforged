@@ -21,6 +21,12 @@
 */
 
 #include "Weather.h"
+
+#ifdef ELUNA_TRINITY
+#include "ElunaConfig.h"
+#include "ElunaMgr.h"
+#include "LuaEngine.h"
+#endif
 #include "GameTime.h"
 #include "Log.h"
 #include "MiscPackets.h"
@@ -261,6 +267,11 @@ void Weather::SetWeather(WeatherType type, float grade)
     m_type = type;
     m_grade = grade;
     UpdateWeather();
+#ifdef ELUNA_TRINITY
+    if (sElunaConfig->IsElunaEnabled())
+        if (Eluna* e = sElunaMgr->Get(ElunaInfoKey(m_zone, 0)))
+            e->OnChange(this, m_zone, GetWeatherState(), m_grade);
+#endif
 }
 
 /// Get the sound number associated with the current weather

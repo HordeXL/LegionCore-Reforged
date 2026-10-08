@@ -52,6 +52,13 @@
 #include "WorldStateMgr.h"
 #include "GuildMgr.h"
 
+#ifdef ELUNA_TRINITY
+#include "ElunaConfig.h"
+#include "ElunaMgr.h"
+#include "LuaEngine.h"
+#include "ElunaInstanceAI.h"
+#endif
+
 namespace {
 
 #define DEFAULT_GRID_EXPIRY     300
@@ -603,6 +610,18 @@ m_activeNonPlayersIter(m_activeNonPlayers.end()), i_grids(), GridMaps(), _transp
 
     sScriptMgr->OnCreateMap(this);
 
+#ifdef ELUNA_TRINITY
+    // Initialize Eluna for this map
+    if (sElunaConfig->IsElunaEnabled())
+    {
+        ElunaInfoKey key(GetId(), GetInstanceId());
+        if (sElunaConfig->ShouldMapLoadEluna(GetId()) && !sElunaMgr->Get(key))
+        {
+            ElunaInfo info(key);
+            sElunaMgr->Create(this, info);
+        }
+    }
+#endif
     if(float _distMap = GetVisibleDistance(TYPE_VISIBLE_MAP, id))
         m_VisibleDistance = _distMap;
 
@@ -1052,6 +1071,13 @@ void Map::Update(const uint32 t_diff)
     if (b_isMapUnload) // Need update if start unload???
         return;
 
+#ifdef ELUNA_TRINITY
+    // Drive Lua timed events for this map's state
+    if (sElunaConfig->IsElunaEnabled())
+        if (Eluna* e = sElunaMgr->Get(ElunaInfoKey(GetId(), GetInstanceId())))
+            e->UpdateEluna(t_diff);
+#endif
+
     volatile uint32 _mapId = GetId();
     volatile uint32 _instanceId = GetInstanceId();
 
@@ -1294,6 +1320,12 @@ void Map::Update(const uint32 t_diff)
     _ms = GetMSTimeDiffToNow(_s);
     if (_ms > 500) // Only lags
         sLog->outDiff("Map::Update mapId %u Update time - %ums diff %u Players online: %u i_InstanceId %u activeEntry %u activeEncounter %u", GetId(), _ms, t_diff, m_sessions.size(), i_InstanceId, m_activeEntry, m_activeEncounter);
+
+#ifdef ELUNA_TRINITY
+    if (sElunaConfig->IsElunaEnabled())
+        if (Eluna* elunaMap = sElunaMgr->Get(ElunaInfoKey(GetId(), GetInstanceId())))
+            elunaMap->OnMapUpdate(this, t_diff);
+#endif
 }
 
 void Map::UpdateSessions(uint32 diff)
@@ -3698,6 +3730,16 @@ void InstanceMap::CreateInstanceData(InstanceSave* save)
         i_data = sScriptMgr->CreateInstanceData(this);
     }
 
+#ifdef ELUNA_TRINITY
+    // No C++ instance script: fall back to the Eluna instance AI so Lua can script this instance
+    if (!i_data && sElunaConfig->IsElunaEnabled())
+        if (Eluna* elunaPtr = sElunaMgr->Get(ElunaInfoKey(GetId(), GetInstanceId())))
+        {
+            i_script_id = sObjectMgr->GetScriptId("eluna_instance_template");
+            i_data = new ElunaInstanceAI(this);
+        }
+#endif
+
     if (!i_data)
         return;
 
@@ -5053,3 +5095,11 @@ void Map::RemoveMaxVisible(Object* obj)
     std::lock_guard<std::recursive_mutex> guard(i_MaxVisibleList_lock);
     m_MaxVisibleList.erase(obj);
 }
+
+#ifdef ELUNA_TRINITY
+Eluna* Map::GetEluna()
+{
+    ElunaInfoKey key(GetId(), GetInstanceId());
+    return sElunaMgr->Get(key);
+}
+#endif

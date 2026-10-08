@@ -17,6 +17,12 @@
  */
 
 #include "Creature.h"
+#ifdef ELUNA_TRINITY
+#include "ElunaConfig.h"
+#include "ElunaMgr.h"
+#include "LuaEngine.h"
+#endif
+
 #include "ContributionMgr.h"
 #include "BattlegroundMgr.h"
 #include "CellImpl.h"
@@ -498,6 +504,11 @@ static void ScheduleRareDeparture(Creature* creature)
 
 void Creature::AddToWorld()
 {
+#ifdef ELUNA_TRINITY
+    if (IsInWorld() && sElunaConfig->IsElunaEnabled())
+        if (Eluna* e = sElunaMgr->Get(ElunaInfoKey(GetMapId(), GetInstanceId())))
+            e->OnAddToWorld(this);
+#endif
     ///- Register the creature for guid lookup
     if (!IsInWorld())
     {
@@ -530,6 +541,11 @@ void Creature::AddToWorld()
 
 void Creature::RemoveFromWorld()
 {
+#ifdef ELUNA_TRINITY
+    if (sElunaConfig->IsElunaEnabled())
+        if (Eluna* e = sElunaMgr->Get(ElunaInfoKey(GetMapId(), GetInstanceId())))
+            e->OnRemoveFromWorld(this);
+#endif
     if (IsInWorld())
     {
         volatile uint32 creatureEntry = GetEntry();
@@ -2410,7 +2426,8 @@ bool Creature::LoadCreatureFromDB(ObjectGuid::LowType guid, Map* map, bool addTo
     if (data->gameEvent && m_DBTableGuid != guid)
         sGameEventMgr->AddEventSpawn(data->gameEvent, GetGUID(), true);
 
-    return true;
+    
+return true;
 }
 
 void Creature::LoadEquipment(int8 id, bool force)

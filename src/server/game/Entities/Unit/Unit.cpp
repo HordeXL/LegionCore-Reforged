@@ -17,6 +17,12 @@
  */
 
 #include "Unit.h"
+
+#ifdef ELUNA_TRINITY
+#include "ElunaConfig.h"
+#include "ElunaMgr.h"
+#include "LuaEngine.h"
+#endif
 #include "Anticheat.h"
 #include "AreaTriggerAI.h"
 #include "Battlefield.h"
@@ -4647,6 +4653,12 @@ AuraApplication * Unit::_CreateAuraApplication(Aura* aura, uint32 effMask)
 
 void Unit::_ApplyAuraEffect(Aura* aura, uint32 effIndex)
 {
+#ifdef ELUNA_TRINITY
+    if (sElunaConfig->IsElunaEnabled())
+        if (Eluna* e = sElunaMgr->Get(ElunaInfoKey(GetMapId(), GetInstanceId())))
+            if (AuraEffect const* aurEff = aura->GetEffect(effIndex))
+                e->OnAuraApplication(aura, aurEff, this, uint8(1), true);
+#endif
     ASSERT(aura);
     ASSERT(aura->HasEffect(effIndex));
     AuraApplication * aurApp = aura->GetApplicationOfTarget(GetGUID());
@@ -10367,6 +10379,19 @@ bool Unit::HandleModDamagePctTakenAuraProc(Unit* victim, DamageInfo* dmgInfoProc
 // All procs should be handled like this...
 bool Unit::HandleAuraProc(Unit* victim, DamageInfo* /*dmgInfoProc*/, Aura* triggeredByAura, SpellInfo const* procSpell, uint32 /*procFlag*/, uint32 /*procEx*/, double cooldown, bool * handled)
 {
+#ifdef ELUNA_TRINITY
+    if (sElunaConfig->IsElunaEnabled())
+        if (Eluna* e = sElunaMgr->Get(ElunaInfoKey(GetMapId(), GetInstanceId())))
+        {
+            DamageInfo dmgInfo(this, victim, 0, procSpell, SPELL_SCHOOL_MASK_NORMAL, SPELL_DIRECT_DAMAGE, 0);
+            ProcEventInfo procInfo(this, victim, victim, PROC_FLAG_NONE, 0, 0, 0, nullptr, &dmgInfo, nullptr);
+            if (e->OnAuraProc(triggeredByAura, procInfo))
+            {
+                *handled = true;
+                return false;
+            }
+        }
+#endif
     SpellInfo const* dummySpell = triggeredByAura->GetSpellInfo();
 
     switch (dummySpell->ClassOptions.SpellClassSet)
@@ -14902,6 +14927,13 @@ void Unit::SetInCombatState(Unit* enemy, bool PvP)
 
 void Unit::ClearInCombat()
 {
+#ifdef ELUNA_TRINITY
+    if (IsPlayer())
+        if (Player* plr = const_cast<Unit*>(this)->ToPlayer())
+            if (sElunaConfig->IsElunaEnabled())
+                if (Eluna* e = sElunaMgr->Get(ElunaInfoKey(plr->GetMapId(), plr->GetInstanceId())))
+                    e->OnPlayerLeaveCombat(plr);
+#endif
     m_CombatTimer = 0;
     UpdatePowerState(false);
     RemoveFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_IN_COMBAT);
@@ -17931,6 +17963,13 @@ void Unit::ProcDamageAndSpellFor(bool isVictim, Unit* target, uint32 procFlag, u
         // AuraScript Hook
         if (!triggerData.aura->CallScriptCheckProcHandlers(itr->second.get(), eventInfo))
             continue;
+
+#ifdef ELUNA_TRINITY
+        if (sElunaConfig->IsElunaEnabled())
+            if (Eluna* e = sElunaMgr->Get(ElunaInfoKey(GetMapId(), GetInstanceId())))
+                if (!e->OnAuraCanProc(triggerData.aura, eventInfo))
+                    continue;
+#endif
 
         // Triggered spells not triggering additional spells
         bool triggered = !(spellProto->HasAttribute(SPELL_ATTR3_CAN_PROC_WITH_TRIGGERED)) ? (procExtra & PROC_EX_INTERNAL_TRIGGERED && !(procFlag & PROC_FLAG_DONE_TRAP_ACTIVATION)) : false;

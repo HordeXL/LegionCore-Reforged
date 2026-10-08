@@ -17,6 +17,12 @@
  */
 
 #include "AreaTriggerData.h"
+
+#ifdef ELUNA_TRINITY
+#include "ElunaConfig.h"
+#include "ElunaMgr.h"
+#include "LuaEngine.h"
+#endif
 #include "AreaTriggerAI.h"
 #include "CellImpl.h"
 #include "Common.h"
@@ -3038,6 +3044,12 @@ bool Aura::CallScriptCheckAreaTargetHandlers(Unit* target)
 
 void Aura::CallScriptDispel(DispelInfo* dispelInfo)
 {
+#ifdef ELUNA_TRINITY
+    if (sElunaConfig->IsElunaEnabled())
+        if (Unit* casterUnit = GetCaster())
+            if (Eluna* e = sElunaMgr->Get(ElunaInfoKey(casterUnit->GetMapId(), casterUnit->GetInstanceId())))
+                e->OnAuraDispel(this, dispelInfo);
+#endif
     if (IsRemoved())
         return;
 

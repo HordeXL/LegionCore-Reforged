@@ -17,6 +17,12 @@
  */
 
 #include "AreaTrigger.h"
+
+#ifdef ELUNA_TRINITY
+#include "ElunaConfig.h"
+#include "ElunaMgr.h"
+#include "LuaEngine.h"
+#endif
 #include "AreaTriggerAI.h"
 #include "Battlefield.h"
 #include "BattlefieldMgr.h"
@@ -1364,6 +1370,20 @@ float AuraEffect::CalculateAmount(Unit* caster)
 
     TC_LOG_DEBUG("spells", "AuraApplication::CalculateAmount GetId %i GetAuraType %u amount %f effIndex %i m_amount_mod %f m_amount_add %f GetStackAmount %u", GetId(), GetAuraType(), amount, m_effIndex, m_amount_mod, m_amount_add, GetBase()->GetStackAmount());
 
+#ifdef ELUNA_TRINITY
+    if (sElunaConfig->IsElunaEnabled())
+        if (Unit* casterUnit = caster)
+            if (Eluna* e = sElunaMgr->Get(ElunaInfoKey(casterUnit->GetMapId(), casterUnit->GetInstanceId())))
+            {
+                double elunaAmount = static_cast<double>(amount);
+                bool canRecalc = m_canBeRecalculated;
+                e->OnAuraCalcAmount(GetBase(), this, elunaAmount, canRecalc);
+                m_calc_amount = static_cast<float>(elunaAmount);
+                m_canBeRecalculated = canRecalc;
+                return static_cast<float>(elunaAmount);
+            }
+#endif
+
     m_calc_amount = amount;
     return amount;
 }
@@ -1673,6 +1693,13 @@ void AuraEffect::CalculatePeriodic(Unit* caster, bool resetPeriodicTimer /*= tru
     }
 
     GetBase()->CallScriptEffectCalcPeriodicHandlers(const_cast<AuraEffect const*>(this), m_isPeriodic, m_period);
+
+#ifdef ELUNA_TRINITY
+    if (sElunaConfig->IsElunaEnabled())
+        if (Unit* casterUnit = caster)
+            if (Eluna* e = sElunaMgr->Get(ElunaInfoKey(casterUnit->GetMapId(), casterUnit->GetInstanceId())))
+                e->OnCalcPeriodic(GetBase(), this, m_isPeriodic, m_period);
+#endif
 
     if (!m_isPeriodic)
         return;
@@ -2042,6 +2069,12 @@ void AuraEffect::Update(uint32 diff, Unit* caster)
 
 void AuraEffect::UpdatePeriodic(Unit* caster)
 {
+#ifdef ELUNA_TRINITY
+    if (sElunaConfig->IsElunaEnabled())
+        if (Unit* ownerUnit = GetBase()->GetCaster())
+            if (Eluna* e = sElunaMgr->Get(ElunaInfoKey(ownerUnit->GetMapId(), ownerUnit->GetInstanceId())))
+                e->OnPeriodicUpdate(GetBase(), this);
+#endif
     switch (GetAuraType())
     {
         case SPELL_AURA_PERIODIC_HEAL:
@@ -2179,6 +2212,14 @@ void AuraEffect::PeriodicTick(AuraApplication * aurApp, Unit* caster, SpellEffIn
         return;
 
     Unit* target = aurApp->GetTarget();
+
+#ifdef ELUNA_TRINITY
+    if (sElunaConfig->IsElunaEnabled())
+        if (Unit* ownerUnit = GetBase()->GetCaster())
+            if (Eluna* e = sElunaMgr->Get(ElunaInfoKey(ownerUnit->GetMapId(), ownerUnit->GetInstanceId())))
+                if (e->OnPeriodicTick(GetBase(), this, target))
+                    return;
+#endif
 
     if (!AuraCostPower(caster))
         return;

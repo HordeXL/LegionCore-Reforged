@@ -26,6 +26,12 @@
 #include "CreatureAIFactory.h"
 #include "ScriptMgr.h"
 
+#ifdef ELUNA_TRINITY
+#include "ElunaCreatureAI.h"
+#include "ElunaConfig.h"
+#include "ElunaMgr.h"
+#endif
+
 namespace FactorySelector
 {
     CreatureAI* selectAI(Creature* creature)
@@ -38,6 +44,14 @@ namespace FactorySelector
             if (auto scriptedAI = sScriptMgr->GetCreatureAI(creature))
                 return scriptedAI;
 
+#ifdef ELUNA_TRINITY
+        if (!aiFactory && sElunaConfig->IsElunaEnabled())
+        {
+            ElunaInfoKey key(creature->GetMapId(), creature->GetInstanceId());
+            if (sElunaMgr->Get(key))
+                return new ElunaCreatureAI(creature);
+        }
+#endif
         auto ainame = creature->GetAIName();
         if (!aiFactory && !ainame.empty())
             aiFactory = sCreatureAIRegistry->GetRegistryItem(ainame);

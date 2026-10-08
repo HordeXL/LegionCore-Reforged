@@ -17,6 +17,12 @@
  */
 
 #include "ArenaAll.h"
+
+#ifdef ELUNA_TRINITY
+#include "ElunaConfig.h"
+#include "ElunaMgr.h"
+#include "LuaEngine.h"
+#endif
 #include "ArenaAshamanesFall.h"
 #include "ArenaBlackrookHold.h"
 #include "ArenaBladesEdge.h"
@@ -601,12 +607,23 @@ void BattlegroundMgr::CreateBattleground(CreateBattlegroundData& data)
 
 void BattlegroundMgr::AddBattleground(uint32 InstanceID, uint16 bgTypeId, Battleground* BG)
 {
+#ifdef ELUNA_TRINITY
+    if (sElunaConfig->IsElunaEnabled())
+        if (Eluna* e = sElunaMgr->Get(ElunaInfoKey(BG->GetMapId(), BG->GetInstanceID())))
+            e->OnBGCreate(BG, BattleGroundTypeId(bgTypeId), InstanceID);
+#endif
     std::unique_lock<std::shared_mutex> guard(_battlegroundsLock);
     _battlegrounds[bgTypeId][InstanceID] = BG;
 }
 
 void BattlegroundMgr::RemoveBattleground(uint32 instanceID, uint16 bgTypeId)
 {
+#ifdef ELUNA_TRINITY
+    if (Battleground* bg = GetBattleground(instanceID, bgTypeId))
+        if (sElunaConfig->IsElunaEnabled())
+            if (Eluna* e = sElunaMgr->Get(ElunaInfoKey(bg->GetMapId(), bg->GetInstanceID())))
+                e->OnBGDestroy(bg, BattleGroundTypeId(uint32(bgTypeId)), instanceID);
+#endif
     std::unique_lock<std::shared_mutex> guard(_battlegroundsLock);
     _battlegrounds[bgTypeId].erase(instanceID);
 }

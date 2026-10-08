@@ -17,6 +17,12 @@
  */
 
 #include "Battleground.h"
+#ifdef ELUNA_TRINITY
+#include "ElunaConfig.h"
+#include "ElunaMgr.h"
+#include "LuaEngine.h"
+#endif
+
 #include "Arena.h"
 #include "BattlegroundMgr.h"
 #include "BattlegroundPackets.h"
@@ -628,6 +634,11 @@ void Battleground::SendBattleGroundPoints(bool isHorde, int32 teamScores, bool b
 
 void Battleground::EndBattleground(uint32 winner)
 {
+#ifdef ELUNA_TRINITY
+    if (sElunaConfig->IsElunaEnabled())
+        if (Eluna* e = sElunaMgr->Get(ElunaInfoKey(GetMapId(), GetInstanceID())))
+            e->OnBGEnd(this, BattleGroundTypeId(GetTypeID()), GetInstanceID(), Team(winner));
+#endif
     if (GetStatus() != STATUS_IN_PROGRESS)
         return;
 
@@ -1358,6 +1369,11 @@ void Battleground::RelocateDeadPlayers(ObjectGuid guideGuid)
 
 void Battleground::StartBattleground()
 {
+#ifdef ELUNA_TRINITY
+    if (sElunaConfig->IsElunaEnabled())
+        if (Eluna* e = sElunaMgr->Get(ElunaInfoKey(GetMapId(), GetInstanceID())))
+            e->OnBGStart(this, BattleGroundTypeId(GetTypeID()), GetInstanceID());
+#endif
     m_StartTime = Milliseconds(0);
     m_LastResurrectTime = 0;
     AddToBGFreeSlotQueue();

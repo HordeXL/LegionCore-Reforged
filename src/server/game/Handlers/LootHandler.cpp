@@ -17,6 +17,12 @@
  */
 
 #include "LootPackets.h"
+
+#ifdef ELUNA_TRINITY
+#include "ElunaConfig.h"
+#include "ElunaMgr.h"
+#include "LuaEngine.h"
+#endif
 #include "Corpse.h"
 #include "ChallengeMgr.h"
 

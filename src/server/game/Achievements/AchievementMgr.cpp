@@ -17,6 +17,12 @@
  */
 
 #include "AchievementMgr.h"
+
+#ifdef ELUNA_TRINITY
+#include "ElunaConfig.h"
+#include "ElunaMgr.h"
+#include "LuaEngine.h"
+#endif
 #include "AchievementPackets.h"
 #include "Battleground.h"
 #include "BattlegroundMgr.h"
@@ -2622,6 +2628,13 @@ uint32 AchievementMgr<T>::GetAchievementPoints() const
 template<class T>
 void AchievementMgr<T>::CompletedAchievement(AchievementEntry const* achievement, Player* player)
 {
+#ifdef ELUNA_TRINITY
+    if (sElunaConfig->IsElunaEnabled())
+        if (Player* plr = GetOwner())
+            if (Eluna* e = sElunaMgr->Get(ElunaInfoKey(plr->GetMapId(), plr->GetInstanceId())))
+                e->OnAchievementComplete(plr, achievement->ID);
+#endif
+
     // disable for gamemasters with GM-mode enabled
     if (GetOwner()->isGameMaster())
         return;

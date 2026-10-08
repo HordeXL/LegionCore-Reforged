@@ -17,6 +17,12 @@
  */
 
 #include "Player.h"
+
+#ifdef ELUNA_TRINITY
+#include "ElunaConfig.h"
+#include "ElunaMgr.h"
+#include "LuaEngine.h"
+#endif
 #include "AccountMgr.h"
 #include "AchievementMgr.h"
 #include "Anticheat.h"
@@ -3739,6 +3745,11 @@ void Player::GiveXP(uint32 xp, Unit* victim, float groupRate /*= 1.0f*/)
     uint8 level = getLevel();
 
     sScriptMgr->OnGivePlayerXP(this, xp, victim);
+#ifdef ELUNA_TRINITY
+    if (sElunaConfig->IsElunaEnabled())
+        if (Eluna* e = sElunaMgr->Get(ElunaInfoKey(GetMapId(), GetInstanceId())))
+            e->OnGiveXP(this, xp, victim);
+#endif
 
     // Favored experience increase START
     float favoredExpMultiplier = 0;
@@ -3851,6 +3862,12 @@ void Player::GiveLevel(uint8 level)
     uint8 oldLevel = getLevel();
     if (level == oldLevel)
         return;
+
+#ifdef ELUNA_TRINITY
+    if (sElunaConfig->IsElunaEnabled())
+        if (Eluna* e = sElunaMgr->Get(ElunaInfoKey(GetMapId(), GetInstanceId())))
+            e->OnLevelChanged(this, oldLevel);
+#endif
 
     for (uint8 i = 0; i < INVENTORY_SLOT_BAG_END; ++i)
         if (Item* item = m_items[i])
@@ -5246,6 +5263,12 @@ bool Player::IsNeedCastPassiveSpellAtLearn(SpellInfo const* spellInfo) const
 
 void Player::learnSpell(uint32 spell_id, bool dependent, uint32 fromSkill, bool sendMessage)
 {
+#ifdef ELUNA_TRINITY
+    if (!dependent && sElunaConfig->IsElunaEnabled())
+        if (Eluna* e = sElunaMgr->Get(ElunaInfoKey(GetMapId(), GetInstanceId())))
+            e->OnLearnSpell(this, spell_id);
+#endif
+
     PlayerSpellMap::iterator itr = m_spells.find(spell_id);
 
     bool disabled = (itr != m_spells.end()) ? itr->second.disabled : false;
@@ -7052,6 +7075,11 @@ void Player::BuildPlayerRepop()
 
 void Player::ResurrectPlayer(float restore_percent, bool applySickness)
 {
+#ifdef ELUNA_TRINITY
+    if (sElunaConfig->IsElunaEnabled())
+        if (Eluna* e = sElunaMgr->Get(ElunaInfoKey(GetMapId(), GetInstanceId())))
+            e->OnResurrect(this);
+#endif
     WorldPackets::Misc::DeathReleaseLoc packet;
     packet.MapID = -1;
     SendDirectMessage(packet.Write());
@@ -7137,6 +7165,12 @@ void Player::ResurrectPlayer(float restore_percent, bool applySickness)
 
 void Player::KillPlayer()
 {
+#ifdef ELUNA_TRINITY
+    if (sElunaConfig->IsElunaEnabled())
+        if (Eluna* e = sElunaMgr->Get(ElunaInfoKey(GetMapId(), GetInstanceId())))
+            e->OnPlayerKilledByEnvironment(this, 0);
+#endif
+
     // Remove AT movement force
     if (ObjectGuid forceGuid = GetForceGUID())
         if (AreaTrigger const* at = ObjectAccessor::GetAreaTrigger(*this, forceGuid))
@@ -7456,6 +7490,11 @@ uint32 Player::DurabilityRepair(uint16 pos, bool cost, float discountMod, bool g
 
 void Player::RepopAtGraveyard(bool outInstance /*= false*/)
 {
+#ifdef ELUNA_TRINITY
+    if (sElunaConfig->IsElunaEnabled())
+        if (Eluna* e = sElunaMgr->Get(ElunaInfoKey(GetMapId(), GetInstanceId())))
+            e->OnRepop(this);
+#endif
     // note: this can be called also when the player is alive
     // for example from WorldSession::HandleMovementOpcodes
 
@@ -8200,6 +8239,11 @@ void Player::ModifySkillBonus(uint32 skillid, int32 val, bool talent)
 // To "remove" a skill line, set it's values to zero
 void Player::SetSkill(uint16 id, uint16 step /*= 0*/, uint16 newVal /*= 0*/, uint16 maxVal /*= 0*/)
 {
+#ifdef ELUNA_TRINITY
+    if (sElunaConfig->IsElunaEnabled())
+        if (Eluna* e = sElunaMgr->Get(ElunaInfoKey(GetMapId(), GetInstanceId())))
+            e->OnSkillChange(this, id, newVal);
+#endif
     if (!id)
         return;
 
@@ -8773,6 +8817,12 @@ void Player::CheckAreaExploreAndOutdoor()
     if (!(currFields & val))
     {
         SetUInt32Value(PLAYER_FIELD_EXPLORED_ZONES + offset, (uint32)(currFields | val));
+
+#ifdef ELUNA_TRINITY
+        if (sElunaConfig->IsElunaEnabled())
+            if (Eluna* e = sElunaMgr->Get(ElunaInfoKey(GetMapId(), GetInstanceId())))
+                e->OnDiscoverArea(this, areaId);
+#endif
 
         UpdateAchievementCriteria(CRITERIA_TYPE_EXPLORE_AREA);
 
@@ -10130,6 +10180,11 @@ uint32 Player::GetLevelFromDB(ObjectGuid guid)
 
 void Player::UpdateArea(uint32 newArea)
 {
+#ifdef ELUNA_TRINITY
+    if (sElunaConfig->IsElunaEnabled())
+        if (Eluna* e = sElunaMgr->Get(ElunaInfoKey(GetMapId(), GetInstanceId())))
+            e->OnUpdateArea(this, GetAreaId(), newArea);
+#endif
     AreaTableEntry const* area = sAreaTableStore.LookupEntry(newArea);
     
     //! new area on garrison not has flag2 - 0x20
@@ -10277,6 +10332,12 @@ void Player::UpdateZone(uint32 newZone, uint32 newArea)
 {
     if (!IsInWorld())
         return;
+
+#ifdef ELUNA_TRINITY
+    if (sElunaConfig->IsElunaEnabled())
+        if (Eluna* e = sElunaMgr->Get(ElunaInfoKey(GetMapId(), GetInstanceId())))
+            e->OnUpdateZone(this, newZone, newArea);
+#endif
 
     if (m_zoneForce)
     {
@@ -10581,6 +10642,16 @@ void Player::DuelComplete(DuelCompleteType type)
 
 void Player::_ApplyItemMods(Item* item, uint8 slot, bool apply)
 {
+#ifdef ELUNA_TRINITY
+    if (sElunaConfig->IsElunaEnabled())
+        if (Eluna* e = sElunaMgr->Get(ElunaInfoKey(GetMapId(), GetInstanceId())))
+        {
+            if (apply)
+                e->OnItemEquip(this, item, slot);
+            else
+                e->OnItemUnEquip(this, item, slot);
+        }
+#endif
     if (slot >= INVENTORY_SLOT_BAG_END || !item)
         return;
 
@@ -15023,6 +15094,15 @@ InventoryResult Player::CanUseItem(Item* pItem, bool not_loading) const
 
 InventoryResult Player::CanUseItem(ItemTemplate const* proto) const
 {
+#ifdef ELUNA_TRINITY
+    if (sElunaConfig->IsElunaEnabled())
+        if (Eluna* e = sElunaMgr->Get(ElunaInfoKey(GetMapId(), GetInstanceId())))
+        {
+            InventoryResult elunaRes = e->OnCanUseItem(this, proto->GetId());
+            if (elunaRes != EQUIP_ERR_OK)
+                return elunaRes;
+        }
+#endif
     // Used by group, function NeedBeforeGreed, to know if a prototype can be used by a player
 
     if (proto)
@@ -15538,6 +15618,11 @@ std::vector<Item*> Player::GetItemListByEntry(uint32 entry, bool inBankAlso) con
 
 Item* Player::StoreItem(ItemPosCountVec const& dest, Item* pItem, bool update)
 {
+#ifdef ELUNA_TRINITY
+    if (sElunaConfig->IsElunaEnabled())
+        if (Eluna* e = sElunaMgr->Get(ElunaInfoKey(GetMapId(), GetInstanceId())))
+            e->OnAdd(this, pItem);
+#endif
     if (!pItem)
         return NULL;
 
@@ -15994,6 +16079,12 @@ void Player::VisualizeItem(uint8 slot, Item* pItem)
 
 void Player::RemoveItem(uint8 bag, uint8 slot, bool update)
 {
+#ifdef ELUNA_TRINITY
+    if (Item* removed = GetItemByPos(bag, slot))
+        if (sElunaConfig->IsElunaEnabled())
+            if (Eluna* e = sElunaMgr->Get(ElunaInfoKey(GetMapId(), GetInstanceId())))
+                e->OnRemove(this, removed);
+#endif
     // note: removeitem does not actually change the item
     // it only takes the item out of storage temporarily
     // note2: if removeitem is to be used for delinking
@@ -20353,6 +20444,11 @@ void Player::QuestObjectiveSatisfy(uint32 objectId, uint32 amount, QuestObjectiv
 
 void Player::SetQuestStatus(uint32 quest_id, QuestStatus status)
 {
+#ifdef ELUNA_TRINITY
+    if (sElunaConfig->IsElunaEnabled())
+        if (Eluna* e = sElunaMgr->Get(ElunaInfoKey(GetMapId(), GetInstanceId())))
+            e->OnQuestStatusChanged(this, quest_id, uint8(status));
+#endif
     if (Quest const* quest = sQuestDataStore->GetQuestTemplate(quest_id))
     {
         QuestStatusData& q_status = (*m_QuestStatusVector)[quest_id] ? *(*m_QuestStatusVector)[quest_id] : m_QuestStatus[quest_id];
@@ -20374,6 +20470,11 @@ void Player::SetQuestStatus(uint32 quest_id, QuestStatus status)
 
 void Player::RemoveActiveQuest(uint32 quest_id)
 {
+#ifdef ELUNA_TRINITY
+    if (sElunaConfig->IsElunaEnabled())
+        if (Eluna* e = sElunaMgr->Get(ElunaInfoKey(GetMapId(), GetInstanceId())))
+            e->OnQuestAbandon(this, quest_id);
+#endif
     if (!sQuestDataStore->GetQuestTemplate(quest_id))
         return;
 
@@ -25022,6 +25123,12 @@ bool Player::_LoadHomeBind(PreparedQueryResult result)
 
 void Player::SaveToDB(bool create /*=false*/)
 {
+#ifdef ELUNA_TRINITY
+    if (sElunaConfig->IsElunaEnabled())
+        if (Eluna* e = sElunaMgr->Get(ElunaInfoKey(GetMapId(), GetInstanceId())))
+            e->OnSave(this);
+#endif
+
     // delay auto save at any saves (manual, in code, or autosave)
     m_nextSave = sWorld->getIntConfig(CONFIG_INTERVAL_SAVE);
 
@@ -29919,6 +30026,11 @@ bool Player::ModifyMoney(int64 amount, bool sendError /*= true*/)
         return true;
 
     sScriptMgr->OnPlayerMoneyChanged(this, amount);
+#ifdef ELUNA_TRINITY
+    if (sElunaConfig->IsElunaEnabled())
+        if (Eluna* e = sElunaMgr->Get(ElunaInfoKey(GetMapId(), GetInstanceId())))
+            e->OnMoneyChanged(this, amount);
+#endif
 
     if (amount < 0)
         SetMoney (GetMoney() > uint64(-amount) ? GetMoney() + amount : 0);
@@ -30215,6 +30327,12 @@ void Player::SendInitialPacketsAfterAddToMap(bool login)
     uint32 newzone, newarea;
     GetZoneAndAreaId(newzone, newarea);
     UpdateZone(newzone, newarea);                            // also call SendInitWorldStates();
+
+#ifdef ELUNA_TRINITY
+    if (!login && sElunaConfig->IsElunaEnabled())
+        if (Eluna* e = sElunaMgr->Get(ElunaInfoKey(GetMapId(), GetInstanceId())))
+            e->OnMapChanged(this);
+#endif
 
     // The client never evaluates MapCelestialBody on its own; this empty packet is the signal to
     // do it, and without it Argus stays invisible however correct the DB2 data is. It carries no
@@ -36917,6 +37035,12 @@ uint32 Player::GetGoldFromLoot()
 
     if (!money)
         return money;
+
+#ifdef ELUNA_TRINITY
+    if (sElunaConfig->IsElunaEnabled())
+        if (Eluna* e = sElunaMgr->Get(ElunaInfoKey(GetMapId(), GetInstanceId())))
+            e->OnLootMoney(this, money);
+#endif
 
     WorldPackets::Loot::LootMoneyNotify notify;
     notify.Money = money;

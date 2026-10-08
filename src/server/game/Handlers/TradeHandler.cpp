@@ -17,6 +17,12 @@
  */
 
 #include "AccountMgr.h"
+
+#ifdef ELUNA_TRINITY
+#include "ElunaConfig.h"
+#include "ElunaMgr.h"
+#include "LuaEngine.h"
+#endif
 #include "Common.h"
 #include "Item.h"
 #include "ItemPackets.h"
@@ -233,6 +239,13 @@ static void clearAcceptTradeMode(Item* *myItems, Item* *hisItems)
 
 void WorldSession::HandleAcceptTrade(WorldPackets::Trade::AcceptTrade& acceptTrade)
 {
+#ifdef ELUNA_TRINITY
+    if (Player* plr = GetPlayer())
+        if (sElunaConfig->IsElunaEnabled())
+            if (Eluna* e = sElunaMgr->Get(ElunaInfoKey(plr->GetMapId(), plr->GetInstanceId())))
+                if (TradeData* td = plr->GetTradeData())
+                    e->OnTradeAccept(plr, td->GetTrader());
+#endif
     Player* player = GetPlayer();
     if (!player)
         return;
@@ -590,6 +603,12 @@ void WorldSession::HandleCancelTrade(WorldPackets::Trade::NullCmsg& /*packet*/)
 
 void WorldSession::HandleInitiateTrade(WorldPackets::Trade::InitiateTrade& packet)
 {
+#ifdef ELUNA_TRINITY
+    if (Player* plr = GetPlayer())
+        if (sElunaConfig->IsElunaEnabled())
+            if (Eluna* e = sElunaMgr->Get(ElunaInfoKey(plr->GetMapId(), plr->GetInstanceId())))
+                e->OnTradeInit(plr, ObjectAccessor::FindPlayer(packet.Guid));
+#endif
     Player* player = GetPlayer();
     if (!player)
         return;

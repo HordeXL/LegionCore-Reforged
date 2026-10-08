@@ -50,6 +50,12 @@
 #include "SystemPackets.h"
 #include "TokenPackets.h"
 #include "WorldStateMgr.h"
+
+#ifdef ELUNA_TRINITY
+#include "ElunaMgr.h"
+#include "LuaEngine.h"
+#endif
+
 #include <mutex>
 #include <unordered_map>
 #include <unordered_set>
@@ -1109,6 +1115,16 @@ void WorldSession::HandlePlayerLogin(LoginQueryHolder const& holder)
         SendRafInviteNotification();
 
         sScriptMgr->OnPlayerLogin(player, firstLogin);
+
+#ifdef ELUNA_TRINITY
+        if (Eluna* e = sElunaMgr->Get(ElunaInfoKey(player->GetMapId(), player->GetInstanceId())))
+        {
+            e->OnLogin(player);
+            if (firstLogin)
+                e->OnFirstLogin(player);
+        }
+#endif
+
         player->SetChangeMap(false);
     });
 }

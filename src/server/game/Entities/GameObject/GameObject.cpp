@@ -17,6 +17,12 @@
  */
 
 #include "ArtifactPackets.h"
+#ifdef ELUNA_TRINITY
+#include "ElunaConfig.h"
+#include "ElunaMgr.h"
+#include "LuaEngine.h"
+#endif
+
 #include "BattlegroundAlteracValley.h"
 #include "CellImpl.h"
 #include "ChallengeMgr.h"
@@ -145,6 +151,11 @@ void GameObject::RemoveFromOwner()
 
 void GameObject::AddToWorld()
 {
+#ifdef ELUNA_TRINITY
+    if (IsInWorld() && sElunaConfig->IsElunaEnabled())
+        if (Eluna* e = sElunaMgr->Get(ElunaInfoKey(GetMapId(), GetInstanceId())))
+            e->OnAddToWorld(this);
+#endif
     ///- Register the gameobject for guid lookup
     if (!IsInWorld())
     {
@@ -196,6 +207,11 @@ Battleground* GameObject::GetBattleground()
 
 void GameObject::RemoveFromWorld()
 {
+#ifdef ELUNA_TRINITY
+    if (sElunaConfig->IsElunaEnabled())
+        if (Eluna* e = sElunaMgr->Get(ElunaInfoKey(GetMapId(), GetInstanceId())))
+            e->OnRemoveFromWorld(this);
+#endif
     ///- Remove the gameobject from the accessor
     if (IsInWorld())
     {

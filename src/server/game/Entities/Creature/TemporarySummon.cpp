@@ -17,6 +17,12 @@
  */
 
 #include "Log.h"
+#ifdef ELUNA_TRINITY
+#include "ElunaConfig.h"
+#include "ElunaMgr.h"
+#include "LuaEngine.h"
+#endif
+
 #include "ObjectAccessor.h"
 #include "CreatureAI.h"
 #include "ObjectMgr.h"
@@ -338,6 +344,11 @@ void TempSummon::InitStats(uint32 duration)
 
 void TempSummon::InitSummon()
 {
+#ifdef ELUNA_TRINITY
+    if (sElunaConfig->IsElunaEnabled())
+        if (Eluna* e = sElunaMgr->Get(ElunaInfoKey(GetMapId(), GetInstanceId())))
+            e->OnSummoned(this, GetOwner());
+#endif
     auto owner = GetSummoner();
     if (!owner)
         return;

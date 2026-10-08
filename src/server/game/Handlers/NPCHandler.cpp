@@ -44,6 +44,11 @@
 #include "NPCPackets.h"
 #include "MailPackets.h"
 
+#ifdef ELUNA_TRINITY
+#include "ElunaMgr.h"
+#include "LuaEngine.h"
+#endif
+
 void WorldSession::HandleTabardVendorActivate(WorldPackets::NPC::Hello& packet)
 {
     Creature* unit = GetPlayer()->GetNPCIfCanInteractWith(packet.Unit, UNIT_NPC_FLAG_TABARDDESIGNER);
@@ -345,6 +350,22 @@ void WorldSession::HandleGossipSelectOption(WorldPackets::NPC::GossipSelectOptio
         // quest credit) otherwise answered from anywhere on the map
         if (!player->IsWithinDistInMap(go, go->GetInteractionDistance() + 10.0f))
             return;
+    }
+    else if (packet.GossipUnit.IsItem())
+    {
+#ifdef ELUNA_TRINITY
+        if (Item* item = player->GetItemByGuid(packet.GossipUnit))
+        {
+            if (Eluna* e = sElunaMgr->Get(ElunaInfoKey(player->GetMapId(), player->GetInstanceId())))
+            {
+                uint32 sender = player->PlayerTalkClass->GetGossipOptionSender(packet.GossipIndex);
+                uint32 action = player->PlayerTalkClass->GetGossipOptionAction(packet.GossipIndex);
+                e->HandleGossipSelectOption(player, item, sender, action,
+                    packet.PromotionCode.empty() ? "" : packet.PromotionCode.c_str());
+            }
+        }
+        return;
+#endif
     }
     else
     {

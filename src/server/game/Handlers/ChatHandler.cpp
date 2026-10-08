@@ -17,6 +17,12 @@
  */
 
 #include "AccountMgr.h"
+
+#ifdef ELUNA_TRINITY
+#include "ElunaConfig.h"
+#include "ElunaMgr.h"
+#include "LuaEngine.h"
+#endif
 #include "ChatPackets.h"
 #include "ScriptMgr.h"
 #include "GlobalFunctional.h"

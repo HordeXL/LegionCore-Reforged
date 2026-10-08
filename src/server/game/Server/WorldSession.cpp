@@ -24,6 +24,12 @@
 #include <utility>
 
 #include "AccountMgr.h"
+
+#ifdef ELUNA_TRINITY
+#include "ElunaConfig.h"
+#include "ElunaMgr.h"
+#include "LuaEngine.h"
+#endif
 #include "Anticheat.h"
 #include "AuthenticationPackets.h"
 #include "BattlefieldMgr.h"
@@ -197,6 +203,24 @@ ObjectGuid::LowType WorldSession::GetGuidLow() const
 void WorldSession::SendPacket(WorldPacket const* packet, bool forced /*= false*/)
 {
     uint32 opcode = packet->GetOpcode();
+#ifdef ELUNA_TRINITY
+    // Eluna packet-send filter: return false from a Lua handler suppresses the send
+    if (sElunaConfig->IsElunaEnabled() && !forced)
+    {
+        bool sendResult = true;
+        if (Eluna* e = sElunaMgr->Get(ElunaInfoKey::MakeGlobalKey(0)))
+            sendResult = e->OnPacketSend(this, *packet);
+        else
+        {
+            // per-map state override if the session player is on a map with its own state
+            if (Player* plr = GetPlayer())
+                if (Eluna* em = sElunaMgr->Get(ElunaInfoKey(plr->GetMapId(), plr->GetInstanceId())))
+                    sendResult = em->OnPacketSend(this, *packet);
+        }
+        if (!sendResult)
+            return;
+    }
+#endif
     if (opcode == NULL_OPCODE)
     {
         TC_LOG_ERROR("misc", "Prevented sending of NULL_OPCODE to %s", GetPlayerName(false).c_str());
@@ -324,6 +348,23 @@ bool WorldSession::Update(uint32 diff, Map* map)
     while (m_Socket[CONNECTION_TYPE_REALM] && map == m_map && _recvQueue.next(packet))
     {
         OpcodeClient opcode = static_cast<OpcodeClient>(packet->GetOpcode());
+#ifdef ELUNA_TRINITY
+        // Eluna packet-receive filter: return false drops the packet; handlers may also replace it
+        if (sElunaConfig->IsElunaEnabled())
+        {
+            bool recvResult = true;
+            if (Eluna* e = sElunaMgr->Get(ElunaInfoKey::MakeGlobalKey(0)))
+                recvResult = e->OnPacketReceive(this, *packet);
+            else if (Player* plrEluna = GetPlayer())
+                if (Eluna* em = sElunaMgr->Get(ElunaInfoKey(plrEluna->GetMapId(), plrEluna->GetInstanceId())))
+                    recvResult = em->OnPacketReceive(this, *packet);
+            if (!recvResult)
+            {
+                deletePacket = true;
+                continue;
+            }
+        }
+#endif
         uint32 packetSize = packet->size();
         ClientOpcodeHandler const* opHandle = opcodeTable[opcode];
         try
@@ -502,6 +543,12 @@ uint32 WorldSession::GetCountWardenPacketsInQueue()
 /// %Log the player out
 void WorldSession::LogoutPlayer(bool Save)
 {
+#ifdef ELUNA_TRINITY
+    if (sElunaConfig->IsElunaEnabled())
+        if (Player* plr = GetPlayer())
+            if (Eluna* e = sElunaMgr->Get(ElunaInfoKey(plr->GetMapId(), plr->GetInstanceId())))
+                e->OnLogout(plr);
+#endif
     if (m_playerLogout)
         return;
 

@@ -46,6 +46,7 @@ else()
   set(BUILD_SHARED_LIBS OFF)
 endif()
 option(WITH_WARNINGS    "Show all warnings during compile"                            0)
+option(ELUNA         "Include Eluna Lua Engine"                                    1)
 option(WITH_COREDEBUG   "Include additional debug-code in core"                       0)
 
 set(WITH_SOURCE_TREE    "hierarchical" CACHE STRING "Build the source tree for IDE's.")
