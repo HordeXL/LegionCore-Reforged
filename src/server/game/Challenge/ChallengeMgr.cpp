@@ -233,6 +233,8 @@ void ChallengeMgr::LoadFromDB()
         if (v.second->member.empty())
             CharacterDatabase.PQuery("DELETE FROM `challenge` WHERE `ID` = '%u';", v.first);
 
+    PruneHistory();
+
     if (QueryResult result = CharacterDatabase.Query("SELECT `guid`, `chestListID`, `date`, `ChallengeLevel` FROM `challenge_oplote_loot`"))
     {
         do
@@ -259,6 +261,92 @@ void ChallengeMgr::LoadFromDB()
 		(sWorld->getIntConfig(CONFIG_CHALLENGE_MANUAL_AFFIX2) > 0 && sWorld->getIntConfig(CONFIG_CHALLENGE_MANUAL_AFFIX2) < 15) &&
 		(sWorld->getIntConfig(CONFIG_CHALLENGE_MANUAL_AFFIX3) > 0 && sWorld->getIntConfig(CONFIG_CHALLENGE_MANUAL_AFFIX3) < 15))
 		GenerateManualAffixes();
+}
+
+// Deletes the runs that no record and no weekly chest can reach any more. A run is kept when it is the best of the
+// realm, of a guild or of a member for a dungeon, the last one of a member, or recent enough for a chest (the week
+// of the last reset and the one before, never less than two weeks): the records and the stats shown are the same.
+void ChallengeMgr::PruneHistory()
+{
+    uint32 const lastReset = sWorld->getWorldState(WS_CHALLENGE_LAST_RESET_TIME);
+    if (!lastReset)
+        return;
+
+    time_t const keepFrom = std::min<time_t>(time_t(lastReset) - 7 * DAY, GameTime::GetGameTime() - 14 * DAY);
+
+    std::unordered_set<ChallengeData*> kept;
+    for (auto const& v : _bestForMap)
+        kept.insert(v.second);
+    for (auto const& guild : m_GuildBest)
+        for (auto const& v : guild.second)
+            kept.insert(v.second);
+    for (auto const& member : _challengesOfMember)
+        for (auto const& v : member.second)
+            kept.insert(v.second);
+    for (auto const& member : _lastForMember)
+        for (auto const& v : member.second)
+            kept.insert(v.second);
+    for (auto const& v : _challengeMap)
+        if (time_t(v.second->Date) >= keepFrom)
+            kept.insert(v.second);
+
+    if (kept.size() == _challengeMap.size())
+        return;
+
+    std::unordered_set<ChallengeData*> removed;
+    CharacterDatabaseTransaction trans = CharacterDatabase.BeginTransaction();
+    std::string ids;
+    uint32 inList = 0;
+    auto flush = [&]()
+    {
+        if (ids.empty())
+            return;
+
+        trans->PAppend("DELETE FROM `challenge_member` WHERE `id` IN (%s)", ids.c_str());
+        trans->PAppend("DELETE FROM `challenge` WHERE `ID` IN (%s)", ids.c_str());
+        ids.clear();
+        inList = 0;
+    };
+
+    for (auto itr = _challengeMap.begin(); itr != _challengeMap.end();)
+    {
+        if (kept.count(itr->second))
+        {
+            ++itr;
+            continue;
+        }
+
+        removed.insert(itr->second);
+        ids += (ids.empty() ? "" : ",") + std::to_string(itr->first);
+        if (++inList >= 500)
+            flush();
+
+        itr = _challengeMap.erase(itr);
+    }
+    flush();
+    CharacterDatabase.CommitTransaction(trans);
+
+    // _challengeWeekList holds every loaded run, the removed ones included
+    for (auto itr = _challengeWeekList.begin(); itr != _challengeWeekList.end();)
+    {
+        for (auto run = itr->second.begin(); run != itr->second.end();)
+        {
+            if (removed.count(*run))
+                run = itr->second.erase(run);
+            else
+                ++run;
+        }
+
+        if (itr->second.empty())
+            itr = _challengeWeekList.erase(itr);
+        else
+            ++itr;
+    }
+
+    for (ChallengeData* run : removed)
+        delete run;
+
+    TC_LOG_INFO("server.loading", ">> Mythic+ history: %zu old runs removed, %zu kept", removed.size(), _challengeMap.size());
 }
 
 ChallengeData* ChallengeMgr::BestServerChallenge(uint16 ChallengeID)

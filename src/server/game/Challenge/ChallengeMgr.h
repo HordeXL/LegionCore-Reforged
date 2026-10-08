@@ -81,6 +81,7 @@ public:
 
     void LoadFromDB();
     void SaveChallengeToDB(ChallengeData const* challengeData);
+    void PruneHistory();
 
     void CheckBestMapId(ChallengeData* challengeData);
     void CheckBestGuildMapId(ChallengeData* challengeData);
