@@ -128,7 +128,6 @@ public:
     uint32 GetNPCFlag(Creature* cr);
     uint16 GetEventIdForQuest(Quest const* quest) const;
 
-    bool IsHolidayActive(int32 holidayID, uint32& expirationTime) const;
     uint32 GetCountOfRepeatEvent(uint32 event) const;
 private:
     void SendWorldStateUpdate(Player* player, uint16 event_id);
