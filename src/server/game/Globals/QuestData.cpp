@@ -2893,10 +2893,8 @@ void QuestDataStoreMgr::ResetWorldQuest()
     ss << "DELETE FROM character_queststatus_world WHERE resetTime <= UNIX_TIMESTAMP() + " << MINUTE * 5;
     trans->Append(ss.str().c_str());
 
-    SessionMap const& sessionAll = sWorld->GetAllSessions();
-    for (SessionMap::const_iterator iter = sessionAll.begin(); iter != sessionAll.end(); ++iter)
-        if (Player* player = iter->second->GetPlayer())
-            player->ResetWorldQuest();
+    // a player's quest map is only touched by his own map thread
+    ObjectAccessor::PostToAllPlayers([](Player* player) { player->ResetWorldQuest(); });
 
     for (WorldQuestMap::iterator itr = _worldQuest.begin(); itr != _worldQuest.end(); ++itr)
     {
@@ -2945,10 +2943,7 @@ void QuestDataStoreMgr::ClearWorldQuest()
     CharacterDatabase.Execute("TRUNCATE world_quest;");
     CharacterDatabase.Execute("TRUNCATE character_queststatus_world;");
 
-    SessionMap const& sessionAll = sWorld->GetAllSessions();
-    for (SessionMap::const_iterator iter = sessionAll.begin(); iter != sessionAll.end(); ++iter)
-        if (Player* player = iter->second->GetPlayer())
-            player->ClearWorldQuest();
+    ObjectAccessor::PostToAllPlayers([](Player* player) { player->ClearWorldQuest(); });
 
     for (WorldQuestMap::iterator itr = _worldQuest.begin(); itr != _worldQuest.end(); ++itr)
     {
@@ -2988,7 +2983,6 @@ void QuestDataStoreMgr::ForceStartLegionAssault(uint32 zoneID)
     needWait = true;
     {
         CharacterDatabaseTransaction trans = CharacterDatabase.BeginTransaction();
-        SessionMap const& sessionAll = sWorld->GetAllSessions();
 
         for (WorldQuestMap::iterator itr = _worldQuest.begin(); itr != _worldQuest.end(); ++itr)
         {
@@ -3021,9 +3015,7 @@ void QuestDataStoreMgr::ForceStartLegionAssault(uint32 zoneID)
             }
         }
 
-        for (SessionMap::const_iterator iter = sessionAll.begin(); iter != sessionAll.end(); ++iter)
-            if (Player* player = iter->second->GetPlayer())
-                player->ResetWorldQuest();
+        ObjectAccessor::PostToAllPlayers([](Player* player) { player->ResetWorldQuest(); });
 
         CharacterDatabase.CommitTransaction(trans);
     }
@@ -3204,10 +3196,7 @@ void QuestDataStoreMgr::ResetWorldQuest(uint32 QuestID)
     ss << "DELETE FROM character_queststatus_world WHERE quest = " << QuestID;
     trans->Append(ss.str().c_str());
 
-    SessionMap const& sessionAll = sWorld->GetAllSessions();
-    for (SessionMap::const_iterator iter = sessionAll.begin(); iter != sessionAll.end(); ++iter)
-        if (Player* player = iter->second->GetPlayer())
-            player->ResetWorldQuest(QuestID);
+    ObjectAccessor::PostToAllPlayers([QuestID](Player* player) { player->ResetWorldQuest(QuestID); });
 
     for (WorldQuestMap::iterator itr = _worldQuest.begin(); itr != _worldQuest.end(); ++itr)
     {

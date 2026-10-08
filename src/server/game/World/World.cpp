@@ -3862,9 +3862,7 @@ void World::ResetDailyQuests()
     stmt->setUInt32(0, 1);
     CharacterDatabase.Execute(stmt);
 
-    for (SessionMap::const_iterator itr = m_sessions.begin(); itr != m_sessions.end(); ++itr)
-        if (Player* player = itr->second->GetPlayer())
-            player->AddDelayedEvent(100, [player]() -> void { player->DailyReset(); });
+    ObjectAccessor::PostToAllPlayers([](Player* player) { player->DailyReset(); }, 100);
 
     // change available dailies
     sPoolMgr->ChangeDailyQuests();
@@ -3874,9 +3872,7 @@ void World::ResetCurrencyWeekCap()
 {
     CharacterDatabase.Execute("UPDATE `character_currency` SET `week_count` = 0");
 
-    for (SessionMap::const_iterator itr = m_sessions.begin(); itr != m_sessions.end(); ++itr)
-        if (Player* player = itr->second->GetPlayer())
-            player->AddDelayedEvent(100, [player]() -> void { player->ResetCurrencyWeekCap(); });
+    ObjectAccessor::PostToAllPlayers([](Player* player) { player->ResetCurrencyWeekCap(); }, 100);
 
     m_NextCurrencyReset = NextWeeklyResetTime(m_NextCurrencyReset, getIntConfig(CONFIG_CURRENCY_RESET_INTERVAL));
     sWorld->setWorldState(WS_CURRENCY_RESET_TIME, m_NextCurrencyReset);
@@ -3945,12 +3941,8 @@ void World::ChallengeKeyResetTime()
 
     // Keys are destroyed; the level of the next one is kept (weekly chest, or decay)
     std::unordered_set<ObjectGuid::LowType> onlineGuids;
-    for (SessionMap::const_iterator itr = m_sessions.begin(); itr != m_sessions.end(); ++itr)
-        if (Player* player = itr->second->GetPlayer())
-        {
-            onlineGuids.insert(player->GetGUIDLow());
-            player->AddDelayedEvent(100, [player]() -> void { player->ApplyWeeklyChallengeKeyReset(); });
-        }
+    for (ObjectGuid const& guid : ObjectAccessor::PostToAllPlayers([](Player* player) { player->ApplyWeeklyChallengeKeyReset(); }, 100))
+        onlineGuids.insert(guid.GetCounter());
 
     sChallengeMgr->ApplyWeeklyKeyReset(onlineGuids);
 
@@ -4005,9 +3997,7 @@ void World::ResetLootCooldown()
     CharacterDatabase.Execute("DELETE FROM character_loot_cooldown WHERE respawnTime != 0");
     CharacterDatabase.Execute("DELETE FROM character_lfg_cooldown WHERE respawnTime != 0");
 
-    for (SessionMap::const_iterator itr = m_sessions.begin(); itr != m_sessions.end(); ++itr)
-        if (auto player = itr->second->GetPlayer())
-            player->AddDelayedEvent(100, [player]() -> void { player->ResetLootCooldown(); });
+    ObjectAccessor::PostToAllPlayers([](Player* player) { player->ResetLootCooldown(); }, 100);
 }
 
 void World::StartBanWave()
@@ -4046,9 +4036,7 @@ void World::ResetWeekly()
     CharacterDatabase.Execute(CharacterDatabase.GetPreparedStatement(CHAR_DEL_QUEST_STATUS_WEEKLY));
     CharacterDatabase.Execute(CharacterDatabase.GetPreparedStatement(CHAR_UPD_WEEKLY_BRACKET));
 
-    for (SessionMap::const_iterator itr = m_sessions.begin(); itr != m_sessions.end(); ++itr)
-        if (auto player = itr->second->GetPlayer())
-            player->AddDelayedEvent(100, [player]() -> void { if (player) player->ResetWeeklyQuestStatus(); });
+    ObjectAccessor::PostToAllPlayers([](Player* player) { player->ResetWeeklyQuestStatus(); }, 100);
 
     sBracketMgr->ResetWeekly();
 
@@ -4064,9 +4052,7 @@ void World::ResetWeekly()
 
     // Reset the weekly knowledge book lock (1 per player per week)
     CharacterDatabase.Execute("DELETE FROM character_ak_book_weekly");
-    for (SessionMap::const_iterator itr = m_sessions.begin(); itr != m_sessions.end(); ++itr)
-        if (Player* player = itr->second->GetPlayer())
-            player->ResetArtifactKnowledgeBookWeeklyLock();
+    ObjectAccessor::PostToAllPlayers([](Player* player) { player->ResetArtifactKnowledgeBookWeeklyLock(); });
 }
 
 void World::ResetEventSeasonalQuests(uint16 event_id)
@@ -4075,9 +4061,7 @@ void World::ResetEventSeasonalQuests(uint16 event_id)
     stmt->setUInt16(0,event_id);
     CharacterDatabase.Execute(stmt);
 
-    for (SessionMap::const_iterator itr = m_sessions.begin(); itr != m_sessions.end(); ++itr)
-        if (auto player = itr->second->GetPlayer())
-            player->AddDelayedEvent(100, [player, event_id]() -> void { if (player) player->ResetSeasonalQuestStatus(event_id); });
+    ObjectAccessor::PostToAllPlayers([event_id](Player* player) { player->ResetSeasonalQuestStatus(event_id); }, 100);
 }
 
 std::string World::GetRealmName()
@@ -4097,9 +4081,7 @@ void World::ResetRandomBG()
     CharacterDatabasePreparedStatement* stmt = CharacterDatabase.GetPreparedStatement(CHAR_DEL_BATTLEGROUND_RANDOM);
     CharacterDatabase.Execute(stmt);
 
-    for (SessionMap::const_iterator itr = m_sessions.begin(); itr != m_sessions.end(); ++itr)
-        if (auto player = itr->second->GetPlayer())
-            player->AddDelayedEvent(100, [player]() -> void { player->SetWinToday(false); });
+    ObjectAccessor::PostToAllPlayers([](Player* player) { player->SetWinToday(false); }, 100);
 
     m_NextRandomBGReset = time_t(m_NextRandomBGReset + DAY);
     sWorld->setWorldState(WS_BG_DAILY_RESET_TIME, m_NextRandomBGReset);
@@ -4536,9 +4518,7 @@ void World::DeleteCharacterNameData(ObjectGuid const& guid)
 
 void World::UpdatePhaseDefinitions()
 {
-    for (SessionMap::const_iterator itr = m_sessions.begin(); itr != m_sessions.end(); ++itr)	
-        if (itr->second && itr->second->GetPlayer() && itr->second->GetPlayer()->IsInWorld())	
-            itr->second->GetPlayer()->GetPhaseMgr().NotifyStoresReloaded();	
+    ObjectAccessor::PostToAllPlayers([](Player* player) { player->GetPhaseMgr().NotifyStoresReloaded(); }, 0, ObjectAccessor::PlayerScope::InWorld);
 }
 
 bool World::CheckCharacterName(std::string name)

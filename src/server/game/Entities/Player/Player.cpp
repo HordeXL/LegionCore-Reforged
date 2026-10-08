@@ -38196,6 +38196,10 @@ void Player::_LoadWorldQuestStatus(PreparedQueryResult result)
             //uint32 guid = fields[1].GetUInt32();
             uint32 resetTime = fields[2].GetUInt32();
 
+            // a row saved again after the global reset (logout before the posted reset ran) is expired: skip it
+            if (resetTime && resetTime <= GameTime::GetGameTime())
+                continue;
+
             Quest const* quest = sQuestDataStore->GetQuestTemplate(quest_id);
             if (!quest)
                 continue;

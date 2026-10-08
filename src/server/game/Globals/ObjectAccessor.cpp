@@ -321,17 +321,29 @@ ObjectGuid ObjectAccessor::FindPlayerGuidByName(std::string name)
     return HashMapHolder<Player>::FindGuidStr(name);
 }
 
-void ObjectAccessor::SaveAllPlayers()
+std::vector<ObjectGuid> ObjectAccessor::GetOnlinePlayerGuids()
 {
-    // SaveToDB reads the player and takes his map's and guild's locks: each one saves in his own thread
     std::vector<ObjectGuid> guids;
     HashMapHolder<Player>::GetLock().lock_shared();
     for (auto &pair : GetPlayers())
         guids.push_back(pair.first);
     HashMapHolder<Player>::GetLock().unlock_shared();
+    return guids;
+}
 
-    for (ObjectGuid const& guid : guids)
-        PostToPlayer(guid, [](Player* player) { player->SaveToDB(); });
+std::vector<ObjectGuid> ObjectAccessor::PostToAllPlayers(std::function<void(Player*)> const& action, uint64 delay /*= 0*/, PlayerScope scope /*= PlayerScope::InOrOutOfWorld*/)
+{
+    std::vector<ObjectGuid> posted;
+    for (ObjectGuid const& guid : GetOnlinePlayerGuids())
+        if (PostToPlayer(guid, std::function<void(Player*)>(action), delay, scope))
+            posted.push_back(guid);
+    return posted;
+}
+
+void ObjectAccessor::SaveAllPlayers()
+{
+    // SaveToDB reads the player and takes his map's and guild's locks: each one saves in his own thread
+    PostToAllPlayers([](Player* player) { player->SaveToDB(); });
 }
 
 Corpse* ObjectAccessor::GetCorpseForPlayerGUID(ObjectGuid guid)

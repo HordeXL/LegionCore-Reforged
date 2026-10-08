@@ -428,6 +428,12 @@ public:
         HashMapHolder<T>::Remove(object);
     }
 
+    // guids of the players online now: a snapshot, they may leave at any time
+    static std::vector<ObjectGuid> GetOnlinePlayerGuids();
+    // PostToPlayer for each of them, from any thread (see PostToPlayer for what an action may do);
+    // returns the players it was actually posted to
+    static std::vector<ObjectGuid> PostToAllPlayers(std::function<void(Player*)> const& action, uint64 delay = 0, PlayerScope scope = PlayerScope::InOrOutOfWorld);
+
     static void SaveAllPlayers();
     static void SetGuidSize(HighGuid type, uint64 size);
 
