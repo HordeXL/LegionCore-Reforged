@@ -416,50 +416,67 @@ void WorldSession::HandleChatMessage(ChatMsg type, uint32 lang, std::string msg,
                 break;
             }
 
-            Player* receiver = sObjectAccessor->FindPlayerByName(target);
-            bool senderIsPlayer = AccountMgr::IsPlayerAccount(GetSecurity());
-            bool receiverIsPlayer = AccountMgr::IsPlayerAccount(receiver ? receiver->GetSession()->GetSecurity() : SEC_PLAYER);
-            if (!receiver || (senderIsPlayer && !receiverIsPlayer && !receiver->isAcceptWhispers() && !receiver->IsInWhisperWhiteList(sender->GetGUID())))
+            ObjectGuid receiverGuid = ObjectAccessor::FindPlayerGuidByName(target);
+            if (receiverGuid.IsEmpty())
             {
                 SendPlayerNotFoundNotice(target);
                 return;
             }
 
-            if (senderIsPlayer && receiverIsPlayer)
+            // the receiver lives in his own thread: his data is read there, the checks run in ours once it comes back
+            sender->QueryWhisperTarget(receiverGuid, [target, msg, lang, isSpamm](Player* whisperer, Player::WhisperTarget const* receiver) -> void
             {
-                if (!sWorld->getBoolConfig(CONFIG_ALLOW_TWO_SIDE_INTERACTION_CHAT))
+                WorldSession* session = whisperer->GetSession();
+                if (!receiver)
                 {
-                    if (GetPlayer()->GetTeam() != receiver->GetTeam())
+                    session->SendPlayerNotFoundNotice(target);
+                    return;
+                }
+
+                bool senderIsPlayer = AccountMgr::IsPlayerAccount(session->GetSecurity());
+                bool receiverIsPlayer = receiver->IsPlayerAccount;
+                if (senderIsPlayer && !receiverIsPlayer && !receiver->AcceptsWhispers && !receiver->HasWhitelisted)
+                {
+                    session->SendPlayerNotFoundNotice(target);
+                    return;
+                }
+
+                if (senderIsPlayer && receiverIsPlayer)
+                {
+                    if (!sWorld->getBoolConfig(CONFIG_ALLOW_TWO_SIDE_INTERACTION_CHAT))
                     {
-                        SendPlayerNotFoundNotice(target);
+                        if (whisperer->GetTeam() != receiver->Team)
+                        {
+                            session->SendPlayerNotFoundNotice(target);
+                            return;
+                        }
+                    }
+
+                    if (receiver->Invisible)
+                    {
+                        session->SendPlayerNotFoundNotice(target);
+                        return;
+                    }
+
+                    if (whisperer->HasPlayerExtraFlag(PLAYER_EXTRA_INVISIBLE_STATUS))
+                    {
+                        whisperer->SendInvisibleStatusMsg(2);
                         return;
                     }
                 }
 
-                if (receiver->HasPlayerExtraFlag(PLAYER_EXTRA_INVISIBLE_STATUS))
+                if (whisperer->HasAura(1852) && !receiver->IsGameMaster)
                 {
-                    SendPlayerNotFoundNotice(target);
+                    session->SendNotification(session->GetTrinityString(LANG_GM_SILENCE), whisperer->GetName());
                     return;
                 }
 
-                if (sender->HasPlayerExtraFlag(PLAYER_EXTRA_INVISIBLE_STATUS))
-                {
-                    sender->SendInvisibleStatusMsg(2);
-                    return;
-                }
-            }
+                // If player is a Gamemaster and doesn't accept whisper, we auto-whitelist every player that the Gamemaster is talking to
+                if (!senderIsPlayer && !whisperer->isAcceptWhispers() && !whisperer->IsInWhisperWhiteList(receiver->Guid))
+                    whisperer->AddWhisperWhiteList(receiver->Guid);
 
-            if (GetPlayer()->HasAura(1852) && !receiver->isGameMaster())
-            {
-                SendNotification(GetTrinityString(LANG_GM_SILENCE), GetPlayer()->GetName());
-                return;
-            }
-
-            // If player is a Gamemaster and doesn't accept whisper, we auto-whitelist every player that the Gamemaster is talking to
-            if (!senderIsPlayer && !sender->isAcceptWhispers() && !sender->IsInWhisperWhiteList(receiver->GetGUID()))
-                sender->AddWhisperWhiteList(receiver->GetGUID());
-
-            GetPlayer()->Whisper(msg, lang, receiver->GetGUID(), isSpamm);
+                whisperer->Whisper(msg, lang, *receiver, isSpamm);
+            });
             break;
         }
         case CHAT_MSG_PARTY:
@@ -718,8 +735,8 @@ void WorldSession::HandleChatAddonMessage(ChatMsg type, std::string const& prefi
             if (!normalizePlayerName(extName.Name))
                 break;
 
-            Player* receiver = sObjectAccessor->FindPlayerByName(extName.Name);
-            if (!receiver)
+            ObjectGuid receiver = ObjectAccessor::FindPlayerGuidByName(extName.Name);
+            if (receiver.IsEmpty())
                 break;
 
             sender->WhisperAddon(message, prefix, receiver);
@@ -840,13 +857,9 @@ void WorldSession::HandleTextEmoteOpcode(WorldPackets::Chat::CTextEmote& packet)
 
 void WorldSession::HandleChatReportIgnored(WorldPackets::Chat::ChatReportIgnored& chatReportIgnored)
 {
-    Player* player = ObjectAccessor::FindPlayer(chatReportIgnored.IgnoredGUID);
-    if (!player || !player->GetSession())
-        return;
-
     WorldPackets::Chat::Chat packet;
     packet.Initialize(CHAT_MSG_IGNORED, LANG_UNIVERSAL, _player, _player, GetPlayer()->GetName());
-    player->SendDirectMessage(packet.Write());
+    ObjectAccessor::SendToPlayer(chatReportIgnored.IgnoredGUID, packet.Write());
 }
 
 void WorldSession::SendPlayerNotFoundNotice(std::string const& name)

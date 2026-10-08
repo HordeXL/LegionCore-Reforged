@@ -45,6 +45,7 @@
 #include "SpellMgr.h"
 #include "Unit.h"
 #include "Util.h"
+#include <functional>
 #include <queue>
 #include <safe_ptr.h>
 
@@ -1631,8 +1632,32 @@ class TC_GAME_API Player : public Unit, public GridObject<Player>
         void Say(std::string const& text, const uint32 language, bool isSpamm = false);
         void Yell(std::string const& text, const uint32 language, bool isSpamm = false);
         void TextEmote(std::string const& text, bool isSpamm = false);
+        // what a whisper needs to know about its receiver, read in the receiver's own thread
+        struct WhisperTarget
+        {
+            ObjectGuid Guid;
+            ObjectGuid AccountGuid;
+            ObjectGuid GuildGuid;
+            ObjectGuid PartyGuid;
+            std::string Name;
+            std::string DndMsg;
+            std::string AfkMsg;
+            uint32 Team = 0;
+            uint8 ChatTag = 0;
+            bool IsPlayerAccount = true;
+            bool IsGameMaster = false;
+            bool AcceptsWhispers = false;
+            bool HasWhitelisted = false;    // the player who asked is in the whitelist
+            bool Invisible = false;
+            bool Dnd = false;
+            bool Afk = false;
+        };
+        WhisperTarget GetWhisperTarget(ObjectGuid asker);
+        // done runs in this player's thread: at once if the receiver is on this map, else once his thread answered (target null if he is gone)
+        void QueryWhisperTarget(ObjectGuid receiver, std::function<void(Player*, WhisperTarget const*)>&& done);
         void Whisper(std::string const& text, const uint32 language, ObjectGuid receiver, bool isSpamm = false);
-        void WhisperAddon(std::string const& text, std::string const& prefix, Player* receiver);
+        void Whisper(std::string const& text, const uint32 language, WhisperTarget const& target, bool isSpamm = false);
+        void WhisperAddon(std::string const& text, std::string const& prefix, ObjectGuid receiver);
         void BossWhisper(std::string const& text, const uint32 language, ObjectGuid receiver);
 
         /*********************************************************/

@@ -27004,60 +27004,133 @@ void Player::BossWhisper(std::string const& text, const uint32 language, ObjectG
     rPlayer->SendDirectMessage(packet.Write());
 }
 
-void Player::WhisperAddon(std::string const& text, std::string const& prefix, Player* receiver)
+void Player::WhisperAddon(std::string const& text, std::string const& prefix, ObjectGuid receiver)
 {
-    std::string _text(text);
-    sScriptMgr->OnPlayerChat(this, CHAT_MSG_WHISPER, LANG_ADDON, _text, receiver);
-    
-    if (_text.empty())
-        return;
+    // the script hooks get the receiver only from this map: another map's player belongs to another thread
+    Player* local = ObjectAccessor::GetPlayer(*this, receiver);
 
-    if (!receiver->GetSession()->IsAddonRegistered(prefix))
+    std::string _text(text);
+    sScriptMgr->OnPlayerChat(this, CHAT_MSG_WHISPER, LANG_ADDON, _text, local);
+
+    if (_text.empty())
         return;
 
     WorldPackets::Chat::Chat packet;
     packet.Initialize(CHAT_MSG_WHISPER, LANG_ADDON, this, this, _text);
-    receiver->SendDirectMessage(packet.Write());
+
+    if (local)
+    {
+        if (local->GetSession()->IsAddonRegistered(prefix))
+            local->SendDirectMessage(packet.Write());
+        return;
+    }
+
+    // the registered prefixes belong to the receiver's thread
+    ObjectAccessor::PostToPlayer(receiver, [prefix, data = WorldPacket(*packet.Write())](Player* target) -> void
+    {
+        if (target->GetSession()->IsAddonRegistered(prefix))
+            target->SendDirectMessage(&data);
+    });
+}
+
+Player::WhisperTarget Player::GetWhisperTarget(ObjectGuid asker)
+{
+    WhisperTarget target;
+    target.Guid = GetGUID();
+    target.AccountGuid = GetSession()->GetAccountGUID();
+    target.GuildGuid = GetGuildId() ? ObjectGuid::Create<HighGuid::Guild>(GetGuildId()) : ObjectGuid::Empty;
+    if (Group const* group = GetGroup())
+        target.PartyGuid = group->GetGUID();
+    target.Name = GetName();
+    target.DndMsg = dndMsg;
+    target.AfkMsg = afkMsg;
+    target.Team = GetTeam();
+    target.ChatTag = GetChatTag();
+    target.IsPlayerAccount = AccountMgr::IsPlayerAccount(GetSession()->GetSecurity());
+    target.IsGameMaster = isGameMaster();
+    target.AcceptsWhispers = isAcceptWhispers();
+    target.HasWhitelisted = IsInWhisperWhiteList(asker);
+    target.Invisible = HasPlayerExtraFlag(PLAYER_EXTRA_INVISIBLE_STATUS);
+    target.Dnd = isDND();
+    target.Afk = isAFK();
+    return target;
+}
+
+void Player::QueryWhisperTarget(ObjectGuid receiver, std::function<void(Player*, WhisperTarget const*)>&& done)
+{
+    if (Player* local = ObjectAccessor::GetPlayer(*this, receiver))
+    {
+        WhisperTarget const target = local->GetWhisperTarget(GetGUID());
+        done(this, &target);
+        return;
+    }
+
+    ObjectGuid const asker = GetGUID();
+    auto callback = std::make_shared<std::function<void(Player*, WhisperTarget const*)>>(std::move(done));
+    bool const posted = ObjectAccessor::PostToPlayer(receiver, [asker, callback](Player* rPlayer) -> void
+    {
+        ObjectAccessor::PostToPlayer(asker, [callback, target = rPlayer->GetWhisperTarget(asker)](Player* sender) -> void { (*callback)(sender, &target); });
+    });
+
+    if (!posted)
+        (*callback)(this, nullptr);
 }
 
 void Player::Whisper(std::string const& text, uint32 language, ObjectGuid receiver, bool isSpamm)
 {
-    Player* rPlayer = ObjectAccessor::FindPlayer(receiver);
-    if(!rPlayer)
-        return;
+    QueryWhisperTarget(receiver, [text, language, isSpamm](Player* sender, WhisperTarget const* target) -> void
+    {
+        if (target)
+            sender->Whisper(text, language, *target, isSpamm);
+    });
+}
 
+void Player::Whisper(std::string const& text, uint32 language, WhisperTarget const& target, bool isSpamm)
+{
+    // the script hooks get the receiver only from this map: another map's player belongs to another thread
     std::string _text(text);
-    sScriptMgr->OnPlayerChat(this, CHAT_MSG_WHISPER, language, _text, rPlayer);
+    sScriptMgr->OnPlayerChat(this, CHAT_MSG_WHISPER, language, _text, ObjectAccessor::GetPlayer(*this, target.Guid));
     
     if (_text.empty())
         return;
 
     // when player you are whispering to is dnd, he cannot receive your message, unless you are in gm mode
-    if (!rPlayer->isDND() || isGameMaster())
+    if (!target.Dnd || isGameMaster())
     {
         WorldPackets::Chat::Chat packet;
-        packet.Initialize(CHAT_MSG_WHISPER, static_cast<Language>(language), this, rPlayer, _text);
-        if (!isSpamm)
-            rPlayer->SendDirectMessage(packet.Write());
+        packet.Initialize(CHAT_MSG_WHISPER, static_cast<Language>(language), this, nullptr, _text);
+        packet.TargetGUID = target.Guid;
+        if (!isSpamm && !ObjectAccessor::SendToPlayer(target.Guid, packet.Write()))
+        {
+            GetSession()->SendPlayerNotFoundNotice(target.Name);
+            return;
+        }
 
-        packet.Initialize(CHAT_MSG_WHISPER_INFORM, static_cast<Language>(language), rPlayer, rPlayer, _text);
+        // the receiver is the speaker of the echo: his tags come from the snapshot
+        packet.Initialize(CHAT_MSG_WHISPER_INFORM, static_cast<Language>(language), nullptr, nullptr, _text);
+        packet.SenderGUID = target.Guid;
+        packet.SenderAccountGUID = target.AccountGuid;
+        packet.SenderGuildGUID = target.GuildGuid;
+        packet.PartyGUID = target.PartyGuid;
+        packet._ChatFlags = target.ChatTag;
+        packet.TargetGUID = target.Guid;
         SendDirectMessage(packet.Write());
     }
     else // announce to player that player he is whispering to is dnd and cannot receive his message
-        ChatHandler(this).PSendSysMessage(LANG_PLAYER_DND, rPlayer->GetName(), rPlayer->dndMsg.c_str());
+        ChatHandler(this).PSendSysMessage(LANG_PLAYER_DND, target.Name.c_str(), target.DndMsg.c_str());
 
-    if (!isAcceptWhispers() && !isGameMaster() && !rPlayer->isGameMaster())
+    if (!isAcceptWhispers() && !isGameMaster() && !target.IsGameMaster)
     {
         SetAcceptWhispers(true);
         ChatHandler(this).SendSysMessage(LANG_COMMAND_WHISPERON);
     }
 
     // announce to player that player he is whispering to is afk
-    if (rPlayer->isAFK())
-        ChatHandler(this).PSendSysMessage(LANG_PLAYER_AFK, rPlayer->GetName(), rPlayer->afkMsg.c_str());
+    if (target.Afk)
+        ChatHandler(this).PSendSysMessage(LANG_PLAYER_AFK, target.Name.c_str(), target.AfkMsg.c_str());
 
     // if player whisper someone, auto turn of dnd to be able to receive an answer
-    if (isDND() && !rPlayer->isGameMaster())
+    if (isDND() && !target.IsGameMaster)
         ToggleDND();
 }
 
