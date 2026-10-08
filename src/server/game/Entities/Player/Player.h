@@ -3573,9 +3573,11 @@ class TC_GAME_API Player : public Unit, public GridObject<Player>
         void SendCustomMessage(std::string const& n, std::ostringstream const& data);
         void SendCustomMessage(std::string const& n, std::vector<std::string> const& data);
 
-        void SetWargameRequest(WargameRequest* p_Request) { _wargameRequest = p_Request; };
-        bool HasWargameRequest() const { return _wargameRequest != nullptr; }
-        WargameRequest* GetWargameRequest() const { return _wargameRequest; }
+        // kept by value and never freed before the player: other map threads copy it under the accessor lock
+        void SetWargameRequest(WargameRequest const& request) { _wargameRequest = request; _hasWargameRequest = true; }
+        void ClearWargameRequest() { _hasWargameRequest = false; }
+        bool HasWargameRequest() const { return _hasWargameRequest; }
+        WargameRequest const* GetWargameRequest() const { return _hasWargameRequest ? &_wargameRequest : nullptr; }
         void ApplyWargameItemModifications();
 
         uint32 GetBattlePetTrapLevel();
@@ -3800,7 +3802,8 @@ class TC_GAME_API Player : public Unit, public GridObject<Player>
         uint16 m_scenarioId = 0;
         uint16 m_adventure_questID = 0;
 
-        WargameRequest* _wargameRequest;
+        WargameRequest _wargameRequest;
+        std::atomic<bool> _hasWargameRequest{ false };
         std::unordered_map<uint32, std::vector<ItemDynamicFieldArtifactPowers>> GlobalArtifactData;
         std::unordered_map<uint8, uint8>  m_bgQueueRoles{};
         std::unordered_map<uint8, uint8>  m_bgQueueRolesTemp{};

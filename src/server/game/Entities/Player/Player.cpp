@@ -418,7 +418,6 @@ m_achievementMgr(sf::safe_ptr<AchievementMgr<Player>>(this))
     mSkillStatusVector->assign(sSkillLineStore.GetNumRows() + 1, NULL);
     mSkillSpellCount.assign(sSkillLineStore.GetNumRows() + 1, 0);
 
-    _wargameRequest = nullptr;
     m_change_map = false;
     m_removeFromMap = false;
     _lastSummonedBattlePet = 0;
@@ -486,8 +485,6 @@ Player::~Player()
     ClearResurrectRequestData();
 
     delete m_vis;
-
-    delete _wargameRequest;
 
     sWorld->DecreasePlayerCount();
 
@@ -1461,11 +1458,8 @@ void Player::Update(uint32 p_time)
 
     time_t now = GameTime::GetGameTime();
 
-    if (_wargameRequest != nullptr && (_wargameRequest->CreationDate + 60) < now)
-    {
-        delete _wargameRequest;
-        _wargameRequest = nullptr;
-    }
+    if (_hasWargameRequest && (_wargameRequest.CreationDate + 60) < now)
+        ClearWargameRequest();
 
     UpdatePvPFlag(now);
 
@@ -38534,8 +38528,6 @@ void Player::Clear()
     ClearResurrectRequestData();
 
     delete m_vis;
-
-    delete _wargameRequest;
 
     sWorld->DecreasePlayerCount();
 

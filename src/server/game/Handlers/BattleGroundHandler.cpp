@@ -1012,15 +1012,7 @@ void WorldSession::HandleUpdatePrestigeLevel(WorldPackets::Battleground::NullCms
 
 void WorldSession::HandleAcceptWargameInvite(WorldPackets::Battleground::AcceptWargameInvite& packet)
 {
-    ObjectGuid playerGUID = _player->GetGUID();
-    ObjectGuid opposingPartyMember = packet.OpposingPartyMember;
-    uint64 queueID = packet.QueueID;
-    bool accept = packet.Accept;
-    sBattlegroundMgr->AddDelayedEvent(100, [playerGUID, opposingPartyMember, queueID, accept]() -> void
-    {
-        if (auto player = sObjectAccessor->FindPlayer(playerGUID))
-            sBattlegroundMgr->InitWargame(player, opposingPartyMember, queueID, accept);
-    });
+    sBattlegroundMgr->InitWargame(_player, packet.OpposingPartyMember, packet.QueueID, packet.Accept);
 }
 
 void WorldSession::HandleStartWarGame(WorldPackets::Battleground::StartWargame& packet)
@@ -1031,27 +1023,23 @@ void WorldSession::HandleStartWarGame(WorldPackets::Battleground::StartWargame& 
     if (_player->GetGroup()->GetLeaderGUID() != _player->GetGUID())
         return;
 
-    Player* opposingPartyLeader = sObjectAccessor->FindPlayer(packet.OpposingPartyMember);
-    if (!opposingPartyLeader)
-        return;
-
-    if (!opposingPartyLeader->GetGroup())
-        return;
-
-    if (opposingPartyLeader->GetGroup()->GetLeaderGUID() != opposingPartyLeader->GetGUID())
-        return;
-
-    if (opposingPartyLeader->GetGroup() == _player->GetGroup())
+    // the opposing leader may stand on another map: only his group's identity is read, under the accessor lock
+    bool validOpponent = false;
+    if (!ObjectAccessor::WithPlayer(packet.OpposingPartyMember, [&](Player* opposingPartyLeader)
+    {
+        Group* opposingGroup = opposingPartyLeader->GetGroup();
+        validOpponent = opposingGroup && opposingGroup->GetLeaderGUID() == opposingPartyLeader->GetGUID() && opposingGroup != _player->GetGroup();
+    }) || !validOpponent)
         return;
 
     if (_player->HasWargameRequest())
         return;
 
-    auto request = new WargameRequest();
-    request->OpposingPartyMemberGUID = packet.OpposingPartyMember;
-    request->TournamentRules = packet.TournamentRules;
-    request->CreationDate = GameTime::GetGameTime();
-    request->QueueID = packet.QueueID;
+    WargameRequest request;
+    request.OpposingPartyMemberGUID = packet.OpposingPartyMember;
+    request.TournamentRules = packet.TournamentRules;
+    request.CreationDate = GameTime::GetGameTime();
+    request.QueueID = packet.QueueID;
 
     _player->SetWargameRequest(request);
 
@@ -1061,7 +1049,7 @@ void WorldSession::HandleStartWarGame(WorldPackets::Battleground::StartWargame& 
     response.QueueID = packet.QueueID;
     response.TimeoutSeconds = 60;
     response.TournamentRules = packet.TournamentRules;
-    opposingPartyLeader->SendDirectMessage(response.Write());
+    ObjectAccessor::SendToPlayer(packet.OpposingPartyMember, response.Write());
 }
 
 void WorldSession::HandleRequestPvpBrawlInfo(WorldPackets::Battleground::RequestPvpBrawlInfo& /*packet*/)
