@@ -5648,18 +5648,6 @@ void Player::RemoveCategoryCooldown(uint32 category)
             RemoveSpellCooldown(*spellID, true);
 }
 
-void Player::RemoveSpellCategoryCooldown(uint32 cat, bool update /* = false */)
-{
-    auto const& ctSet = sDB2Manager.GetSpellCategory(cat);
-    for (SpellCooldowns::iterator i = m_spellCooldowns.begin(); i != m_spellCooldowns.end();)
-    {
-       if (ctSet->find(i->first) != ctSet->end())
-            RemoveSpellCooldown((i++)->first, update);
-        else
-            ++i;
-    }
-}
-
 // I am not sure which one is more efficient
 void Player::RemoveCategoryCooldownBySpell(uint32 spell_id, bool update /* = false */)
 {
@@ -20677,10 +20665,16 @@ void Player::ItemAddedQuestCheck(uint32 entry, uint32 count)
         }
     }
     
-    AddDelayedEvent(100, [=, this]() -> void
+    // one refresh per burst of items: it rebuilds the update block of every object the client knows
+    if (!m_questWorldObjectsUpdatePending)
     {
-        UpdateForQuestWorldObjects();
-    });
+        m_questWorldObjectsUpdatePending = true;
+        AddDelayedEvent(100, [this]() -> void
+        {
+            m_questWorldObjectsUpdatePending = false;
+            UpdateForQuestWorldObjects();
+        });
+    }
 }
 
 void Player::ItemRemovedQuestCheck(uint32 entry, uint32 count)
@@ -26346,18 +26340,6 @@ void Player::_SaveCUFProfiles(CharacterDatabaseTransaction& trans)
             trans->Append(stmt);
         }
     }
-}
-
-void Player::_SaveBrackets(CharacterDatabaseTransaction& trans)
-{
-    for (uint8 i = 0; i < MAX_BRACKET_SLOT; ++i)
-        if (Bracket* br = getBracket(i))
-            br->SaveStats(&trans); 
-        if (Bracket* br = getBracket(MS::Battlegrounds::BracketType::Arena1v1))
-            br->SaveStats(&trans);
-        if (Bracket* br = getBracket(MS::Battlegrounds::BracketType::ArenaSoloQ3v3))
-            br->SaveStats(&trans);
-        
 }
 
 void Player::outDebugValues() const
@@ -39239,9 +39221,6 @@ void Player::_LoadKillCreature(PreparedQueryResult result)
         kills.Points = fields[2].GetFloat();
         kills.NeedUpdate = false;
         kills.NeedSave = false;
-        if (m_killList.size() <= entry)
-            m_killList.resize(entry + 1, nullptr);
-        m_killList[entry] = &kills;
     }
     while (result->NextRow());
 }
@@ -39285,46 +39264,34 @@ void Player::AddKillCreature(uint32 entry, uint32 count, bool encounter)
     if (!GetMap() || !ci || (!encounter && sObjectMgr->GetDungeonEncounterByCreature(entry)))
         return;
 
-    if (m_killList.size() <= entry)
-        m_killList.resize(entry + 1, nullptr);
-
-    if (!m_killList[entry])
+    std::lock_guard<std::recursive_mutex> guard(i_killMapLock);
+    auto itr = m_killMap.find(entry);
+    if (itr == m_killMap.end())
     {
-        std::lock_guard<std::recursive_mutex> guard(i_killMapLock);
         LogsSystem::KillCreatureData& kills = m_killMap[entry];
         kills.Entry = entry;
         kills.Counter += count;
         kills.Points += count * GetRateLegendaryDrop(ci->isWorldBoss(), true, false, false, GetMap()->GetEntry()->ExpansionID, GetMap()->GetLootDifficulty());
         kills.NeedUpdate = false;
         kills.NeedSave = true;
-        m_killList[entry] = &kills;
         return;
     }
-    m_killList[entry]->Counter += count;
-    m_killList[entry]->Points += count * GetRateLegendaryDrop(ci->isWorldBoss(), true, false, false, GetMap()->GetEntry()->ExpansionID, GetMap()->GetLootDifficulty());
-    m_killList[entry]->NeedUpdate = true;
+
+    itr->second.Counter += count;
+    itr->second.Points += count * GetRateLegendaryDrop(ci->isWorldBoss(), true, false, false, GetMap()->GetEntry()->ExpansionID, GetMap()->GetLootDifficulty());
+    itr->second.NeedUpdate = true;
 }
 
 uint32 Player::GetKillCreature(uint32 entry) const
 {
-    if (m_killList.size() <= entry)
-        return 0;
-
-    if (!m_killList[entry])
-        return 0;
-
-    return m_killList[entry]->Counter;
+    auto itr = m_killMap.find(entry);
+    return itr != m_killMap.end() ? itr->second.Counter : 0;
 }
 
 float Player::GetKillCreaturePoints(uint32 entry) const
 {
-    if (m_killList.size() <= entry)
-        return 0;
-
-    if (!m_killList[entry])
-        return 0;
-
-    return m_killList[entry]->Points;
+    auto itr = m_killMap.find(entry);
+    return itr != m_killMap.end() ? itr->second.Points : 0.f;
 }
 
 void Player::SpecialDamageLogs(Unit* victim, uint32 damage, DamageEffectType damagetype, SpellInfo const* spellProto)

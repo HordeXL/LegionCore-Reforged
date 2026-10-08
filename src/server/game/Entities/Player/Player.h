@@ -91,7 +91,6 @@ namespace WorldPackets
 }
 
 typedef std::unordered_map<uint32, LogsSystem::KillCreatureData> KillCreatureMap;
-typedef std::vector<LogsSystem::KillCreatureData*> KillCreatureList;
 
 struct GroupUpdateCounter
 {
@@ -2372,7 +2371,6 @@ class TC_GAME_API Player : public Unit, public GridObject<Player>
         void SendCooldownEvent(SpellInfo const* spellInfo, uint32 itemId = 0, Spell* spell = nullptr, bool setCooldown = true);
         void ProhibitSpellSchool(SpellSchoolMask idSchoolMask, uint32 unTimeMs) override;
         void RemoveSpellCooldown(uint32 spell_id, bool update = false);
-        void RemoveSpellCategoryCooldown(uint32 cat, bool update = false);
         void SendClearCooldown(uint32 spell_id, Unit* target);
         void ModifySpellCooldown(uint32 spell_id, int32 delta);
         void RemoveCategoryCooldownBySpell(uint32 spell_id, bool update /* = false */);
@@ -3442,7 +3440,6 @@ class TC_GAME_API Player : public Unit, public GridObject<Player>
         void _SaveGlyphs(CharacterDatabaseTransaction& trans);
         void _SaveTalents(CharacterDatabaseTransaction& trans);
         void _SaveCurrency(CharacterDatabaseTransaction& trans);
-        void _SaveBrackets(CharacterDatabaseTransaction& trans);
         void _SaveCUFProfiles(CharacterDatabaseTransaction& trans);
         void _SaveHonor();
         void _SaveLootCooldown(CharacterDatabaseTransaction& trans);
@@ -3628,7 +3625,7 @@ class TC_GAME_API Player : public Unit, public GridObject<Player>
 
         ////////////////////Stat System/////////////////////
         KillCreatureMap m_killMap;
-        KillCreatureList m_killList;
+        bool m_questWorldObjectsUpdatePending = false;
         void _LoadKillCreature(PreparedQueryResult result);
         void _SaveKillCreature(CharacterDatabaseTransaction& trans);
         void AddKillCreature(uint32 entry, uint32 count, bool encounter);
