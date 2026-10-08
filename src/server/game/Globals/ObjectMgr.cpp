@@ -2747,17 +2747,27 @@ void ObjectMgr::LoadGameobjects()
                 float dz1 = lastGo->second->posZ - data.posZ;
 
                 float distsq1 = dx1*dx1 + dy1*dy1 + dz1*dz1;
-                if (distsq1 < 0.5f)
-                {
-                    // split phaseID
-                    for (auto phaseID : data.PhaseID)
-                        lastGo->second->PhaseID.insert(phaseID);
 
-                    lastGo->second->phaseMask |= data.phaseMask;
-                    lastGo->second->spawnMask |= data.spawnMask;
-                    WorldDatabase.PExecute("UPDATE gameobject SET phaseMask = %u, spawnMask = " UI64FMTD " WHERE guid = %u", lastGo->second->phaseMask, lastGo->second->spawnMask, lastGo->second->guid);
-                    WorldDatabase.PExecute("DELETE FROM gameobject WHERE guid = %u", guid);
-                    TC_LOG_ERROR("sql.sql", "Table `gameobject` have clone go %u witch stay too close (dist: %f). original go guid %lu. go with guid %lu will be deleted.", entry, distsq1, lastGo->second->guid, guid);
+                // Two spawns of one entry on the same point are a deliberate pair as soon as their
+                // rotations or phases differ - stacked scenery and per-phase copies are built that way.
+                // Only a true duplicate is ignored, and the database is left untouched.
+                G3D::Quat const& r1 = lastGo->second->rotation;
+                G3D::Quat const& r2 = data.rotation;
+                bool const sameRotation = std::fabs(r1.x - r2.x) < 0.0001f
+                    && std::fabs(r1.y - r2.y) < 0.0001f
+                    && std::fabs(r1.z - r2.z) < 0.0001f
+                    && std::fabs(r1.w - r2.w) < 0.0001f;
+
+                bool const sameSpawn = lastGo->second->PhaseID == data.PhaseID
+                    && lastGo->second->phaseMask == data.phaseMask
+                    && lastGo->second->spawnMask == data.spawnMask
+                    && lastGo->second->gameEvent == data.gameEvent
+                    && lastGo->second->pool == data.pool;
+
+                if (distsq1 < 0.5f && sameRotation && sameSpawn)
+                {
+                    TC_LOG_ERROR("sql.sql", "Table `gameobject` has gameobject %u (GUID: %lu) identical to GUID %lu (dist: %f), spawn ignored.", entry, guid, lastGo->second->guid, distsq1);
+                    _gameObjectDataStore.erase(guid);
                     continue;
                 }
             }
