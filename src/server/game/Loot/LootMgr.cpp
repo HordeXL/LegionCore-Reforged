@@ -1065,8 +1065,9 @@ bool Loot::FillLoot(uint32 lootId, LootStore const& store, Player* lootOwner, bo
 
         roundRobinPlayer = lootOwner->GetGUID();
 
-        for (GroupReference* itr = group->GetFirstMember(); itr != nullptr; itr = itr->next())
-            if (Player* player = itr->getSource())   // should actually be looted object instead of lootOwner but looter has to be really close so doesnt really matter
+        // only members on the owner's map: a player of another map belongs to another thread
+        for (Group::MemberSlot const& slot : group->GetMemberSlots())
+            if (Player* player = ObjectAccessor::GetPlayer(*lootOwner, slot.Guid))   // should actually be looted object instead of lootOwner but looter has to be really close so doesnt really matter
                 FillNotNormalLootFor(player, player->IsAtGroupRewardDistance(lootOwner));
 
         for (size_t i = 0; i < items.size(); ++i)
@@ -1395,9 +1396,9 @@ void Loot::FillPersonalLootFor(Player* lootOwner)
         // if (group->GetLootMethod() != PERSONAL_LOOT)
             // return;
 
-        for (GroupReference* itr = group->GetFirstMember(); itr != nullptr; itr = itr->next())
+        for (Group::MemberSlot const& slot : group->GetMemberSlots())
         {
-            if (Player* player = itr->getSource())
+            if (Player* player = ObjectAccessor::GetPlayer(*lootOwner, slot.Guid))
             {
                 if (!player->IsAtGroupRewardDistance(lootOwner))
                     continue;

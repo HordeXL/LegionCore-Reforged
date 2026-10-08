@@ -25,7 +25,12 @@ void WorldSession::SendNameQueryOpcode(ObjectGuid guid)
     WorldPackets::Query::QueryPlayerNameResponse response;
     response.Player = guid;
 
-    if (response.Data.Initialize(guid, ObjectAccessor::FindPlayer(guid)))
+    // the player may stand on another map: fill the data under the accessor lock, else use the character cache
+    bool known = false;
+    if (!ObjectAccessor::WithPlayer(guid, [&](Player* player) { known = response.Data.Initialize(guid, player); }))
+        known = response.Data.Initialize(guid);
+
+    if (known)
         response.Result = RESPONSE_SUCCESS; // name known
     else
         response.Result = RESPONSE_FAILURE; // name unknown
@@ -146,12 +151,14 @@ void WorldSession::HandleQueryGameObject(WorldPackets::Query::QueryGameObject& p
 
 void WorldSession::HandleQueryCorpseLocation(WorldPackets::Query::QueryCorpseLocationFromClient& queryCorpseLocation)
 {
-    Player* player = ObjectAccessor::FindPlayer(queryCorpseLocation.Player);
-    if (!player)
+    // the player may stand on another map: copy what is needed under the accessor lock (his phases are not stable
+    // from here, the asker's are used for the entrance height)
+    uint32 playerMapId = 0;
+    if (!ObjectAccessor::WithPlayer(queryCorpseLocation.Player, [&](Player* player) { playerMapId = player->GetMapId(); }))
         return;
 
     WorldPackets::Query::CorpseLocation packet;
-    Corpse* corpse = player->GetCorpse();
+    Corpse* corpse = sObjectAccessor->GetCorpseForPlayerGUID(queryCorpseLocation.Player);
     if (!corpse)
     {
         packet.CorpseOwnerGUID = queryCorpseLocation.Player;
@@ -165,7 +172,7 @@ void WorldSession::HandleQueryCorpseLocation(WorldPackets::Query::QueryCorpseLoc
     float z = corpse->GetPositionZ();
     uint32 corpsemapid = mapID;
 
-    if (mapID != player->GetMapId())
+    if (mapID != playerMapId)
     {
         if (MapEntry const* corpseMapEntry = sMapStore.LookupEntry(mapID))
         {
@@ -176,14 +183,14 @@ void WorldSession::HandleQueryCorpseLocation(WorldPackets::Query::QueryCorpseLoc
                     mapID = corpseMapEntry->CorpseMapID;
                     x = corpseMapEntry->CorpsePos.X;
                     y = corpseMapEntry->CorpsePos.Y;
-                    z = entranceMap->GetHeight(player->GetPhases(), x, y, MAX_HEIGHT);
+                    z = entranceMap->GetHeight(_player->GetPhases(), x, y, MAX_HEIGHT);
                 }
             }
         }
     }
 
     packet.Valid = true;
-    packet.CorpseOwnerGUID = player->GetGUID();
+    packet.CorpseOwnerGUID = queryCorpseLocation.Player;
     packet.MapID = corpsemapid;
     packet.ActualMapID = mapID;
     packet.position = Position(x, y, z);
@@ -243,10 +250,11 @@ void WorldSession::HandleQueryCorpseTransport(WorldPackets::Query::QueryCorpseTr
 {
     WorldPackets::Query::CorpseTransportQuery response;
     response.Player = packet.Player;
-    if (Player* player = ObjectAccessor::FindPlayer(packet.Player))
+    bool sameRaid = false;
+    if (ObjectAccessor::WithPlayer(packet.Player, [&](Player* player) { sameRaid = _player->IsInSameRaidWith(player); }) && sameRaid)
     {
-        Corpse* corpse = player->GetCorpse();
-        if (_player->IsInSameRaidWith(player) && corpse && !corpse->GetTransGUID().IsEmpty() && corpse->GetTransGUID() == packet.Transport)
+        Corpse* corpse = sObjectAccessor->GetCorpseForPlayerGUID(packet.Player);
+        if (corpse && !corpse->GetTransGUID().IsEmpty() && corpse->GetTransGUID() == packet.Transport)
         {
             response.Pos = corpse->GetTransOffset();
             response.Facing = corpse->GetTransOffsetO();

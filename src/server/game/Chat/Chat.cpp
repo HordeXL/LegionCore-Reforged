@@ -844,7 +844,8 @@ Player* ChatHandler::getSelectedPlayer()
     if (guid.IsEmpty())
         return m_session->GetPlayer();
 
-    return ObjectAccessor::FindPlayer(guid);
+    // a selection is a visible unit, so a player of the GM's own map: another map belongs to another thread
+    return ObjectAccessor::GetPlayer(*m_session->GetPlayer(), guid);
 }
 
 Unit* ChatHandler::getSelectedUnit()

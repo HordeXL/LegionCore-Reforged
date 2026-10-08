@@ -2838,12 +2838,9 @@ ObjectGuid ObjectMgr::GetPlayerGUIDByName(std::string name)
 
 bool ObjectMgr::GetPlayerNameByGUID(ObjectGuid const& guid, std::string& name)
 {
-    // prevent DB access for online player
-    if (Player* player = ObjectAccessor::FindPlayer(guid))
-    {
-        name = player->GetName();
+    // the player may live in another map thread: copy the value under the accessor lock
+    if (ObjectAccessor::WithPlayer(guid, [&name](Player* player) { name = player->GetName(); }))
         return true;
-    }
 
     if (const CharacterInfo* nameData = sWorld->GetCharacterInfo(guid))
     {
@@ -2856,9 +2853,9 @@ bool ObjectMgr::GetPlayerNameByGUID(ObjectGuid const& guid, std::string& name)
 
 uint32 ObjectMgr::GetPlayerTeamByGUID(ObjectGuid const& guid) const
 {
-    // prevent DB access for online player
-    if (Player* player = ObjectAccessor::FindPlayer(guid))
-        return Player::TeamForRace(player->getRace());
+    uint32 team = 0;
+    if (ObjectAccessor::WithPlayer(guid, [&team](Player* player) { team = Player::TeamForRace(player->getRace()); }))
+        return team;
 
     if (const CharacterInfo* nameData = sWorld->GetCharacterInfo(guid))
         return Player::TeamForRace(nameData->Race);
@@ -2868,9 +2865,9 @@ uint32 ObjectMgr::GetPlayerTeamByGUID(ObjectGuid const& guid) const
 
 uint32 ObjectMgr::GetPlayerAccountIdByGUID(ObjectGuid const& guid)
 {
-    // prevent DB access for online player
-    if (Player* player = ObjectAccessor::FindPlayer(guid))
-        return player->GetSession()->GetAccountId();
+    uint32 accountId = 0;
+    if (ObjectAccessor::WithPlayer(guid, [&accountId](Player* player) { accountId = player->GetSession()->GetAccountId(); }))
+        return accountId;
 
     if (const CharacterInfo* nameData = sWorld->GetCharacterInfo(guid))
         return nameData->AccountId;

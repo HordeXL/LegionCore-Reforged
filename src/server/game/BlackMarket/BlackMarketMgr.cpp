@@ -254,7 +254,6 @@ void BlackMarketMgr::SendAuctionWonMail(BlackMarketEntry* entry, CharacterDataba
         return;
 
     ObjectGuid bidderGuid = ObjectGuid::Create<HighGuid::Player>(entry->GetBidder());
-    Player* bidder = ObjectAccessor::FindPlayer(bidderGuid);
 
     BlackMarketTemplate const* templ = entry->GetTemplate();
     Item* item = Item::CreateItem(templ->Item.ItemID, templ->Quantity);
@@ -268,36 +267,33 @@ void BlackMarketMgr::SendAuctionWonMail(BlackMarketEntry* entry, CharacterDataba
     item->SetOwnerGUID(bidderGuid);
     item->SaveToDB(trans);
 
-    if (bidder)
-        bidder->GetSession()->SendBlackMarketWonNotification(entry, item);
+    // the bidder may stand on another map: notified under the accessor lock, mailed by guid
+    ObjectAccessor::WithPlayer(bidderGuid, [entry, item](Player* bidder) { bidder->GetSession()->SendBlackMarketWonNotification(entry, item); });
 
     MailDraft(entry->BuildAuctionMailSubject(BMAH_AUCTION_WON), entry->BuildAuctionMailBody())
         .AddItem(item)
-        .SendMailTo(trans, MailReceiver(bidder, entry->GetBidder()), entry, MAIL_CHECK_MASK_COPIED);
+        .SendMailTo(trans, MailReceiver(nullptr, entry->GetBidder()), entry, MAIL_CHECK_MASK_COPIED);
 
     entry->MailSent();
 
-    TC_LOG_DEBUG("auctionHouse", "Player %s (GUID: %u) Won Item: %u in Black Market on cost " UI64FMTD "", bidder->GetName(), bidder->GetGUIDLow(), item->GetEntry(), entry->GetCurrentBid());
+    // the item now belongs to the mail: log from the template
+    TC_LOG_DEBUG("auctionHouse", "Player (GUID: " UI64FMTD ") Won Item: %u in Black Market on cost " UI64FMTD "", entry->GetBidder(), templ->Item.ItemID, entry->GetCurrentBid());
 }
 
 void BlackMarketMgr::SendAuctionOutbidMail(BlackMarketEntry* entry, CharacterDatabaseTransaction& trans)
 {
     ObjectGuid oldBidderGuid = ObjectGuid::Create<HighGuid::Player>(entry->GetBidder());
-    Player* oldBidder = ObjectAccessor::FindPlayer(oldBidderGuid);
 
-    uint32 oldBidderAccID = 0;
-    if (!oldBidder)
-        oldBidderAccID = ObjectMgr::GetPlayerAccountIdByGUID(oldBidderGuid);
+    // the old bidder may stand on another map: notified under the accessor lock, mailed by guid
+    BlackMarketTemplate const* templ = entry->GetTemplate();
+    bool const oldBidderOnline = ObjectAccessor::WithPlayer(oldBidderGuid, [templ](Player* oldBidder) { oldBidder->GetSession()->SendBlackMarketOutbidNotification(templ); });
 
-    if (!oldBidder && !oldBidderAccID)
+    if (!oldBidderOnline && !ObjectMgr::GetPlayerAccountIdByGUID(oldBidderGuid))
         return;
-
-    if (oldBidder)
-        oldBidder->GetSession()->SendBlackMarketOutbidNotification(entry->GetTemplate());
 
     MailDraft(entry->BuildAuctionMailSubject(BMAH_AUCTION_OUTBID), entry->BuildAuctionMailBody())
         .AddMoney(entry->GetCurrentBid())
-        .SendMailTo(trans, MailReceiver(oldBidder, entry->GetBidder()), entry, MAIL_CHECK_MASK_COPIED);
+        .SendMailTo(trans, MailReceiver(nullptr, entry->GetBidder()), entry, MAIL_CHECK_MASK_COPIED);
 }
 
 BlackMarketEntry* BlackMarketMgr::GetAuctionByID(int32 marketId) const
