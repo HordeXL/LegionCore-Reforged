@@ -1904,15 +1904,18 @@ void Pet::CastPetAuras(bool apply, uint32 spellId)
                         }
                         case 6: // Delay cast
                         {
+                            ObjectGuid casterGUID = _caster->GetGUID();
                             ObjectGuid targetGUID = _target->GetGUID();
+                            Map* map = _caster->GetMap();
                             uint32 _spellId = abs(itr.spellId);
-                            _caster->AddDelayedEvent(bp0, [_caster, _spellId, targetGUID]() -> void
+                            _caster->AddDelayedEvent(bp0, [map, casterGUID, _spellId, targetGUID]() -> void
                             {
-                                if (_caster)
+                                Unit* caster = ObjectAccessor::GetObjectInMap(casterGUID, map, static_cast<Unit*>(nullptr));
+                                if (!caster)
                                     return;
 
-                                if (Unit* target = ObjectAccessor::GetUnit(*_caster, targetGUID))
-                                    _caster->CastSpell(target, _spellId, true);
+                                if (Unit* target = ObjectAccessor::GetObjectInMap(targetGUID, map, static_cast<Unit*>(nullptr)))
+                                    caster->CastSpell(target, _spellId, true);
                             });
                             break;
                         }
@@ -1987,15 +1990,18 @@ void Pet::CastPetAuras(bool apply, uint32 spellId)
                         }
                         case 6: // Delay cast
                         {
+                            ObjectGuid casterGUID = _caster->GetGUID();
                             ObjectGuid targetGUID = _target->GetGUID();
+                            Map* map = _caster->GetMap();
                             uint32 _spellId = abs(itr.spellId);
-                            _caster->AddDelayedEvent(bp0, [_caster, _spellId, targetGUID]() -> void
+                            _caster->AddDelayedEvent(bp0, [map, casterGUID, _spellId, targetGUID]() -> void
                             {
-                                if (_caster)
+                                Unit* caster = ObjectAccessor::GetObjectInMap(casterGUID, map, static_cast<Unit*>(nullptr));
+                                if (!caster)
                                     return;
 
-                                if (Unit* target = ObjectAccessor::GetUnit(*_caster, targetGUID))
-                                    _caster->CastSpell(target, _spellId, true);
+                                if (Unit* target = ObjectAccessor::GetObjectInMap(targetGUID, map, static_cast<Unit*>(nullptr)))
+                                    caster->CastSpell(target, _spellId, true);
                             });
                             break;
                         }
@@ -2115,15 +2121,18 @@ void Pet::CastPetAuras(bool apply, uint32 spellId)
                     }
                     case 6: // Delay cast
                     {
+                        ObjectGuid casterGUID = _caster->GetGUID();
                         ObjectGuid targetGUID = _target->GetGUID();
+                        Map* map = _caster->GetMap();
                         uint32 _spellId = abs(itr.spellId);
-                        _caster->AddDelayedEvent(bp0, [_caster, _spellId, targetGUID]() -> void
+                        _caster->AddDelayedEvent(bp0, [map, casterGUID, _spellId, targetGUID]() -> void
                         {
-                            if (_caster)
+                            Unit* caster = ObjectAccessor::GetObjectInMap(casterGUID, map, static_cast<Unit*>(nullptr));
+                            if (!caster)
                                 return;
 
-                            if (Unit* target = ObjectAccessor::GetUnit(*_caster, targetGUID))
-                                _caster->CastSpell(target, _spellId, true);
+                            if (Unit* target = ObjectAccessor::GetObjectInMap(targetGUID, map, static_cast<Unit*>(nullptr)))
+                                caster->CastSpell(target, _spellId, true);
                         });
                         break;
                     }
@@ -2182,15 +2191,18 @@ void Pet::CastPetAuras(bool apply, uint32 spellId)
                     }
                     case 6: // Delay cast
                     {
+                        ObjectGuid casterGUID = _caster->GetGUID();
                         ObjectGuid targetGUID = _target->GetGUID();
+                        Map* map = _caster->GetMap();
                         uint32 _spellId = abs(itr.spellId);
-                        _caster->AddDelayedEvent(bp0, [_caster, _spellId, targetGUID]() -> void
+                        _caster->AddDelayedEvent(bp0, [map, casterGUID, _spellId, targetGUID]() -> void
                         {
-                            if (_caster)
+                            Unit* caster = ObjectAccessor::GetObjectInMap(casterGUID, map, static_cast<Unit*>(nullptr));
+                            if (!caster)
                                 return;
 
-                            if (Unit* target = ObjectAccessor::GetUnit(*_caster, targetGUID))
-                                _caster->CastSpell(target, _spellId, true);
+                            if (Unit* target = ObjectAccessor::GetObjectInMap(targetGUID, map, static_cast<Unit*>(nullptr)))
+                                caster->CastSpell(target, _spellId, true);
                         });
                         break;
                     }
