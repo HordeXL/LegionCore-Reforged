@@ -1076,8 +1076,37 @@ void BrawlersBossAI::_Reset()
     me->RemoveAllAreaObjects();
 }
 
-void BrawlersBossAI::_WinRound()
+// The round is won by the fighting player, or by what belongs to him (pet, totem, vehicle); the encounter itself
+// counts too: a dying add or twin kills the boss by script.
+bool BrawlersBossAI::_IsRoundKiller(Unit* killer) const
 {
+    if (!killer)
+        return false;
+
+    if (killer == me)
+        return true;
+
+    Unit* owner = me->GetAnyOwner();
+    if (!owner || !owner->IsPlayer())
+        return false;
+
+    Player* killerPlayer = killer->GetCharmerOrOwnerPlayerOrPlayerItself();
+    if (!killerPlayer)
+        if (Unit* killerOwner = killer->GetAnyOwner())
+            killerPlayer = killerOwner->GetCharmerOrOwnerPlayerOrPlayerItself();
+
+    return killerPlayer == owner->ToPlayer();
+}
+
+void BrawlersBossAI::_WinRound(Unit* killer)
+{
+    // killed by something else than the player: the round is lost, as when the boss evades
+    if (!_IsRoundKiller(killer))
+    {
+        _LoseRound();
+        return;
+    }
+
     if (me->GetAnyOwner() && me->GetAnyOwner()->IsPlayer())
     {
         Player* player = me->GetAnyOwner()->ToPlayer();

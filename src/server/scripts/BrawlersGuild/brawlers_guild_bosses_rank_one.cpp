@@ -181,7 +181,7 @@ public:
             _Reset(); 
             
             if (who) 
-                _WinRound(); 
+                _WinRound(who); 
             
             Talk(3);
         }
@@ -411,7 +411,7 @@ public:
                     if (owner->IsAlive())
                         owner->Kill(owner);
             
-            _WinRound();
+            _WinRound(who);
         }
         
         void EnterEvadeMode() override

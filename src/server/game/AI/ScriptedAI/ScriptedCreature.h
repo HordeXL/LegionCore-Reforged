@@ -444,13 +444,14 @@ class TC_GAME_API BrawlersBossAI : public ScriptedAI
 
         void JustSummoned(Creature* summon) override;
 
-        void JustDied(Unit* who) override { _Reset(); if (who) _WinRound(); }
+        void JustDied(Unit* who) override { _Reset(); if (who) _WinRound(who); }
         void EnterEvadeMode() override { _Reset(); _LoseRound();}
         void KilledUnit(Unit*  who) override;
 
     protected:
         void _Reset();
-        void _WinRound();
+        bool _IsRoundKiller(Unit* killer) const;
+        void _WinRound(Unit* killer);
         void _LoseRound();
 
         EventMap events;

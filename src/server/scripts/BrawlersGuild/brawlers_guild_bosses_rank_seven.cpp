@@ -269,7 +269,7 @@ public:
             if (who && me->GetEntry() == 67490) 
             {
                 DoCast(SPELL_OUTRO_DIED);
-                _WinRound();
+                _WinRound(who);
             }
         }
 

@@ -89,7 +89,7 @@ public:
             if (!who)
                 return;
             
-            _WinRound();
+            _WinRound(who);
         }
         
         void EnterEvadeMode() override
@@ -176,7 +176,7 @@ public:
             if (!who)
                 return;
             
-            _WinRound();
+            _WinRound(who);
         }
         
         void EnterEvadeMode() override
@@ -342,7 +342,7 @@ public:
                 return;
             Talk(0);
             
-            _WinRound();
+            _WinRound(who);
         }
 
         void SpellHitTarget(Unit* target, SpellInfo const* spell) override

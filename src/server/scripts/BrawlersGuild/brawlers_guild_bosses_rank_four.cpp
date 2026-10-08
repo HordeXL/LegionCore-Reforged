@@ -131,7 +131,7 @@ public:
             if (!who)
                 return;
             
-            _WinRound();
+            _WinRound(who);
         }    
         
         void JustSummoned(Creature* summon) override
@@ -319,6 +319,12 @@ public:
             if (!who)
                 return;
             
+            if (!_IsRoundKiller(who))
+            {
+                _LoseRound();
+                return;
+            }
+            
             Talk(5);
 
             DoCast(SPELL_OUTRO_1);
@@ -349,7 +355,7 @@ public:
 
             me->AddDelayedEvent(10000, [this] () -> void
             {
-                _WinRound();
+                _WinRound(me); // the killer was checked above
             });
         }
 
@@ -520,7 +526,7 @@ public:
             if (Creature* talker = me->FindNearestCreature(67487, 200.0f))
                 talker->AI()->Talk(2);
             
-            _WinRound();
+            _WinRound(who);
         }
         
         void EnterEvadeMode() override
@@ -660,7 +666,7 @@ public:
                 player->RemoveAurasDueToSpell(SPELL_AURA_OF_ROT_TICK);
                 player->RemoveAurasDueToSpell(SPELL_AURA_OF_ROT_DMG);
             }
-            _WinRound();
+            _WinRound(who);
         }               
         
         void EnterEvadeMode() override

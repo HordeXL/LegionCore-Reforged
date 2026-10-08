@@ -155,7 +155,7 @@ public:
             
             if (who) 
             {
-                _WinRound();
+                _WinRound(who);
                 Talk(1);
             }
         }
@@ -578,7 +578,7 @@ public:
             if (!who)
                 return;
             
-           _WinRound();
+           _WinRound(who);
         }
                 
         void KilledUnit(Unit* who) override
