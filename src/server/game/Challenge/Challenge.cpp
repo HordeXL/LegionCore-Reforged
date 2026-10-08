@@ -115,6 +115,45 @@ Challenge::Challenge(InstanceMap* map, Player* player, uint32 instanceID, Scenar
 
 Challenge::~Challenge()
 {
+    // a key that was started and never completed nor depleted by the timer: the instance is gone, the key is spent
+    if (_canRun && !_checkStart && !_complete && !_isKeyDepleted && !m_ownerGuid.IsEmpty() && !World::IsStopped())
+    {
+        // the owner is usually on another map thread: his key changes there, only if it still belongs to this run
+        // (kicked owner, already depleted or completed keys have InstanceID reset); a key still in the countdown is only released
+        bool const deplete = _run;
+        ObjectAccessor::PostToPlayer(m_ownerGuid, [itemGuid = m_itemGuid, level = _challengeLevel, instanceId = _instanceID, deplete](Player* keyOwner) -> void
+        {
+            ChallengeKeyInfo& info = keyOwner->m_challengeKeyInfo;
+            if (info.InstanceID != instanceId)
+                return;
+
+            if (deplete)
+            {
+                Item* item = keyOwner->GetItemByGuid(itemGuid);
+                if (!item)
+                    item = keyOwner->GetItemByEntry(138019, true);
+                keyOwner->ChallengeKeyCharded(item, level);
+            }
+
+            info.InstanceID = 0;
+            info.needUpdate = true;
+        });
+
+        // same condition in the database: covers an owner offline, or logging out before the posted action runs
+        // (a key flagged KeyIsCharded = 0 is depleted once at the next login)
+        CharacterDatabase.PExecute("UPDATE challenge_key SET %sInstanceID = 0 WHERE guid = %u AND InstanceID = %u", deplete ? "KeyIsCharded = 0, " : "", m_ownerGuid.GetGUIDLow(), _instanceID);
+
+        if (Group* group = sGroupMgr->GetGroupByGUID(m_gguid))
+            if (group->m_challengeInstanceID == _instanceID && group->m_challengeItem == m_itemGuid)   // not a key started since
+            {
+                group->m_challengeEntry = nullptr;
+                group->m_challengeLevel = 0;
+                group->m_affixes.fill(0);
+                group->SetDungeonDifficultyID(DIFFICULTY_MYTHIC_DUNGEON);
+                group->m_challengeInstanceID = 0;
+            }
+    }
+
     if (InstanceScript* script = GetInstanceScript())
         script->SetChallenge(nullptr);
 
