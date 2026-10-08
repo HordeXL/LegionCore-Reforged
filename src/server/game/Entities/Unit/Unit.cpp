@@ -1242,7 +1242,7 @@ uint32 Unit::DealDamage(Unit* victim, uint32 damage, CleanDamage const* cleanDam
 
             ASSERT(he && he->duel);
 
-            auto dueler = ObjectAccessor::FindPlayer(he->duel->opponent);
+            Player* dueler = ObjectAccessor::GetPlayer(*he, he->duel->opponent);
 
             if (duel_wasMounted) // In this case victim==mount
                 victim->SetHealth(1);
@@ -1250,7 +1250,8 @@ uint32 Unit::DealDamage(Unit* victim, uint32 damage, CleanDamage const* cleanDam
                 he->SetHealth(1);
 
             he->CombatStopWithPets(true);
-            dueler->CombatStopWithPets(true);
+            if (dueler)
+                dueler->CombatStopWithPets(true);
 
             he->CastSpell(he, 7267, true); // beg
             he->AddDelayedEvent(1000, [he]() -> void
@@ -22243,10 +22244,11 @@ void Unit::Kill(Unit* victim, bool durabilityLoss, SpellInfo const* spellProto)
         // last damage from non duel opponent or opponent controlled creature
         if (plrVictim->duel)
         {
-            auto dueler = ObjectAccessor::FindPlayer(plrVictim->duel->opponent);
+            Player* dueler = ObjectAccessor::GetPlayer(*plrVictim, plrVictim->duel->opponent);
 
             plrVictim->CombatStopWithPets(true);
-            dueler->CombatStopWithPets(true);
+            if (dueler)
+                dueler->CombatStopWithPets(true);
             plrVictim->AddDelayedEvent(1000, [plrVictim]() -> void
             {
                 plrVictim->DuelComplete(DUEL_INTERRUPTED);
