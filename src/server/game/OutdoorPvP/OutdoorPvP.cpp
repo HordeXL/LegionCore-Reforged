@@ -108,7 +108,7 @@ bool OPvPCapturePoint::AddObject(uint32 type, uint32 entry, uint32 map, float x,
 {
     if (ObjectGuid::LowType guid = sObjectMgr->AddGOData(entry, map, x, y, z, o, 0, rotation0, rotation1, rotation2, rotation3))
     {
-        AddGO(type, guid, entry);
+        AddGO(type, map, guid, entry);
         return true;
     }
 
@@ -124,7 +124,7 @@ bool OPvPCapturePoint::AddCreature(uint32 type, uint32 entry, uint32 team, uint3
 {
     if (ObjectGuid::LowType guid = sObjectMgr->AddCreData(entry, team, map, x, y, z, o, spawntimedelay))
     {
-        AddCre(type, guid, entry);
+        AddCre(type, map, guid, entry);
         return true;
     }
 
@@ -299,6 +299,10 @@ void OutdoorPvP::HandlePlayerLeaveZone(ObjectGuid guid, uint32 /*zone*/)
     SendRemoveWorldStates(player);
 
     m_players[player->GetTeamId()].erase(guid);
+
+    for (OutdoorGraveyard* graveyard : m_GraveyardList)
+        if (graveyard && graveyard->HasPlayer(guid))
+            graveyard->RemovePlayer(guid);
 
     TC_LOG_TRACE("misc", "Player %s left an outdoorpvp zone", player->GetName());
 }
@@ -732,9 +736,9 @@ bool OutdoorPvP::AddCreature(uint32 type, uint32 entry, uint32 team, uint32 mapI
             return false;
 
         if (l_Template->VehicleId)
-            m_Creatures[type] = ObjectGuid::Create<HighGuid::Vehicle>(mapID, guid, entry);
+            m_Creatures[type] = ObjectGuid::Create<HighGuid::Vehicle>(mapID, entry, guid);
         else
-            m_Creatures[type] = ObjectGuid::Create<HighGuid::Creature>(mapID, guid, entry);
+            m_Creatures[type] = ObjectGuid::Create<HighGuid::Creature>(mapID, entry, guid);
 
         m_CreatureTypes[m_Creatures[type]] = type;
         return true;
@@ -785,10 +789,9 @@ bool OutdoorPvP::AddObject(uint32 p_Type, go_type data)
 
 bool OutdoorPvP::AddObject(uint32 type, uint32 entry, uint32 mapID, float x, float y, float z, float o, float r0, float r1, float r2, float r3)
 {
-    uint64 guid = sObjectMgr->GetGenerator<HighGuid::GameObject>()->Generate();
-    if (sObjectMgr->AddGOData(guid, entry, mapID, x, y, z, o, 0, r0, r1, r2, r3))
+    if (uint64 guid = sObjectMgr->AddGOData(entry, mapID, x, y, z, o, 0, r0, r1, r2, r3))
     {
-        m_Objects[type] = ObjectGuid::Create<HighGuid::GameObject>(mapID, guid, entry);
+        m_Objects[type] = ObjectGuid::Create<HighGuid::GameObject>(mapID, entry, guid);
         m_ObjectTypes[m_Objects[type]] = type;
         return true;
     }
@@ -1003,9 +1006,9 @@ void OutdoorGraveyard::AddPlayer(ObjectGuid guid)
 
 void OutdoorGraveyard::RemovePlayer(ObjectGuid guid)
 {
-    m_ResurrectQueue.erase(m_ResurrectQueue.find(guid));
+    m_ResurrectQueue.erase(guid);
 
-    if (Player* player = sObjectAccessor->FindPlayer(guid))
+    if (Player* player = ObjectAccessor::FindPlayer(m_OutdoorPvP->GetMap(), guid))
         player->RemoveAurasDueToSpell(SPELL_WAITING_FOR_RESURRECT);
 }
 
@@ -1014,14 +1017,17 @@ void OutdoorGraveyard::Resurrect()
     if (m_ResurrectQueue.empty())
         return;
 
-    for (std::set<ObjectGuid>::const_iterator l_Iter = m_ResurrectQueue.begin(); l_Iter != m_ResurrectQueue.end(); ++l_Iter)
+    // a resurrection may move the player out of the zone, which edits the queue
+    std::set<ObjectGuid> queue;
+    queue.swap(m_ResurrectQueue);
+    for (std::set<ObjectGuid>::const_iterator l_Iter = queue.begin(); l_Iter != queue.end(); ++l_Iter)
     {
-        Player* player = sObjectAccessor->FindPlayer(*l_Iter);
+        Player* player = ObjectAccessor::FindPlayer(m_OutdoorPvP->GetMap(), *l_Iter);
         if (!player)
             continue;
 
         if (player->IsInWorld())
-            if (Unit* l_Spirit = sObjectAccessor->FindUnit(m_SpiritGuide[m_ControlTeam]))
+            if (Unit* l_Spirit = ObjectAccessor::GetUnit(*player, m_SpiritGuide[m_ControlTeam]))
                 l_Spirit->CastSpell(l_Spirit, SPELL_SPIRIT_HEAL, true);
 
         player->CastSpell(player, SPELL_RESURRECTION_VISUAL, true);
@@ -1034,8 +1040,6 @@ void OutdoorGraveyard::Resurrect()
 
         sObjectAccessor->ConvertCorpseForPlayer(player->GetGUID());
     }
-
-    m_ResurrectQueue.clear();
 }
 
 void OutdoorGraveyard::GiveControlTo(TeamId team)
@@ -1052,9 +1056,10 @@ TeamId OutdoorGraveyard::GetControlTeamId()
 void OutdoorGraveyard::RelocateDeadPlayers()
 {
     WorldSafeLocsEntry const* closestGrave = nullptr;
-    for (std::set<ObjectGuid>::const_iterator l_Iter = m_ResurrectQueue.begin(); l_Iter != m_ResurrectQueue.end(); ++l_Iter)
+    std::set<ObjectGuid> const queue = m_ResurrectQueue;   // a teleport may leave the zone and edit the queue
+    for (std::set<ObjectGuid>::const_iterator l_Iter = queue.begin(); l_Iter != queue.end(); ++l_Iter)
     {
-        Player* player = sObjectAccessor->FindPlayer(*l_Iter);
+        Player* player = ObjectAccessor::FindPlayer(m_OutdoorPvP->GetMap(), *l_Iter);
         if (!player)
             continue;
 
