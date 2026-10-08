@@ -6800,9 +6800,22 @@ void Player::DeleteFromDB(ObjectGuid playerguid, uint32 accountId, bool updateRe
             // tables no statement above cleans: a later character reusing this guid would inherit them
             for (char const* table : { "character_currency", "character_pvp_talent", "character_queststatus_weekly",
                 "character_queststatus_seasonal", "character_queststatus_world", "character_archaeology",
-                "character_cuf_profiles", "character_transmog_outfits" })
+                "character_cuf_profiles", "character_transmog_outfits", "character_honor", "character_stat_kill_creature",
+                "character_visuals", "character_loot_cooldown", "character_lfg_cooldown", "character_rates",
+                "character_mythic_plus_deserter", "character_bag_slot_flags", "character_archaeology_finds",
+                "character_ak_book_weekly", "character_battleground_random", "character_army_training_info",
+                "character_demon_invasion_progress", "character_custom_event_reapeter" })
                 trans->PAppend("DELETE FROM %s WHERE guid = " UI64FMTD, table, guid);
             trans->PAppend("DELETE FROM character_void_storage WHERE playerGuid = " UI64FMTD, guid);
+            trans->PAppend("DELETE FROM character_reward WHERE owner_guid = " UI64FMTD, guid);
+
+            stmt = CharacterDatabase.GetPreparedStatement(CHAR_DEL_PLAYER_KILL);
+            stmt->setUInt64(0, guid);
+            trans->Append(stmt);
+
+            stmt = CharacterDatabase.GetPreparedStatement(CHAR_DEL_CHALLENGE_OPLOTE_LOOT_BY_GUID);
+            stmt->setUInt64(0, guid);
+            trans->Append(stmt);
 
             stmt = CharacterDatabase.GetPreparedStatement(CHAR_DEL_CHAR_SOCIAL_BY_FRIEND);
             stmt->setUInt64(0, guid);
