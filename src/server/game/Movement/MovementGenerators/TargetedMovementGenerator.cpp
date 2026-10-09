@@ -504,6 +504,11 @@ bool FollowMovementGenerator<Creature>::DoUpdate(Creature& owner, uint32 diff)
         return true;
     }
 
+    // a target falling (off a tower...) has no ground under it yet: a path to it is a straight line through the air,
+    // which leaves a walking follower floating. Wait for the landing, then take the stairs like everyone else
+    if (!owner.CanFly() && target->HasUnitMovementFlag(MovementFlags(MOVEMENTFLAG_FALLING | MOVEMENTFLAG_FALLING_FAR)))
+        return true;
+
     bool followingMaster = false;
     Pet* oPet = owner.ToPet();
     if (oPet)
