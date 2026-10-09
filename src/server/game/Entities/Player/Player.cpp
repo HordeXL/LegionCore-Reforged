@@ -1829,6 +1829,12 @@ void Player::Update(uint32 p_time)
     if (pet && (HasUnitMovementFlag(MOVEMENTFLAG_FLYING) || !pet->IsWithinDistInMap(this, GetMap()->GetVisibilityRange())) && !pet->isPossessed())
         if (!GetTransport() || GetTransport() != pet->GetTransport()) // waiting full teleport player
             UnsummonPetTemporaryIfAny();
+
+    // a pet sent away during a flight comes back once on the ground: the dismount that resummons it often happens
+    // while still flying, the pet is sent away again at once and nothing else would bring it back
+    if (!pet && m_temporaryUnsummonedPetNumber && !HasUnitMovementFlag(MOVEMENTFLAG_FLYING) && !isInFlight() && !GetVehicle()
+        && !IsPetNeedBeTemporaryUnsummoned() && !GetMap()->IsBattlegroundOrArena())
+        ResummonPetTemporaryUnSummonedIfAny();
     
 
     //we should execute delayed teleports only for alive(!) players
