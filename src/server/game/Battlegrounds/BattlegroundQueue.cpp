@@ -190,6 +190,17 @@ GroupQueueInfo* BattlegroundQueue::AddGroup(ObjectGuid const& leaderGuid, uint32
     {
         std::lock_guard<std::recursive_mutex> guard(m_lock);
 
+        // A player still registered here (a pending RemovePlayer, a duplicate join) would share his entry with the new
+        // group and leave the old group a pointer to it: his stale registration goes first
+        if (grp)
+        {
+            for (auto const& member : members)
+                if (_queuedPlayers.count(member.first))
+                    RemovePlayerQueue(member.first, true);
+        }
+        else if (_queuedPlayers.count(leaderGuid))
+            RemovePlayerQueue(leaderGuid, true);
+
         ginfo->GroupId = grp ? grp->GetGUID().GetCounter() : 0;
 
         if (JoinType == MS::Battlegrounds::JoinType::Arena1v1 || JoinType == MS::Battlegrounds::JoinType::ArenaSoloQ3v3)
