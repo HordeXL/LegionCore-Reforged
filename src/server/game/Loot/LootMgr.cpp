@@ -1431,14 +1431,19 @@ void Loot::NotifyItemRemoved(uint8 lootIndex)
 {
     // notify all players that are looting this that the item was removed
     // convert the index to the slot the player sees
+    // the packet does not depend on the receiver, and a looter may stand on another map thread: send by guid
+    WorldPackets::Loot::LootRemoved packet;
+    packet.Owner = objGuid;
+    packet.LootObj = GetGUID();
+    packet.LootListID = lootIndex + 1;
+    WorldPacket const* data = packet.Write();
+
     GuidSet::iterator i_next;
     for (GuidSet::iterator i = PlayersLooting.begin(); i != PlayersLooting.end(); i = i_next)
     {
         i_next = i;
         ++i_next;
-        if (Player* player = ObjectAccessor::FindPlayer(*i))
-            player->SendNotifyLootItemRemoved(lootIndex, this);
-        else
+        if (!ObjectAccessor::SendToPlayer(*i, data))
             PlayersLooting.erase(i);
     }
 }
@@ -1446,14 +1451,16 @@ void Loot::NotifyItemRemoved(uint8 lootIndex)
 void Loot::NotifyMoneyRemoved(uint64 gold)
 {
     // notify all players that are looting this that the money was removed
+    WorldPackets::Loot::CoinRemoved packet;
+    packet.LootObj = GetGUID();
+    WorldPacket const* data = packet.Write();
+
     GuidSet::iterator i_next;
     for (GuidSet::iterator i = PlayersLooting.begin(); i != PlayersLooting.end(); i = i_next)
     {
         i_next = i;
         ++i_next;
-        if (Player* player = ObjectAccessor::FindPlayer(*i))
-            player->SendNotifyLootMoneyRemoved(this);
-        else
+        if (!ObjectAccessor::SendToPlayer(*i, data))
             PlayersLooting.erase(i);
     }
 }
@@ -1470,25 +1477,32 @@ void Loot::NotifyQuestItemRemoved(uint8 questIndex)
     {
         i_next = i;
         ++i_next;
-        if (Player* player = ObjectAccessor::FindPlayer(*i))
+        if (!ObjectAccessor::IsPlayerOnline(*i))
         {
-            QuestItemMap::const_iterator pq = PlayerQuestItems.find(player->GetGUIDLow());
-            if (pq != PlayerQuestItems.end() && pq->second)
+            PlayersLooting.erase(i);
+            continue;
+        }
+
+        QuestItemMap::const_iterator pq = PlayerQuestItems.find(i->GetGUIDLow());
+        if (pq != PlayerQuestItems.end() && pq->second)
+        {
+            // find where/if the player has the given item in it's vector
+            QuestItemList& pql = *pq->second;
+
+            size_t j;
+            for (j = 0; j < pql.size(); ++j)
+                if (pql[j].index == questIndex)
+                    break;
+
+            if (j < pql.size())
             {
-                // find where/if the player has the given item in it's vector
-                QuestItemList& pql = *pq->second;
-
-                size_t j;
-                for (j = 0; j < pql.size(); ++j)
-                    if (pql[j].index == questIndex)
-                        break;
-
-                if (j < pql.size())
-                    player->SendNotifyLootItemRemoved(items.size()+j, this);
+                WorldPackets::Loot::LootRemoved packet;
+                packet.Owner = objGuid;
+                packet.LootObj = GetGUID();
+                packet.LootListID = uint8(items.size() + j) + 1;
+                ObjectAccessor::SendToPlayer(*i, packet.Write());
             }
         }
-        else
-            PlayersLooting.erase(i);
     }
 }
 

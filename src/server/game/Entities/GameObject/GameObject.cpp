@@ -2887,7 +2887,17 @@ Player* GameObject::GetLootRecipient() const
 {
     if (!m_lootRecipient)
         return nullptr;
-    return ObjectAccessor::FindPlayer(m_lootRecipient);
+
+    if (Player* recipient = ObjectAccessor::GetPlayer(*this, m_lootRecipient))
+        return recipient;
+
+    // the tapper left this map: a member of his group standing here keeps the right, nobody else gets it
+    if (Group* group = GetLootRecipientGroup())
+        for (Group::MemberSlot const& slot : group->GetMemberSlots())
+            if (Player* member = ObjectAccessor::GetPlayer(*this, slot.Guid))
+                return member;
+
+    return nullptr;
 }
 
 Group* GameObject::GetLootRecipientGroup() const
