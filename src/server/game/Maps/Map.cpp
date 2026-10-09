@@ -936,7 +936,10 @@ bool Map::AddPlayerToMap(Player* player, bool initPlayer /*= true*/)
         UpdateObjectsVisibilityFor(player, cell, cellCoord);
 
     sScriptMgr->OnPlayerEnterMap(this, player);
-    sOutdoorPvPMgr->HandlePlayerEnterMap(player->GetGUID(), player->GetCurrentZoneID());
+    // the cached zone was reset when the player left his previous map: take it from the position
+    uint32 const zoneId = player->GetZoneId();
+
+    sOutdoorPvPMgr->HandlePlayerEnterMap(player->GetGUID(), zoneId);
 
     return true;
 }
