@@ -213,6 +213,14 @@ void PetAI::UpdateAI(uint32 diff)
                 if (me->HasCreatureSpellCooldown(spellInfo->Id))
                     continue;
 
+                // a combat buff (Dash...) is only for a fight: checked before the self-cast below, which looped out of combat
+                if (spellInfo->CanBeUsedInCombat())
+                {
+                    // Check if we're in combat or commanded to attack
+                    if (!me->isInCombat() && !me->GetCharmInfo()->IsCommandAttack())
+                        continue;
+                }
+
                 if (spellInfo->IsSelfTargets())
                 {
                     if (m_timeCheckSelf >= 1000) // Stop spamm
@@ -223,13 +231,6 @@ void PetAI::UpdateAI(uint32 diff)
                         break;
                     }
                     m_timeCheckSelf += diff;
-                }
-
-                if (spellInfo->CanBeUsedInCombat())
-                {
-                    // Check if we're in combat or commanded to attack
-                    if (!me->isInCombat() && !me->GetCharmInfo()->IsCommandAttack())
-                        continue;
                 }
 
                 TriggerCastData triggerData;
