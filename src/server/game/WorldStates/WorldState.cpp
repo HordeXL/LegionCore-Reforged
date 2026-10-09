@@ -1,5 +1,6 @@
 #include "WorldState.h"
 #include "WorldStatePackets.h"
+#include "ObjectAccessor.h"
 
 WorldStateTemplate::WorldStateTemplate(uint32 variableID, uint32 type, uint32 _condition, uint32 flags, uint32 defaultValue) : VariableID(variableID), VariableType(type), ConditionID(_condition), Flags(flags), DefaultValue(defaultValue)
 {
@@ -51,7 +52,10 @@ bool WorldState::IsGlobal() const
 void WorldState::Initialize()
 {
     LinkedGuid.Clear();
-    ClientGuids.clear();
+    {
+        std::lock_guard<std::mutex> lock(ClientGuidsLock);
+        ClientGuids.clear();
+    }
 
     if (StateTemplate)
     {
@@ -85,24 +89,32 @@ void WorldState::Reload()
 
 void WorldState::Unload()
 {
+    std::lock_guard<std::mutex> lock(ClientGuidsLock);
     ClientGuids.clear();
 }
 
 void WorldState::AddClient(ObjectGuid const& guid)
 {
     if (guid.IsPlayer())
+    {
+        std::lock_guard<std::mutex> lock(ClientGuidsLock);
         ClientGuids.insert(guid);
+    }
 }
 
-bool WorldState::HasClient(ObjectGuid const& guid)
+bool WorldState::HasClient(ObjectGuid const& guid) const
 {
+    std::lock_guard<std::mutex> lock(ClientGuidsLock);
     return ClientGuids.contains(guid);
 }
 
 void WorldState::RemoveClient(ObjectGuid const& guid)
 {
     if (guid.IsPlayer())
+    {
+        std::lock_guard<std::mutex> lock(ClientGuidsLock);
         ClientGuids.erase(guid);
+    }
 }
 
 void WorldState::SetValue(uint32 value, bool hidden)
@@ -121,20 +133,29 @@ void WorldState::SetValue(uint32 value, bool hidden)
     packet.Value = value;
     packet.Hidden = hidden;
 
-    for (GuidUnorderedSet::iterator i = ClientGuids.begin(); i != ClientGuids.end();)
+    std::vector<ObjectGuid> clients;
     {
-        if (Player* player = ObjectAccessor::FindPlayer(*i))
+        std::lock_guard<std::mutex> lock(ClientGuidsLock);
+        clients.assign(ClientGuids.begin(), ClientGuids.end());
+    }
+
+    // each client lives in his own map thread: the instance check and the send run there, nothing captures this
+    WorldPacket const data = *packet.Write();
+    uint32 const instanceID = InstanceID;
+    for (ObjectGuid const& guid : clients)
+    {
+        bool posted = ObjectAccessor::PostToPlayer(guid, [data, instanceID](Player* player)
         {
             // Send update only if in instance
-            if (InstanceID && InstanceID != (player->InInstance() ? player->GetInstanceId() : 0))
-            {
-                i = ClientGuids.erase(i);
-                continue;
-            }
-            player->SendDirectMessage(packet.Write());
-            ++i;
+            if (instanceID && instanceID != (player->InInstance() ? player->GetInstanceId() : 0))
+                return;
+            player->SendDirectMessage(&data);
+        }, 0, ObjectAccessor::PlayerScope::InWorld);
+
+        if (!posted)
+        {
+            std::lock_guard<std::mutex> lock(ClientGuidsLock);
+            ClientGuids.erase(guid);
         }
-        else
-            i = ClientGuids.erase(i);
     }
 }

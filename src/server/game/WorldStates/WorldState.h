@@ -3,6 +3,7 @@
 #define WORLD_STATE_H
 
 #include "Common.h"
+#include <mutex>
 
 namespace WorldStatesData
 {
@@ -81,7 +82,7 @@ struct WorldState
     void Unload();
 
     void AddClient(ObjectGuid const& guid);
-    bool HasClient(ObjectGuid const& guid);
+    bool HasClient(ObjectGuid const& guid) const;
     void RemoveClient(ObjectGuid const& guid);
 
     WorldStateTemplate const* GetTemplate() const;
@@ -93,6 +94,8 @@ struct WorldState
     void SetValue(uint32 value, bool hidden);
 
     WorldStateTemplate const* StateTemplate;
+    // guards ClientGuids only (leaf lock): players add and remove themselves from their own map thread
+    mutable std::mutex ClientGuidsLock;
     GuidUnorderedSet ClientGuids;
     ObjectGuid LinkedGuid;
     uint32 VariableID;
