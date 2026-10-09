@@ -568,7 +568,7 @@ void GameObject::Update(uint32 diff)
                                                             // respawn timer
                             uint32 poolid = GetDBTableGUIDLow() ? sPoolMgr->IsPartOfAPool<GameObject>(GetDBTableGUIDLow()) : 0;
                             if (poolid)
-                                sPoolMgr->UpdatePool<GameObject>(poolid, GetDBTableGUIDLow());
+                                sPoolMgr->UpdatePool<GameObject>(poolid, GetDBTableGUIDLow(), this);
                             else
                                 GetMap()->AddToMap(this);
                             break;
@@ -885,7 +885,7 @@ void GameObject::Delete()
     SetUInt32Value(GAMEOBJECT_FIELD_FLAGS, GetGOInfo()->flags);
 
     if (auto poolid = GetDBTableGUIDLow() ? sPoolMgr->IsPartOfAPool<GameObject>(GetDBTableGUIDLow()) : 0)
-        sPoolMgr->UpdatePool<GameObject>(poolid, GetDBTableGUIDLow());
+        sPoolMgr->UpdatePool<GameObject>(poolid, GetDBTableGUIDLow(), this);
     else
         AddObjectToRemoveList();
 }

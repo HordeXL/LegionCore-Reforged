@@ -76,11 +76,11 @@ class PoolGroup
         void AddEntry(PoolObject& poolitem, uint32 maxentries);
         bool CheckPool() const;
         PoolObject* RollOne(ActivePoolData& spawns, uint64 const& triggerFrom);
-        void DespawnObject(ActivePoolData& spawns, uint64 guid = 0);
-        void Despawn1Object(uint64 const& guid);
-        void SpawnObject(ActivePoolData& spawns, uint32 limit, uint64 triggerFrom);
+        void DespawnObject(ActivePoolData& spawns, uint64 guid = 0, WorldObject* trigger = nullptr);
+        void Despawn1Object(uint64 const& guid, WorldObject* trigger = nullptr);
+        void SpawnObject(ActivePoolData& spawns, uint32 limit, uint64 triggerFrom, WorldObject* trigger = nullptr);
 
-        void Spawn1Object(PoolObject* obj);
+        void Spawn1Object(PoolObject* obj, WorldObject* trigger = nullptr);
         void ReSpawn1Object(PoolObject* obj);
         void RemoveOneRelation(uint32 child_pool_id);
         uint64 GetFirstEqualChancedObjectId();
@@ -122,8 +122,9 @@ class TC_GAME_API PoolMgr
         void SpawnPool(uint32 pool_id);
         void DespawnPool(uint32 pool_id);
 
+        // trigger is the respawning object: when it lives in an instance of the map of the pooled objects, the rotation is done in that instance
         template<typename T>
-        void UpdatePool(uint32 pool_id, uint64 const& db_guid_or_pool_id);
+        void UpdatePool(uint32 pool_id, uint64 const& db_guid_or_pool_id, WorldObject* trigger = nullptr);
 
         void ChangeDailyQuests();
         void ChangeWeeklyQuests();
@@ -133,7 +134,7 @@ class TC_GAME_API PoolMgr
 
     private:
         template<typename T>
-        void SpawnPool(uint32 pool_id, uint64 db_guid_or_pool_id);
+        void SpawnPool(uint32 pool_id, uint64 db_guid_or_pool_id, WorldObject* trigger = nullptr);
 
 		typedef std::unordered_map<uint32, PoolTemplateData>      PoolTemplateDataMap;
 		typedef std::unordered_map<uint32, PoolGroup<Creature>>   PoolGroupCreatureMap;

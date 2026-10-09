@@ -2786,7 +2786,11 @@ void Creature::Respawn(bool force, uint32 timer /*= 3*/)
 
         uint32 poolid = GetDBTableGUIDLow() ? sPoolMgr->IsPartOfAPool<Creature>(GetDBTableGUIDLow()) : 0;
         if (poolid)
-            sPoolMgr->UpdatePool<Creature>(poolid, GetDBTableGUIDLow());
+        {
+            sPoolMgr->UpdatePool<Creature>(poolid, GetDBTableGUIDLow(), this);
+            if (IsPreDelete())      // the pool moved the spawn elsewhere: this creature is on its way out
+                return;
+        }
         ScheduleRareDeparture(this);
 
         //Re-initialize reactstate that could be altered by movementgenerators
