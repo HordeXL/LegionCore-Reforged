@@ -128,6 +128,8 @@ public:
     uint32 _mapID;
 
 private:
+    void DepleteOwnerKey();
+
     std::map<ObjectGuid, uint8> _countItems;
 
     ObjectGuid _creator;

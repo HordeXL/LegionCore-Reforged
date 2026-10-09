@@ -38952,7 +38952,7 @@ void Player::CreateChallengeKey(Item* item)
 void Player::ApplyWeeklyChallengeKeyReset()
 {
     ChallengeKeyInfo& key = m_challengeKeyInfo;
-    OploteLoot const* chest = sChallengeMgr->GetOploteLoot(GetGUID());
+    std::optional<OploteLoot> const chest = sChallengeMgr->FindOploteLoot(GetGUID());
 
     // nothing to keep for a player who never had a key above +2
     if (!chest && !key.IsActive() && key.Level <= 2)

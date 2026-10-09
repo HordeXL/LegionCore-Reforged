@@ -18,6 +18,10 @@
 #ifndef TRINITY_CHALLENGEMGR_H
 #define TRINITY_CHALLENGEMGR_H
 
+#include <optional>
+#include <shared_mutex>
+#include <vector>
+
 struct ChallengeMember
 {
     ObjectGuid guid;
@@ -57,6 +61,13 @@ struct OploteLoot
     bool needSave = true;
 };
 
+// Last run of a member on a dungeon, with the record time of his best run there
+struct MemberMapStat
+{
+    ChallengeData last;
+    uint32 bestRecordTime;
+};
+
 // Levels a key loses for a week without a completed key
 uint8 const CHALLENGE_KEY_WEEKLY_DECAY = 2;
 
@@ -80,22 +91,18 @@ public:
     static ChallengeMgr* instance();
 
     void LoadFromDB();
-    void SaveChallengeToDB(ChallengeData const* challengeData);
-    void PruneHistory();
 
-    void CheckBestMapId(ChallengeData* challengeData);
-    void CheckBestGuildMapId(ChallengeData* challengeData);
-    bool CheckBestMemberMapId(ObjectGuid const& guid, ChallengeData* challengeData);
+    // Takes over a finished run (the manager owns it from here, never use the pointer again) and returns the
+    // members for whom it is a new personal best
+    std::vector<ObjectGuid> AddChallenge(ChallengeData* challengeData);
 
-    ChallengeData* BestServerChallenge(uint16 ChallengeID);
-    ChallengeData* BestGuildChallenge(ObjectGuid::LowType const& guildId, uint16 ChallengeID);
-    void SetChallengeMapData(ObjectGuid::LowType const& ID, ChallengeData* data);
-    ChallengeByMap* BestForMember(ObjectGuid const& guid);
-    ChallengeByMap* LastForMember(ObjectGuid const& guid);
-    ChallengeData* LastForMemberMap(ObjectGuid const& guid, uint32 ChallengeID);
-    ChallengeData* BestForMemberMap(ObjectGuid const& guid, uint32 ChallengeID);
-    bool HasOploteLoot(ObjectGuid const& guid);
-    OploteLoot* GetOploteLoot(ObjectGuid const& guid);
+    // Records are handed out as copies: they are shared between map threads and may be deleted by PruneHistory
+    std::optional<ChallengeData> BestServerChallenge(uint16 ChallengeID) const;
+    std::optional<ChallengeData> BestGuildChallenge(ObjectGuid::LowType const& guildId, uint16 ChallengeID) const;
+    std::optional<ChallengeData> BestForMemberMap(ObjectGuid const& guid, uint32 ChallengeID) const;
+    std::vector<MemberMapStat> GetMapStatsForMember(ObjectGuid const& guid) const;
+    bool HasOploteLoot(ObjectGuid const& guid) const;
+    std::optional<OploteLoot> FindOploteLoot(ObjectGuid const& guid) const;
     void SaveOploteLootToDB();
     void DeleteOploteLoot(ObjectGuid const& guid);
     void GenerateOploteLoot(bool manual = false);
@@ -122,7 +129,18 @@ public:
     static bool IsChest(uint32 goEntry);
     static bool IsDoor(uint32 goEntry);
 
-protected:
+private:
+    void SaveChallengeToDB(ChallengeData const& challengeData);
+
+    // the following run with _lock held
+    void PruneHistory();
+    void CheckBestMapId(ChallengeData* challengeData);
+    void CheckBestGuildMapId(ChallengeData* challengeData);
+    bool CheckBestMemberMapId(ObjectGuid const& guid, ChallengeData* challengeData);
+
+    // domain lock: the records below are written at the end of a key (instance thread), read by the leaderboard and
+    // chest handlers (player threads) and rebuilt by the weekly reset (world thread). Nothing outgoing under it.
+    mutable std::shared_mutex _lock;
     ChallengeMap _challengeMap;
     ChallengesOfMember _lastForMember;
     ChallengesOfMember _challengesOfMember;

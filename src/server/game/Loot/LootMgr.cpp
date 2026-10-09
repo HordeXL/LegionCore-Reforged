@@ -690,7 +690,7 @@ void Loot::GenerateLootGuid(ObjectGuid __objGuid)
 
 uint32 Loot::ReplaceLootID(uint32 lootId)
 {
-    if (OploteLoot* oploteLoot = sChallengeMgr->GetOploteLoot(m_lootOwner->GetGUID()))
+    if (std::optional<OploteLoot> oploteLoot = sChallengeMgr->FindOploteLoot(m_lootOwner->GetGUID()))
     {
         _challengeLevel = oploteLoot->ChallengeLevel;
         sChallengeMgr->DeleteOploteLoot(m_lootOwner->GetGUID());
