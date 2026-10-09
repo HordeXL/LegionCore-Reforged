@@ -27,6 +27,7 @@
 #include "WowTime.hpp"
 #include "GameEventMgr.h"
 #include "LFGMgr.h"
+#include <atomic>
 
 void WorldSession::HandleBattlemasterHello(WorldPackets::NPC::Hello& packet)
 {
@@ -141,6 +142,8 @@ void WorldSession::HandleBattlemasterJoin(WorldPackets::Battleground::Join& pack
             return;
         }
 
+        player->SetQueueRoleMask(bracketEntry->RangeIndex, packet.RolesMask);
+
         BattlegroundQueue& bgQueue = sBattlegroundMgr->GetBattlegroundQueue(bgQueueTypeId);
         uint32 joinTime = 0;
         uint32 avgWaitTime = 0;
@@ -153,8 +156,6 @@ void WorldSession::HandleBattlemasterJoin(WorldPackets::Battleground::Join& pack
             joinType = ginfo->JoinType;
             avgWaitTime = bgQueue.GetAverageQueueWaitTime(ginfo, bracketEntry->RangeIndex);
         }
-
-        player->SetQueueRoleMask(bracketEntry->RangeIndex, packet.RolesMask);
 
         WorldPackets::Battleground::BattlefieldStatusQueued queued;
         sBattlegroundMgr->BuildBattlegroundStatusQueued(&queued, bg, player, player->AddBattlegroundQueueId(bgQueueTypeId), joinTime, avgWaitTime, joinType, false);
@@ -179,23 +180,18 @@ void WorldSession::HandleBattlemasterJoin(WorldPackets::Battleground::Join& pack
             return;
         }
 
-        for (GroupReference* itr = grp->GetFirstMember(); itr != nullptr; itr = itr->next())
+        // the members stand on other maps: each gets his status in his own thread
+        for (auto const& slot : grp->GetMemberSlots())
         {
-            Player* member = itr->getSource();
-            if (!member)
-                continue;
-
-            if (err)
+            ObjectAccessor::PostToPlayer(slot.Guid, [bg, err, errorGuid](Player* member) -> void
             {
                 WorldPackets::Battleground::BattlefieldStatusFailed battlefieldStatus;
                 sBattlegroundMgr->BuildBattlegroundStatusFailed(&battlefieldStatus, bg, member, 0, err, &errorGuid);
                 member->SendDirectMessage(battlefieldStatus.Write());
-                continue;
-            }
+            });
         }
 
-        if (err)
-            return;
+        return;
     }
 
     sBattlegroundMgr->ScheduleQueueUpdate(new QueueSchedulerItem(0, 0, bgQueueTypeId, queueID, bracketEntry->RangeIndex, Roles(packet.RolesMask), bracketEntry->MinLevel));
@@ -298,9 +294,11 @@ void WorldSession::HandleBattleFieldPort(WorldPackets::Battleground::Port& packe
     if (!ginfo.IsInvitedToBGInstanceGUID && packet.AcceptedInvite)
         return;
 
-    Battleground* bg = sBattlegroundMgr->GetBattleground(ginfo.IsInvitedToBGInstanceGUID, MS::Battlegrounds::IsRandomGeneratedBg(bgTypeId) ? MS::Battlegrounds::BattlegroundTypeId::None : ginfo.NativeBgTypeId);
+    uint16 const bgLookupTypeId = MS::Battlegrounds::IsRandomGeneratedBg(bgTypeId) ? MS::Battlegrounds::BattlegroundTypeId::None : ginfo.NativeBgTypeId;
+    uint16 const bgTemplateTypeId = bgTypeId;
+    Battleground* bg = sBattlegroundMgr->GetBattleground(ginfo.IsInvitedToBGInstanceGUID, bgLookupTypeId);
     if (!bg && !packet.AcceptedInvite)
-        bg = sBattlegroundMgr->GetBattlegroundTemplate(bgTypeId);
+        bg = sBattlegroundMgr->GetBattlegroundTemplate(bgTemplateTypeId);
     if (!bg)
         return;
 
@@ -396,47 +394,50 @@ void WorldSession::HandleBattleFieldPort(WorldPackets::Battleground::Port& packe
     }
     else // leave queue
     {
+        bool const arenaDeserter = bg->IsArena() && bg->IsRated() && bg->GetJoinType() != MS::Battlegrounds::JoinType::Arena1v1
+            && (bg->GetStatus() == STATUS_WAIT_JOIN || bg->GetStatus() == STATUS_IN_PROGRESS);
+
+        // Runs in the leaving player's own thread; the battleground is looked up again, the world thread may free it meanwhile
+        auto leaveQueue = [instanceGuid = ginfo.IsInvitedToBGInstanceGUID, bgLookupTypeId, bgTemplateTypeId, bgQueueTypeId, ticketId = packet.Ticket.Id, arenaDeserter](Player* member) -> void
+        {
+            Battleground* leftBg = sBattlegroundMgr->GetBattleground(instanceGuid, bgLookupTypeId);
+            if (!leftBg)
+                leftBg = sBattlegroundMgr->GetBattlegroundTemplate(bgTemplateTypeId);
+
+            if (leftBg)
+            {
+                WorldPackets::Battleground::BattlefieldStatusNone none;
+                sBattlegroundMgr->BuildBattlegroundStatusNone(&none, member, ticketId, member->GetBattlegroundQueueJoinTime(bgQueueTypeId));
+                member->SendDirectMessage(none.Write());
+
+                WorldPackets::Battleground::BattlefieldStatusFailed failed;
+                sBattlegroundMgr->BuildBattlegroundStatusFailed(&failed, leftBg, member, ticketId, MS::Battlegrounds::GroupJoinBattlegroundResult::ERR_LEAVE_QUEUE);
+                member->SendDirectMessage(failed.Write());
+            }
+
+            if (arenaDeserter)
+                member->SendOperationsAfterDelay(OAD_ARENA_DESERTER);
+
+            member->RemoveBattlegroundQueueId(bgQueueTypeId);  // must be called this way, because if you move this call to queue->removeplayer, it causes bugs
+        };
+
         // The leader takes out the members queued with him; anyone else leaves alone
         Group* group = player->GetGroup();
         if (group && group->GetLeaderGUID() == player->GetGUID())
         {
-            for (auto itr = group->GetFirstMember(); itr != nullptr; itr = itr->next())
+            for (auto const& slot : group->GetMemberSlots())
             {
-                auto member = itr->getSource();
-                if (!member || !ginfo.Players.count(member->GetGUID()))
+                if (!ginfo.Players.count(slot.Guid))
                     continue;
 
-                WorldPackets::Battleground::BattlefieldStatusNone none;
-                sBattlegroundMgr->BuildBattlegroundStatusNone(&none, member, packet.Ticket.Id, member->GetBattlegroundQueueJoinTime(bgQueueTypeId));
-                member->GetSession()->SendPacket(none.Write());
-
-                WorldPackets::Battleground::BattlefieldStatusFailed failed;
-                sBattlegroundMgr->BuildBattlegroundStatusFailed(&failed, bg, member, packet.Ticket.Id, MS::Battlegrounds::GroupJoinBattlegroundResult::ERR_LEAVE_QUEUE);
-                member->GetSession()->SendPacket(failed.Write());
-
-                if (bg && bg->IsArena() && bg->IsRated() && bg->GetJoinType() != MS::Battlegrounds::JoinType::Arena1v1)
-                    if (bg->GetStatus() == STATUS_WAIT_JOIN || bg->GetStatus() == STATUS_IN_PROGRESS)
-                        member->SendOperationsAfterDelay(OAD_ARENA_DESERTER);
-
-                member->RemoveBattlegroundQueueId(bgQueueTypeId);  // must be called this way, because if you move this call to queue->removeplayer, it causes bugs
-                bgQueue.RemovePlayer(member->GetGUID(), true);
+                // the member stands on another map
+                if (ObjectAccessor::PostToPlayer(slot.Guid, leaveQueue))
+                    bgQueue.RemovePlayer(slot.Guid, true);
             }
         }
         else
         {
-            WorldPackets::Battleground::BattlefieldStatusNone none;
-            sBattlegroundMgr->BuildBattlegroundStatusNone(&none, player, packet.Ticket.Id, player->GetBattlegroundQueueJoinTime(bgQueueTypeId));
-            SendPacket(none.Write());
-
-            WorldPackets::Battleground::BattlefieldStatusFailed failed;
-            sBattlegroundMgr->BuildBattlegroundStatusFailed(&failed, bg, player, packet.Ticket.Id, MS::Battlegrounds::GroupJoinBattlegroundResult::ERR_LEAVE_QUEUE);
-            SendPacket(failed.Write());
-
-            if (bg && bg->IsArena() && bg->IsRated() && bg->GetJoinType() != MS::Battlegrounds::JoinType::Arena1v1)
-                if (bg->GetStatus() == STATUS_WAIT_JOIN || bg->GetStatus() == STATUS_IN_PROGRESS)
-                    player->SendOperationsAfterDelay(OAD_ARENA_DESERTER);
-
-            player->RemoveBattlegroundQueueId(bgQueueTypeId);  // must be called this way, because if you move this call to queue->removeplayer, it causes bugs
+            leaveQueue(player);
             bgQueue.RemovePlayer(player->GetGUID(), true);
         }
 
@@ -592,15 +593,20 @@ void WorldSession::JoinBracket(uint8 bracketType, uint8 rolesMask /*= ROLES_DEFA
             joinType = ginfo->JoinType;
         }
 
-        for (auto itr = grp->GetFirstMember(); itr != nullptr; itr = itr->next())
+        auto takeSlot = [bg, bgQueueTypeId, joinTime, avgTime, joinType](Player* member) -> void
         {
-            auto member = itr->getSource();
-            if (!member)
-                continue;
-
             WorldPackets::Battleground::BattlefieldStatusQueued queued;
             sBattlegroundMgr->BuildBattlegroundStatusQueued(&queued, bg, member, member->AddBattlegroundQueueId(bgQueueTypeId), joinTime, avgTime, joinType, true);
             member->SendDirectMessage(queued.Write());
+        };
+
+        // the leader takes his slot at once (a second join packet of his must see it); the members stand on other maps and take theirs in their own thread
+        for (auto const& slot : grp->GetMemberSlots())
+        {
+            if (slot.Guid == player->GetGUID())
+                takeSlot(player);
+            else
+                ObjectAccessor::PostToPlayer(slot.Guid, takeSlot);
         }
 
         sBattlegroundMgr->ScheduleQueueUpdate(new QueueSchedulerItem(matchmakerRating, jointype, bgQueueTypeId, bgTypeId, bracketEntry->RangeIndex, static_cast<Roles>(rolesMask)));
@@ -787,6 +793,122 @@ void WorldSession::HandleAreaSpiritHealerQueue(WorldPackets::Battleground::AreaS
         outdoorPvP->AddPlayerToResurrectQueue(packet.HealerGuid, player->GetGUID());
 }
 
+namespace
+{
+    // The members of a skirmish group stand on other maps: each is checked in his own thread, one after the other in
+    // group order, then the leader's thread goes on
+    struct SkirmishJoinCheck
+    {
+        ObjectGuid Leader;
+        ObjectGuid GroupGuid;
+        std::vector<ObjectGuid> Members;
+        uint16 BgTypeId = 0;
+        uint8 BgQueueTypeId = 0;
+        uint8 JoinType = 0;
+        uint8 RolesMask = 0;
+    };
+
+    void ContinueSkirmishJoin(Player* leader, std::shared_ptr<SkirmishJoinCheck> const& check)
+    {
+        Group* grp = leader->GetGroup();
+        Battleground* bg = sBattlegroundMgr->GetBattlegroundTemplate(check->BgTypeId);
+        if (!grp || !bg || grp->GetGUID() != check->GroupGuid || grp->GetLeaderGUID() != leader->GetGUID())
+            return;
+
+        ObjectGuid errorGuid;
+        uint8 err = grp->CanJoinBattlegroundQueue(bg, check->BgQueueTypeId, check->JoinType, false, 0, errorGuid);
+
+        if (!err)
+        {
+            sLFGMgr->InitiBattlgroundCheckRoles(grp, leader->GetGUID(), check->BgTypeId, check->RolesMask, check->BgQueueTypeId, WorldPackets::Battleground::IgnorMapInfo(), true);
+            return;
+        }
+
+        for (auto const& slot : grp->GetMemberSlots())
+        {
+            ObjectAccessor::PostToPlayer(slot.Guid, [bg, err, errorGuid](Player* member) -> void
+            {
+                WorldPackets::Battleground::BattlefieldStatusFailed battlefieldStatus;
+                sBattlegroundMgr->BuildBattlegroundStatusFailed(&battlefieldStatus, bg, member, 0, err, &errorGuid);
+                member->SendDirectMessage(battlefieldStatus.Write());
+            });
+        }
+    }
+
+    void CheckSkirmishMember(std::shared_ptr<SkirmishJoinCheck> check, size_t index);
+
+    // Held by the action posted to a member. If that action is destroyed without having run (he logged out), the
+    // destructor goes on with the next member, so that the leader's join never stalls
+    struct SkirmishStep
+    {
+        SkirmishStep(std::shared_ptr<SkirmishJoinCheck> const& joinCheck, size_t nextIndex) : Check(joinCheck), Next(nextIndex) { }
+        ~SkirmishStep()
+        {
+            if (!Handled.load())
+                CheckSkirmishMember(Check, Next);
+        }
+
+        std::shared_ptr<SkirmishJoinCheck> Check;
+        size_t Next;
+        std::atomic<bool> Handled{ false };
+    };
+
+    void CheckSkirmishMember(std::shared_ptr<SkirmishJoinCheck> check, size_t index)
+    {
+        for (; index < check->Members.size(); ++index)
+        {
+            auto step = std::make_shared<SkirmishStep>(check, index + 1);
+            bool const posted = ObjectAccessor::PostToPlayer(check->Members[index], [check, step](Player* member) -> void
+            {
+                step->Handled = true;
+
+                Battleground* bg = sBattlegroundMgr->GetBattlegroundTemplate(check->BgTypeId);
+                if (!bg)
+                    return;
+
+                // he left the group meanwhile: nothing to check for him
+                Group* memberGroup = member->GetGroup();
+                if (!memberGroup || memberGroup->GetGUID() != check->GroupGuid)
+                {
+                    CheckSkirmishMember(check, step->Next);
+                    return;
+                }
+
+                uint8 result = 0;
+                if (member->isUsingLfg())
+                    result = MS::Battlegrounds::GroupJoinBattlegroundResult::ERR_LFG_CANT_USE_BATTLEGROUND;
+                else if (!member->CanJoinToBattleground(MS::Battlegrounds::IternalPvpTypes::Skirmish))
+                    result = MS::Battlegrounds::GroupJoinBattlegroundResult::ERR_GROUP_JOIN_BATTLEGROUND_DESERTERS;
+                else if (!member->IsAlive())
+                    result = MS::Battlegrounds::GroupJoinBattlegroundResult::ERR_GROUP_JOIN_BATTLEGROUND_DEAD;
+                else if (member->GetBattlegroundQueueIndex(check->BgQueueTypeId) < PLAYER_MAX_BATTLEGROUND_QUEUES)
+                    return;
+                else if (!member->HasFreeBattlegroundQueueId())
+                    result = MS::Battlegrounds::GroupJoinBattlegroundResult::ERR_BATTLEGROUND_TOO_MANY_QUEUES;
+                else
+                {
+                    CheckSkirmishMember(check, step->Next);
+                    return;
+                }
+
+                WorldPackets::Battleground::BattlefieldStatusFailed battlefieldStatus;
+                sBattlegroundMgr->BuildBattlegroundStatusFailed(&battlefieldStatus, bg, member, 0, result);
+                auto const& message = battlefieldStatus.Write();
+                ObjectAccessor::SendToPlayer(check->Leader, message);
+                member->SendDirectMessage(message);
+            });
+
+            if (posted)
+                return;
+
+            step->Handled = true;   // not posted (he is offline): this loop goes on itself
+        }
+
+        // every member passed (one who left is skipped)
+        ObjectAccessor::PostToPlayer(check->Leader, [check](Player* leader) -> void { ContinueSkirmishJoin(leader, check); });
+    }
+}
+
 void WorldSession::HandleJoinSkirmish(WorldPackets::Battleground::JoinSkirmish& packet)
 {
     Player* player = GetPlayer();
@@ -877,82 +999,17 @@ void WorldSession::HandleJoinSkirmish(WorldPackets::Battleground::JoinSkirmish& 
         if (grp->GetLeaderGUID() != player->GetGUID())
             return;
 
-        for (auto const& v : grp->GetMemberSlots())
-        {
-            auto const& member = ObjectAccessor::FindPlayer(v.Guid);
-            if (!member)
-                continue;
-
-            if (member->isUsingLfg())
-            {
-                WorldPackets::Battleground::BattlefieldStatusFailed battlefieldStatus;
-                sBattlegroundMgr->BuildBattlegroundStatusFailed(&battlefieldStatus, bg, member, 0, MS::Battlegrounds::GroupJoinBattlegroundResult::ERR_LFG_CANT_USE_BATTLEGROUND);
-                auto const& message = battlefieldStatus.Write();
-                SendPacket(message);
-                member->SendDirectMessage(message);
-                return;
-            }
-
-            if (!member->CanJoinToBattleground(MS::Battlegrounds::IternalPvpTypes::Skirmish))
-            {
-                WorldPackets::Battleground::BattlefieldStatusFailed battlefieldStatus;
-                sBattlegroundMgr->BuildBattlegroundStatusFailed(&battlefieldStatus, bg, member, 0, MS::Battlegrounds::GroupJoinBattlegroundResult::ERR_GROUP_JOIN_BATTLEGROUND_DESERTERS);
-                auto const& message = battlefieldStatus.Write();
-                SendPacket(message);
-                member->SendDirectMessage(message);
-                return;
-            }
-
-            if (!member->IsAlive())
-            {
-                WorldPackets::Battleground::BattlefieldStatusFailed battlefieldStatus;
-                sBattlegroundMgr->BuildBattlegroundStatusFailed(&battlefieldStatus, bg, member, 0, MS::Battlegrounds::GroupJoinBattlegroundResult::ERR_GROUP_JOIN_BATTLEGROUND_DEAD);
-                auto const& message = battlefieldStatus.Write();
-                SendPacket(message);
-                member->SendDirectMessage(message);
-                return;
-            }
-
-            if (member->GetBattlegroundQueueIndex(bgQueueTypeId) < PLAYER_MAX_BATTLEGROUND_QUEUES)
-                return;
-
-            if (!member->HasFreeBattlegroundQueueId())
-            {
-                WorldPackets::Battleground::BattlefieldStatusFailed battlefieldStatus;
-                sBattlegroundMgr->BuildBattlegroundStatusFailed(&battlefieldStatus, bg, member, 0, MS::Battlegrounds::GroupJoinBattlegroundResult::ERR_BATTLEGROUND_TOO_MANY_QUEUES);
-                auto const& message = battlefieldStatus.Write();
-                SendPacket(message);
-                member->SendDirectMessage(message);
-                return;
-            }
-        }
-
-        ObjectGuid errorGuid;
-        uint8 err = grp->CanJoinBattlegroundQueue(bg, bgQueueTypeId, jointype, false, 0, errorGuid);
-
-        if (!err)
-        {
-            sLFGMgr->InitiBattlgroundCheckRoles(grp, player->GetGUID(), bgTypeId, packet.RolesMask, bgQueueTypeId, WorldPackets::Battleground::IgnorMapInfo(), true);
-            return;
-        }
-
-        for (GroupReference* itr = grp->GetFirstMember(); itr != nullptr; itr = itr->next())
-        {
-            Player* member = itr->getSource();
-            if (!member)
-                continue;
-
-            if (err)
-            {
-                WorldPackets::Battleground::BattlefieldStatusFailed battlefieldStatus;
-                sBattlegroundMgr->BuildBattlegroundStatusFailed(&battlefieldStatus, bg, member, 0, err, &errorGuid);
-                member->SendDirectMessage(battlefieldStatus.Write());
-                continue;
-            }
-        }
-
-        if (err)
-            return;
+        auto check = std::make_shared<SkirmishJoinCheck>();
+        check->Leader = player->GetGUID();
+        check->GroupGuid = grp->GetGUID();
+        for (auto const& slot : grp->GetMemberSlots())
+            check->Members.push_back(slot.Guid);
+        check->BgTypeId = bgTypeId;
+        check->BgQueueTypeId = bgQueueTypeId;
+        check->JoinType = jointype;
+        check->RolesMask = packet.RolesMask;
+        CheckSkirmishMember(check, 0);
+        return;
     }
 
     sBattlegroundMgr->ScheduleQueueUpdate(new QueueSchedulerItem(0, jointype, bgQueueTypeId, bgTypeId, bracketEntry->RangeIndex, Roles(packet.RolesMask)));
@@ -1103,7 +1160,7 @@ void WorldSession::HandleRequstCrowdControlSpell(WorldPackets::Battleground::Req
         if (!foundPlayer)
             return;
 
-        if (Player* opponent = ObjectAccessor::FindPlayer(packet.PlayerGuid))
+        if (Player* opponent = ObjectAccessor::GetPlayer(*_player, packet.PlayerGuid))
         {
             WorldPackets::Battleground::ArenaCrowdControlSpells response;
             response.PlayerGuid = opponent->GetGUID();

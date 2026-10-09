@@ -527,8 +527,12 @@ bool BattlegroundQueue::InviteGroupToBG(GroupQueueInfo* ginfo, Battleground* bg,
             m_events.AddEvent(new BGQueueInviteEvent(itr->first, instanceId, bgTypeId, ginfo->RemoveInviteTime), m_events.CalculateTime(INVITATION_REMIND_TIME));
             m_events.AddEvent(new BGQueueRemoveEvent(itr->first, instanceId, bgTypeId, bgQueueTypeId, ginfo->RemoveInviteTime), m_events.CalculateTime(acceptWaitTime));
 
-            ObjectAccessor::PostToPlayer(itr->first, [instanceId, bgTypeId, bgQueueTypeId, acceptWaitTime, joinType, bracketID](Player* player) -> void
+            auto const roleItr = ginfo->TempRoles.find(itr->first);
+            uint8 const tempRole = roleItr != ginfo->TempRoles.end() ? roleItr->second : 0;
+            ObjectAccessor::PostToPlayer(itr->first, [instanceId, bgTypeId, bgQueueTypeId, acceptWaitTime, joinType, bracketID, tempRole](Player* player) -> void
             {
+                player->SetQueueRoleMask(bracketID, tempRole, true); // 0 included: clears an outdated temporary role
+
                 player->SetInviteForBattlegroundQueueType(bgQueueTypeId, instanceId);
 
                 Battleground* invitedBg = sBattlegroundMgr->GetBattleground(instanceId, bgTypeId);
@@ -664,13 +668,29 @@ bool BattlegroundQueue::CheckPremadeMatch(uint8 bracketID, uint32 MinPlayersPerT
     return false;
 }
 
-void ChooseRoleForTeam(std::vector<Player*>& players, uint8 neededRole, uint8 count, uint8 bracketId)
+// A queued player's requested roles, read once under the accessor lock (he stands on another map); the role the queue
+// picks goes into his group's TempRoles and reaches him with his invitation
+struct QueueRoleCandidate
 {
-    for (Player* player : players)
+    GroupQueueInfo* Group;
+    ObjectGuid Guid;
+    uint8 RoleMask;
+
+    void SetTempRole(uint8 role) const { Group->TempRoles[Guid] = role; }
+};
+
+static bool ReadQueuedRoleMask(ObjectGuid const& guid, uint8 bracketId, uint8& roleMask)
+{
+    return ObjectAccessor::WithPlayer(guid, [&roleMask, bracketId](Player* player) { roleMask = player->GetRequestedQueueRoleMask(bracketId); });
+}
+
+static void ChooseRoleForTeam(std::vector<QueueRoleCandidate>& players, uint8 neededRole, uint8 count)
+{
+    for (QueueRoleCandidate& candidate : players)
     {
-        if (player->GetQueueRoleMask(bracketId) & neededRole)
+        if (candidate.RoleMask & neededRole)
         {
-            player->SetQueueRoleMask(bracketId, neededRole, true);
+            candidate.SetTempRole(neededRole);
             if (--count == 0)
                 return;
         }
@@ -746,7 +766,7 @@ bool BattlegroundQueue::CheckNormalMatch(Battleground* bg_template, uint8 bracke
 
     if (m_SelectionPools[TEAM_ALLIANCE].GetPlayerCount() >= minPlayers && m_SelectionPools[TEAM_HORDE].GetPlayerCount() >= minPlayers)
     {
-        std::vector<Player*> playersWithMultiplyRoles[MAX_TEAMS]; // tank-healer-dd
+        std::vector<QueueRoleCandidate> playersWithMultiplyRoles[MAX_TEAMS]; // tank-healer-dd
         std::map<uint8, uint8> rolesChooseSimply[MAX_TEAMS]; // tank-healer-dd
 
         for (uint8 team = TEAM_ALLIANCE; team < MAX_TEAMS; ++team)
@@ -758,11 +778,12 @@ bool BattlegroundQueue::CheckNormalMatch(Battleground* bg_template, uint8 bracke
             {
                 for (auto& pair : groups->Players)
                 {
-                    if (Player * player = ObjectAccessor::FindPlayer(pair.first))
+                    uint8 roleMask = 0;
+                    if (ReadQueuedRoleMask(pair.first, bracketID, roleMask))
                     {
-                        int8 role = player->GetSingleQueueRole(bracketID);
+                        int8 role = Player::GetSingleQueueRole(roleMask);
                         if (role < 0) // not single role
-                            playersWithMultiplyRoles[team].push_back(player);
+                            playersWithMultiplyRoles[team].push_back({ groups, pair.first, roleMask });
                         else
                             ++rolesChooseSimply[team][role];
                     }
@@ -776,11 +797,11 @@ bool BattlegroundQueue::CheckNormalMatch(Battleground* bg_template, uint8 bracke
         {
             uint8 diff = abs(rolesChooseSimply[TEAM_ALLIANCE][role] - rolesChooseSimply[TEAM_HORDE][role]);
             if (diff > 0)
-                ChooseRoleForTeam(playersWithMultiplyRoles[rolesChooseSimply[TEAM_HORDE][role] < rolesChooseSimply[TEAM_ALLIANCE][role]], rolesArray[role], diff, bracketID);
+                ChooseRoleForTeam(playersWithMultiplyRoles[rolesChooseSimply[TEAM_HORDE][role] < rolesChooseSimply[TEAM_ALLIANCE][role]], rolesArray[role], diff);
         }
 
         for (uint8 i = TEAM_ALLIANCE; i < MAX_TEAMS; ++i) // other players move to dd
-            ChooseRoleForTeam(playersWithMultiplyRoles[i], lfg::LfgRoles::PLAYER_ROLE_DAMAGE, playersWithMultiplyRoles[i].size(), bracketID);
+            ChooseRoleForTeam(playersWithMultiplyRoles[i], lfg::LfgRoles::PLAYER_ROLE_DAMAGE, playersWithMultiplyRoles[i].size());
 
     }
 
@@ -806,33 +827,36 @@ bool BattlegroundQueue::TryChooseCommandWithRoles(uint8 bracketID, uint8 teamid,
             uint8 tempDd = dd;
             bool canUseTeam = true;
 
-            std::list<Player*> players{};
-            for (auto playerGuid : (*itr_team)->Players)
-                if (Player* player = ObjectAccessor::FindPlayer(playerGuid.first))
-                    players.push_back(player);
-
-            players.sort([bracketID](Player* left, Player* right) // try to set at start players with single roles
+            std::list<QueueRoleCandidate> players{};
+            for (auto const& playerPair : (*itr_team)->Players)
             {
-                return left->GetSingleQueueRole(bracketID) > right->GetSingleQueueRole(bracketID);
+                uint8 roleMask = 0;
+                if (ReadQueuedRoleMask(playerPair.first, bracketID, roleMask))
+                    players.push_back({ *itr_team, playerPair.first, roleMask });
+            }
+
+            players.sort([](QueueRoleCandidate const& left, QueueRoleCandidate const& right) // try to set at start players with single roles
+            {
+                return Player::GetSingleQueueRole(left.RoleMask) > Player::GetSingleQueueRole(right.RoleMask);
             });
 
-            for (auto player : players)
+            for (QueueRoleCandidate& candidate : players)
             {
-                uint8 roleMask = player->GetQueueRoleMask(bracketID);
+                uint8 roleMask = candidate.RoleMask;
                 if (tempHealers > 0 && roleMask & lfg::PLAYER_ROLE_HEALER)
                 {
                     --tempHealers;
-                    player->SetQueueRoleMask(bracketID, lfg::PLAYER_ROLE_HEALER, true);
+                    candidate.SetTempRole(lfg::PLAYER_ROLE_HEALER);
                 }
                 else if (tempTanks > 0 && roleMask & lfg::PLAYER_ROLE_TANK)
                 {
                     --tempTanks;
-                    player->SetQueueRoleMask(bracketID, lfg::PLAYER_ROLE_TANK, true);
+                    candidate.SetTempRole(lfg::PLAYER_ROLE_TANK);
                 }
                 else if (tempDd > 0 && roleMask & lfg::PLAYER_ROLE_DAMAGE)
                 {
                     --tempDd;
-                    player->SetQueueRoleMask(bracketID, lfg::PLAYER_ROLE_DAMAGE, true);
+                    candidate.SetTempRole(lfg::PLAYER_ROLE_DAMAGE);
                 }
                 else
                 {

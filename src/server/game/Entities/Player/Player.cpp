@@ -34472,29 +34472,52 @@ void Player::ForceChangeTalentGroup(uint32 specId)
     }
 }
 
+void Player::SetQueueRoleMask(uint8 bracketId, uint8 roleMask, bool temp)
+{
+    if (bracketId >= MS::Battlegrounds::MaxBrackets)
+        return;
+
+    if (temp)
+        m_bgQueueRolesTemp[bracketId] = roleMask;
+    else
+        m_bgQueueRoles[bracketId].store(roleMask, std::memory_order_relaxed);
+}
+
 uint8 Player::GetQueueRoleMask(uint8 bracketId, bool temp) const
 {
-    if (!temp)
+    if (bracketId < MS::Battlegrounds::MaxBrackets)
     {
-        auto itr = m_bgQueueRoles.find(bracketId);
-        if (itr != m_bgQueueRoles.end())
-            return (*itr).second;
-        else
-            return GetSpecializationRoleMaskForGroup();
+        if (temp && m_bgQueueRolesTemp[bracketId])
+            return m_bgQueueRolesTemp[bracketId];
+
+        if (uint8 roleMask = m_bgQueueRoles[bracketId].load(std::memory_order_relaxed))
+            return roleMask;
     }
-    else
+
+    return GetSpecializationRoleMaskForGroup();
+}
+
+uint8 Player::GetRequestedQueueRoleMask(uint8 bracketId) const
+{
+    if (bracketId < MS::Battlegrounds::MaxBrackets)
+        if (uint8 roleMask = m_bgQueueRoles[bracketId].load(std::memory_order_relaxed))
+            return roleMask;
+
+    switch (GetSpecializationRole())
     {
-        auto itr = m_bgQueueRolesTemp.find(bracketId);
-        if (itr != m_bgQueueRolesTemp.end())
-            return (*itr).second;
-        else
-            return GetQueueRoleMask(bracketId, false);
+        case ROLES_HEALER:
+            return lfg::LfgRoles::PLAYER_ROLE_HEALER;
+        case ROLES_DPS:
+            return lfg::LfgRoles::PLAYER_ROLE_DAMAGE;
+        case ROLES_TANK:
+            return lfg::LfgRoles::PLAYER_ROLE_TANK;
+        default:
+            return lfg::LfgRoles::PLAYER_ROLE_NONE;
     }
 }
 
-int8 Player::GetSingleQueueRole(uint8 bracketId) const
+int8 Player::GetSingleQueueRole(uint8 roleMask)
 {
-    auto roleMask = GetQueueRoleMask(bracketId);
     if (roleMask == lfg::LfgRoles::PLAYER_ROLE_TANK)
         return ROLES_TANK;
     if (roleMask == lfg::LfgRoles::PLAYER_ROLE_HEALER)
