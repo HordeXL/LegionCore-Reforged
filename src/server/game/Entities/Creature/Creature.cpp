@@ -1252,7 +1252,7 @@ void Creature::RegenerateHealth()
 
     // Not only pet, but any controlled creature
     if (GetCharmerOrOwnerGUID())
-        addvalue = uint32(24.376 * sWorld->getRate(RATE_HEALTH));
+        addvalue = uint64(0.015f * float(maxValue) * sWorld->getRate(RATE_HEALTH));   // 1.5 % per tick, as TrinityCore: a flat 24 was nothing at Legion health
     else
         addvalue = maxValue / 1.2;
 
