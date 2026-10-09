@@ -41,7 +41,23 @@ public:
 
     Scenario* AddScenario(Map* map, lfg::LFGDungeonData const* _dungeonData, Player* player, bool find = false);
     void RemoveScenario(uint32 instanceId);
+    // The scenario is deleted by RemoveScenario when its map is destroyed: the pointer is only valid for code running in
+    // the thread of that map. From another thread (a group member elsewhere, a world update) use WithScenario.
     Scenario* GetScenario(uint32 instanceId);
+
+    // Runs fn(Scenario*) under the store lock, so that RemoveScenario waits for it. Short reads only: fn must not call
+    // ScenarioMgr nor take a domain lock (the store lock is one). False when the instance has no scenario.
+    template<class Fn>
+    bool WithScenario(uint32 instanceId, Fn&& fn)
+    {
+        std::shared_lock<std::shared_mutex> lock(_scenarioLock);
+        ScenarioMap::iterator itr = _scenarioStore.find(instanceId);
+        if (itr == _scenarioStore.end())
+            return false;
+
+        fn(itr->second);
+        return true;
+    }
 
     ScenarioSteps const* GetScenarioSteps(uint32 scenarioId, bool Teeming = false);
     bool HasScenarioStep(lfg::LFGDungeonData const* _dungeonData, Player* player);

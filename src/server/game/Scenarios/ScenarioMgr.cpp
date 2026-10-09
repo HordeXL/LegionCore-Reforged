@@ -67,13 +67,20 @@ ScenarioMgr* ScenarioMgr::instance()
 
 void ScenarioMgr::RemoveScenario(uint32 instanceId)
 {
-    std::unique_lock<std::shared_mutex> lock(_scenarioLock);
-    ScenarioMap::iterator itr = _scenarioStore.find(instanceId);
-    if (itr == _scenarioStore.end())
-        return;
+    Scenario* scenario;
+    {
+        // waits for the WithScenario readers; nobody can find it once it is out of the store
+        std::unique_lock<std::shared_mutex> lock(_scenarioLock);
+        ScenarioMap::iterator itr = _scenarioStore.find(instanceId);
+        if (itr == _scenarioStore.end())
+            return;
 
-    delete itr->second;
-    _scenarioStore.erase(itr);
+        scenario = itr->second;
+        _scenarioStore.erase(itr);
+    }
+
+    // outside the lock: the destructor ends the challenge, which posts to players and calls other managers
+    delete scenario;
 }
 
 ScenarioSteps const* ScenarioMgr::GetScenarioSteps(uint32 scenarioId, bool Teeming)
@@ -86,12 +93,19 @@ ScenarioSteps const* ScenarioMgr::GetScenarioSteps(uint32 scenarioId, bool Teemi
 
 Scenario* ScenarioMgr::AddScenario(Map* map, lfg::LFGDungeonData const* dungeonData, Player* player, bool find)
 {
-    std::unique_lock<std::shared_mutex> lock(_scenarioLock);
-    if (_scenarioStore.find(map->GetInstanceId()) != _scenarioStore.end())
-        return nullptr;
+    // only the thread of the map adds its scenario, so the check cannot be outrun; built outside the lock
+    {
+        std::shared_lock<std::shared_mutex> lock(_scenarioLock);
+        if (_scenarioStore.find(map->GetInstanceId()) != _scenarioStore.end())
+            return nullptr;
+    }
 
     Scenario* scenario = new Scenario(map, dungeonData, player, find);
-    _scenarioStore[map->GetInstanceId()] = scenario;
+    {
+        std::unique_lock<std::shared_mutex> lock(_scenarioLock);
+        _scenarioStore[map->GetInstanceId()] = scenario;
+    }
+
     map->m_scenarios.insert(scenario);
     return scenario;
 }

@@ -3686,20 +3686,22 @@ void Player::RemoveFromGroup(Group* group, ObjectGuid guid, RemoveMethod method 
 {
     if (group)
     {
-        if (Scenario* progress = sScenarioMgr->GetScenario(group->m_challengeInstanceID))
+        // the scenario belongs to another map's thread: its state is copied under the store lock
+        bool chargeKey = false;
+        sScenarioMgr->WithScenario(group->m_challengeInstanceID, [&chargeKey, &group, &guid](Scenario* progress)
         {
             if (Challenge* _challenge = progress->GetChallenge())
-            {
-                if (guid == group->m_challengeOwner && !_challenge->_complete && _challenge->_run)
+                chargeKey = guid == group->m_challengeOwner && !_challenge->_complete && _challenge->_run;
+        });
+
+        if (chargeKey)
+        {
+            // the kicker may be on another map: the owner's item and key change on the owner's own thread
+            if (!ObjectAccessor::PostToPlayer(guid, [](Player* keyOwner) -> void
                 {
-                    // the kicker may be on another map: the owner's item and key change on the owner's own thread
-                    if (!ObjectAccessor::PostToPlayer(guid, [](Player* keyOwner) -> void
-                        {
-                            keyOwner->ChallengeKeyCharded(keyOwner->GetItemByEntry(138019, true), keyOwner->m_challengeKeyInfo.Level, false);
-                        }, 1, ObjectAccessor::PlayerScope::InWorld))
-                        CharacterDatabase.PExecute("UPDATE challenge_key SET KeyIsCharded = 0, InstanceID = 0 WHERE guid = %u", guid.GetGUIDLow());
-                }
-            }
+                    keyOwner->ChallengeKeyCharded(keyOwner->GetItemByEntry(138019, true), keyOwner->m_challengeKeyInfo.Level, false);
+                }, 1, ObjectAccessor::PlayerScope::InWorld))
+                CharacterDatabase.PExecute("UPDATE challenge_key SET KeyIsCharded = 0, InstanceID = 0 WHERE guid = %u", guid.GetGUIDLow());
         }
 
         group->RemoveMember(guid, false, method, kicker, reason);
