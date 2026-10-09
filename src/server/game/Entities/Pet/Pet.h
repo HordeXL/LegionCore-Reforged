@@ -139,6 +139,7 @@ class TC_GAME_API Pet : public Guardian
         AutoSpellList   m_autospells;
         AutoSpellList   m_castspells;
         PetSpellMap     m_spells;
+        uint64  m_pendingHealth = 0;                        // saved health, given back once the maximum is computed (it is 1 while the owner loads)
         bool    m_removed;                                  // prevent overwrite pet state in DB at next Pet::Update if pet already removed(saved)
 
         Unit* GetOwner() { return m_owner; }

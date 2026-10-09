@@ -400,7 +400,7 @@ bool Pet::LoadPetFromDB(Player* owner, uint32 petEntry, uint32 petnumber, bool c
         owner->ToPlayer()->SetLastPetNumber(petInfo->PetNumber);
 
     owner->GetSession()->AddQueryHolderCallback(CharacterDatabase.DelayQueryHolder(std::make_shared<PetLoadQueryHolder>(ownerid, petInfo->PetNumber)))
-    .AfterComplete([this, owner, session = owner->GetSession(), isTemporarySummon, current, lastSaveTime = petInfo->LastSaveTime, specializationId = petInfo->SpecializationId](SQLQueryHolderBase const& holder)
+    .AfterComplete([this, owner, session = owner->GetSession(), isTemporarySummon, current, lastSaveTime = petInfo->LastSaveTime, specializationId = petInfo->SpecializationId, savedHealth = petInfo->Health](SQLQueryHolderBase const& holder)
     {
         if (session->GetPlayer() != owner || owner->GetPet() != this)
             return;
@@ -457,6 +457,15 @@ bool Pet::LoadPetFromDB(Player* owner, uint32 petEntry, uint32 petnumber, bool c
         {
             CleanupActionBar(); // remove unknown spells from action bar after load
             owner->PetSpellInitialize();
+        }
+
+        // the saved health was cut to the maximum of a pet still loading: without this, every relog took a share of
+        // the pet's health, down to a pet shown dead
+        if (current && savedHealth && IsAlive())
+        {
+            UpdateMaxHealth();
+            m_pendingHealth = savedHealth;
+            SetHealth(std::min<uint64>(savedHealth, GetMaxHealth()));
         }
 
         SetGroupUpdateFlag(GROUP_UPDATE_PET_FULL);
@@ -531,7 +540,7 @@ void Pet::SavePetToDB(PetSaveMode mode)
         mode = PET_SAVE_NOT_IN_SLOT;
     }
 
-    uint32 curhealth = GetHealth();
+    uint32 curhealth = m_pendingHealth ? m_pendingHealth : GetHealth();
     uint32 curmana = GetPower(POWER_MANA);
 
     CharacterDatabaseTransaction trans = CharacterDatabase.BeginTransaction();
@@ -609,7 +618,7 @@ void Pet::FillPetInfo(PetStable::PetInfo* petInfo) const
     petInfo->ReactState = m_reactState;
     petInfo->Name = GetName();
     petInfo->WasRenamed = !HasByteFlag(UNIT_FIELD_BYTES_2, UNIT_BYTES_2_OFFSET_PET_FLAGS, UNIT_CAN_BE_RENAMED);
-    petInfo->Health = GetHealth();
+    petInfo->Health = m_pendingHealth ? m_pendingHealth : GetHealth();
     petInfo->Mana = GetPower(POWER_MANA);
     petInfo->ActionBar = GenerateActionBarData();
     petInfo->LastSaveTime = GameTime::GetGameTime();
@@ -692,6 +701,13 @@ void Pet::Update(uint32 diff)
 
     if (m_loading)
         return;
+
+    if (m_pendingHealth && GetMaxHealth() > 1)
+    {
+        if (IsAlive())
+            SetHealth(std::min<uint64>(m_pendingHealth, GetMaxHealth()));
+        m_pendingHealth = 0;
+    }
     
     Unit* owner = GetOwner();
     if (!owner || !owner->IsPlayer() || m_isUpdate)
