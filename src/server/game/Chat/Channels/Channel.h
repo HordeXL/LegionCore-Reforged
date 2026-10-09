@@ -20,7 +20,8 @@
 #define _CHANNEL_H
 
 #include "Common.h"
-#include "LockedMap.h"
+#include <map>
+#include <mutex>
 #include "Player.h"
 
 namespace WorldPackets
@@ -138,7 +139,11 @@ class Channel
         void SetMuted(bool state);
     };
 
-    typedef Trinity::LockedMap<ObjectGuid, PlayerInfo> PlayerList;
+    // One lock for the whole state of the channel below (members, bans, owner, password, flags). Recursive: the
+    // commands call each other. It is a domain lock: taken before the player table, never inside ObjectAccessor::WithPlayer.
+    mutable std::recursive_mutex _lock;
+
+    typedef std::map<ObjectGuid, PlayerInfo> PlayerList;
     PlayerList _playersStore;
     GuidSet _bannedStore;
     ObjectGuid _ownerGuid;
@@ -152,9 +157,12 @@ class Channel
     bool _isSaved;
 
 
+    // The private helpers below expect _lock to be held by the caller.
     bool IsBanned(ObjectGuid guid) const;
 
     bool IsWorld() const;
+
+    void ResetIfEmpty();
 
     void UpdateChannelInDB() const;
     void UpdateChannelUseageInDB() const;
@@ -163,6 +171,12 @@ class Channel
 
     void SetModerator(ObjectGuid const& guid, bool set);
     void SetMute(ObjectGuid const& guid, bool set);
+
+    // Builds the packet once per client locale, outside the player table lock, then hands it to send(guid, packet)
+    template <class Builder, class Filter, class Sender>
+    void Deliver(std::vector<ObjectGuid> const& targets, Builder& builder, Filter&& filter, Sender&& send) const;
+
+    std::vector<ObjectGuid> GetMemberGuids() const;
 
     template <class Builder>
     void SendToAll(Builder& builder, ObjectGuid const& guid = ObjectGuid::Empty) const;
@@ -181,12 +195,12 @@ public:
     std::string GetName() const { return _channelName; }
     uint32 GetChannelId() const { return _channelId; }
     bool IsConstant() const { return _channelId != 0 || _special; }
-    bool IsAnnounce() const { return _announceEnabled; }
+    bool IsAnnounce() const { std::lock_guard<std::recursive_mutex> guard(_lock); return _announceEnabled; }
     bool IsLFG() const { return GetFlags() & CHANNEL_FLAG_LFG; }
-    std::string GetPassword() const { return _channelPassword; }
-    void SetPassword(std::string const& npassword) { _channelPassword = npassword; }
-    void SetAnnounce(bool nannounce) { _announceEnabled = nannounce; }
-    uint32 GetNumPlayers() const { return _playersStore.size(); }
+    std::string GetPassword() const { std::lock_guard<std::recursive_mutex> guard(_lock); return _channelPassword; }
+    void SetPassword(std::string const& npassword) { std::lock_guard<std::recursive_mutex> guard(_lock); _channelPassword = npassword; }
+    void SetAnnounce(bool nannounce) { std::lock_guard<std::recursive_mutex> guard(_lock); _announceEnabled = nannounce; }
+    uint32 GetNumPlayers() const { std::lock_guard<std::recursive_mutex> guard(_lock); return _playersStore.size(); }
     bool IsOn(ObjectGuid who) const;
     uint8 GetFlags() const { return _channelFlags; }
     bool HasFlag(uint8 flag) const { return _channelFlags & flag; }
@@ -215,7 +229,7 @@ public:
     void LeaveNotify(ObjectGuid const& guid);                                          // invisible notify
     void SilenceAll(Player const* player, std::string const& name);
     void UnsilenceAll(Player const* player, std::string const& name);
-    void SetOwnership(bool ownership) { _ownershipEnabled = ownership; };
+    void SetOwnership(bool ownership) { std::lock_guard<std::recursive_mutex> guard(_lock); _ownershipEnabled = ownership; };
     static void CleanOldChannelsInDB();
 
     void AddonSay(ObjectGuid const& guid, std::string const& prefix, std::string const& what);

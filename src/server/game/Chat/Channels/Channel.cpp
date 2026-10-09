@@ -16,7 +16,9 @@
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
  
+#include <algorithm>
 #include <cwctype>
+#include <memory>
 
 #include "AccountMgr.h"
 #include "Channel.h"
@@ -25,11 +27,47 @@
 #include "Chat.h"
 #include "ChatPackets.h"
 #include "DatabaseEnv.h"
+#include "ObjectAccessor.h"
 #include "ObjectMgr.h"
 #include "SocialMgr.h"
 #include "WordFilterMgr.h"
 #include "World.h"
 #include "GridNotifiersImpl.h"
+
+namespace
+{
+    // The player a command names, read in one short access: his Player object belongs to another map thread
+    struct ChannelTarget
+    {
+        ObjectGuid guid;
+        AccountTypes security = SEC_PLAYER;
+        uint32 team = 0;
+        bool gmVisible = true;
+        bool ignoresAsker = false;
+        std::string name;
+    };
+
+    bool ResolveTarget(std::string const& name, ChannelTarget& target, ObjectGuid const& asker = ObjectGuid::Empty)
+    {
+        ObjectGuid guid = ObjectAccessor::FindPlayerGuidByName(name);
+        if (guid.IsEmpty())
+            return false;
+
+        bool const found = ObjectAccessor::WithPlayer(guid, [&target, &asker](Player* member)
+        {
+            target.security = member->GetSession()->GetSecurity();
+            target.team = member->GetTeam();
+            target.gmVisible = member->isGMVisible();
+            target.name = member->GetName();
+            if (!asker.IsEmpty())
+                target.ignoresAsker = member->GetSocial()->HasIgnore(asker);
+        }, ObjectAccessor::PlayerScope::InOrOutOfWorld);   // a player on a loading screen can still be named
+
+        if (found)
+            target.guid = guid;
+        return found;
+    }
+}
 
 Channel::Channel(std::string const& name, uint32 channel_id, uint32 Team) : _channelFlags(0), _channelId(channel_id), _channelName(name), _channelPassword(""), _announceEnabled(false), _special(false), _ownershipEnabled(true), m_Team(Team)
 {
@@ -164,6 +202,7 @@ void Channel::PlayerInfo::SetMuted(bool state)
 
 bool Channel::IsOn(ObjectGuid who) const
 {
+    std::lock_guard<std::recursive_mutex> guard(_lock);
     return _playersStore.find(who) != _playersStore.end();
 }
 
@@ -180,6 +219,23 @@ bool Channel::IsWorld() const
         lowername.push_back(std::towlower(_channelName[i]));
 
     return lowername == "world" || lowername == "all";
+}
+
+// A channel is never freed (another thread may still hold its pointer): an empty custom one starts again as a new
+// channel when it is joined, as it did when it was deleted and created anew
+void Channel::ResetIfEmpty()
+{
+    if (IsConstant() || !_playersStore.empty())
+        return;
+
+    _ownerGuid = ObjectGuid::Empty;
+    if (_isSaved)
+        return;                                             // announce, ownership, password and bans are kept in the database
+
+    _announceEnabled = false;
+    _ownershipEnabled = true;
+    _channelPassword.clear();
+    _bannedStore.clear();
 }
 
 void Channel::UpdateChannelInDB() const
@@ -236,6 +292,9 @@ void Channel::CleanOldChannelsInDB()
 
 void Channel::JoinChannel(Player* player, std::string const& pass, bool /*clientRequest*/)
 {
+    std::lock_guard<std::recursive_mutex> guard(_lock);
+    ResetIfEmpty();
+
     ObjectGuid const& guid = player->GetGUID();
     if (IsOn(guid))
     {
@@ -316,6 +375,7 @@ void Channel::JoinChannel(Player* player, std::string const& pass, bool /*client
 
 void Channel::LeaveChannel(Player* player, bool send, bool clientRequest)
 {
+    std::lock_guard<std::recursive_mutex> guard(_lock);
     ObjectGuid const& guid = player->GetGUID();
     if (!IsOn(guid))
     {
@@ -373,6 +433,7 @@ void Channel::LeaveChannel(Player* player, bool send, bool clientRequest)
 
 void Channel::KickOrBan(Player const* player, std::string const& badname, bool ban)
 {
+    std::lock_guard<std::recursive_mutex> guard(_lock);
     ObjectGuid const& good = player->GetGUID();
 
     if (!IsOn(good))
@@ -394,8 +455,7 @@ void Channel::KickOrBan(Player const* player, std::string const& badname, bool b
         return;
     }
 
-    Player* bad = ObjectAccessor::FindPlayerByName(badname);
-    ObjectGuid const& victim = bad ? bad->GetGUID() : ObjectGuid::Empty;
+    ObjectGuid const victim = ObjectAccessor::FindPlayerGuidByName(badname);
     // kicking oneself erased the entry that info (above) still refers to, then wrote into it
     if (!victim || !IsOn(victim) || victim == good)
     {
@@ -435,7 +495,8 @@ void Channel::KickOrBan(Player const* player, std::string const& badname, bool b
     }
 
     _playersStore.erase(victim);
-    bad->LeftChannel(this, true);
+    // his channel list belongs to his own thread
+    ObjectAccessor::PostToPlayer(victim, [this](Player* member) { member->LeftChannel(this, true); });
 
     if (changeowner && _ownershipEnabled && !_playersStore.empty())
     {
@@ -446,6 +507,7 @@ void Channel::KickOrBan(Player const* player, std::string const& badname, bool b
 
 void Channel::UnBan(Player const* player, std::string const& badname)
 {
+    std::lock_guard<std::recursive_mutex> guard(_lock);
     ObjectGuid const& good = player->GetGUID();
 
     if (!IsOn(good))
@@ -465,8 +527,7 @@ void Channel::UnBan(Player const* player, std::string const& badname)
         return;
     }
 
-    Player* bad = ObjectAccessor::FindPlayerByName(badname);
-    ObjectGuid victim = bad ? bad->GetGUID() : ObjectGuid::Empty;
+    ObjectGuid const victim = ObjectAccessor::FindPlayerGuidByName(badname);
 
     if (victim.IsEmpty() || !IsBanned(victim))
     {
@@ -487,6 +548,7 @@ void Channel::UnBan(Player const* player, std::string const& badname)
 
 void Channel::Password(Player const* player, std::string const& pass)
 {
+    std::lock_guard<std::recursive_mutex> guard(_lock);
     ObjectGuid const& guid = player->GetGUID();
     if (!IsOn(guid))
     {
@@ -516,6 +578,7 @@ void Channel::Password(Player const* player, std::string const& pass)
 
 void Channel::SetMode(Player const* player, std::string const& p2n, bool mod, bool set)
 {
+    std::lock_guard<std::recursive_mutex> guard(_lock);
     ObjectGuid const& guid = player->GetGUID();
     if (!IsOn(guid))
     {
@@ -537,12 +600,13 @@ void Channel::SetMode(Player const* player, std::string const& p2n, bool mod, bo
     if (guid == _ownerGuid && p2n == player->GetName() && mod)
         return;
 
-    Player* newp = ObjectAccessor::FindPlayerByName(p2n);
-    ObjectGuid victim = newp ? newp->GetGUID() : ObjectGuid::Empty;
+    ChannelTarget target;
+    bool const found = ResolveTarget(p2n, target);
+    ObjectGuid const victim = target.guid;
 
     // allow make moderator from another team only if both is GMs at this moment this only way to show channel post for GM from another team
-    if (newp && (!AccountMgr::IsModeratorAccount(player->GetSession()->GetSecurity()) || !AccountMgr::IsModeratorAccount(newp->GetSession()->GetSecurity())) &&
-        player->GetTeam() != newp->GetTeam() && !sWorld->getBoolConfig(CONFIG_ALLOW_TWO_SIDE_INTERACTION_CHANNEL))
+    if (found && (!AccountMgr::IsModeratorAccount(player->GetSession()->GetSecurity()) || !AccountMgr::IsModeratorAccount(target.security)) &&
+        player->GetTeam() != target.team && !sWorld->getBoolConfig(CONFIG_ALLOW_TWO_SIDE_INTERACTION_CHANNEL))
     {
         PlayerNotFoundAppend appender(p2n);
         ChannelNameBuilder<PlayerNotFoundAppend> builder(this, appender);
@@ -558,17 +622,18 @@ void Channel::SetMode(Player const* player, std::string const& p2n, bool mod, bo
         return;
     }
 
-    if (newp)
+    if (found)
     {
         if (mod)
-            SetModerator(newp->GetGUID(), set);
+            SetModerator(victim, set);
         else
-            SetMute(newp->GetGUID(), set);
+            SetMute(victim, set);
     }
 }
 
 void Channel::_SetOwner(Player const* player, std::string const& newname)
 {
+    std::lock_guard<std::recursive_mutex> guard(_lock);
     ObjectGuid const& guid = player->GetGUID();
 
     if (!IsOn(guid))
@@ -587,11 +652,11 @@ void Channel::_SetOwner(Player const* player, std::string const& newname)
         return;
     }
 
-    Player* newp = ObjectAccessor::FindPlayerByName(newname);
-    ObjectGuid victim = newp ? newp->GetGUID() : ObjectGuid::Empty;
+    ChannelTarget target;
+    ObjectGuid const victim = ResolveTarget(newname, target) ? target.guid : ObjectGuid::Empty;
 
     // the new owner must be a member: an unknown name made an empty guid owner, anyone else a member without joining
-    if (!newp || !IsOn(victim) || (newp->GetTeam() != player->GetTeam() && !sWorld->getBoolConfig(CONFIG_ALLOW_TWO_SIDE_INTERACTION_CHANNEL)))
+    if (!victim || !IsOn(victim) || (target.team != player->GetTeam() && !sWorld->getBoolConfig(CONFIG_ALLOW_TWO_SIDE_INTERACTION_CHANNEL)))
     {
         PlayerNotFoundAppend appender(newname);
         ChannelNameBuilder<PlayerNotFoundAppend> builder(this, appender);
@@ -606,6 +671,7 @@ void Channel::_SetOwner(Player const* player, std::string const& newname)
 
 void Channel::SendWhoOwner(Player const* player)
 {
+    std::lock_guard<std::recursive_mutex> guard(_lock);
     ObjectGuid const& guid = player->GetGUID();
     if (IsOn(guid))
     {
@@ -623,6 +689,7 @@ void Channel::SendWhoOwner(Player const* player)
 
 void Channel::List(Player const* player)
 {
+    std::lock_guard<std::recursive_mutex> guard(_lock);
     ObjectGuid const& guid = player->GetGUID();
     if (!IsOn(guid))
     {
@@ -639,13 +706,19 @@ void Channel::List(Player const* player)
 
     uint32 gmLevelInWhoList = sWorld->getIntConfig(CONFIG_GM_LEVEL_IN_WHO_LIST);
 
+    bool const viewerIsPlayer = AccountMgr::IsPlayerAccount(player->GetSession()->GetSecurity());
+
     list._Members.reserve(_playersStore.size());
     for (auto const& i : _playersStore)
     {
-        Player* member = ObjectAccessor::FindPlayer(i.first);
+        bool visible = false;
+        ObjectAccessor::WithPlayer(i.first, [&](Player* member)
+        {
+            // PLAYER can't see MODERATOR, GAME MASTER, ADMINISTRATOR characters: MODERATOR, GAME MASTER, ADMINISTRATOR can see all
+            visible = (!viewerIsPlayer || member->GetSession()->GetSecurity() <= AccountTypes(gmLevelInWhoList)) && member->IsVisibleGloballyFor(player);
+        });
 
-        // PLAYER can't see MODERATOR, GAME MASTER, ADMINISTRATOR characters: MODERATOR, GAME MASTER, ADMINISTRATOR can see all
-        if (member && (!AccountMgr::IsPlayerAccount(player->GetSession()->GetSecurity()) || member->GetSession()->GetSecurity() <= AccountTypes(gmLevelInWhoList)) && member->IsVisibleGloballyFor(player))
+        if (visible)
             list._Members.emplace_back(i.second.player, GetVirtualRealmAddress(), i.second.flags);
     }
 
@@ -654,6 +727,7 @@ void Channel::List(Player const* player)
 
 void Channel::Announce(Player const* player)
 {
+    std::lock_guard<std::recursive_mutex> guard(_lock);
     ObjectGuid const& guid = player->GetGUID();
 
     if (!IsOn(guid))
@@ -697,6 +771,8 @@ void Channel::Say(ObjectGuid const& guid, std::string const& what, uint32 lang, 
     if (what.empty())
         return;
 
+    std::lock_guard<std::recursive_mutex> guard(_lock);
+    // the speaker's own packet handler runs in his thread
     Player* player = ObjectAccessor::FindPlayer(guid);
     if (player)
         lang = player->GetTeam() == HORDE ? LANG_ORCISH : LANG_COMMON;
@@ -748,6 +824,7 @@ void Channel::Invite(Player const* player, std::string const& newname)
         if (!sWordFilterMgr->FindBadWord(newname, true).empty())
             return;
 
+    std::lock_guard<std::recursive_mutex> guard(_lock);
     ObjectGuid const& guid = player->GetGUID();
     if (!IsOn(guid))
     {
@@ -757,8 +834,8 @@ void Channel::Invite(Player const* player, std::string const& newname)
         return;
     }
 
-    Player* newp = ObjectAccessor::FindPlayerByName(newname);
-    if (!newp || !newp->isGMVisible())
+    ChannelTarget target;
+    if (!ResolveTarget(newname, target, guid) || !target.gmVisible)
     {
         PlayerNotFoundAppend appender(newname);
         ChannelNameBuilder<PlayerNotFoundAppend> builder(this, appender);
@@ -766,7 +843,7 @@ void Channel::Invite(Player const* player, std::string const& newname)
         return;
     }
 
-    if (IsBanned(newp->GetGUID()))
+    if (IsBanned(target.guid))
     {
         PlayerInviteBannedAppend appender(newname);
         ChannelNameBuilder<PlayerInviteBannedAppend> builder(this, appender);
@@ -774,7 +851,7 @@ void Channel::Invite(Player const* player, std::string const& newname)
         return;
     }
 
-    if (newp->GetTeam() != player->GetTeam() && !sWorld->getBoolConfig(CONFIG_ALLOW_TWO_SIDE_INTERACTION_CHANNEL))
+    if (target.team != player->GetTeam() && !sWorld->getBoolConfig(CONFIG_ALLOW_TWO_SIDE_INTERACTION_CHANNEL))
     {
         InviteWrongFactionAppend appender;
         ChannelNameBuilder<InviteWrongFactionAppend> builder(this, appender);
@@ -782,28 +859,29 @@ void Channel::Invite(Player const* player, std::string const& newname)
         return;
     }
 
-    if (IsOn(newp->GetGUID()))
+    if (IsOn(target.guid))
     {
-        PlayerAlreadyMemberAppend appender(newp->GetGUID());
+        PlayerAlreadyMemberAppend appender(target.guid);
         ChannelNameBuilder<PlayerAlreadyMemberAppend> builder(this, appender);
         SendToOne(builder, guid);
         return;
     }
 
-    if (!newp->GetSocial()->HasIgnore(guid))
+    if (!target.ignoresAsker)
     {
         InviteAppend appender(guid);
         ChannelNameBuilder<InviteAppend> builder(this, appender);
-        SendToOne(builder, newp->GetGUID());
+        SendToOne(builder, target.guid);
     }
 
-    PlayerInvitedAppend appender(newp->GetName());
+    PlayerInvitedAppend appender(target.name);
     ChannelNameBuilder<PlayerInvitedAppend> builder(this, appender);
     SendToOne(builder, guid);
 }
 
 void Channel::SetOwner(ObjectGuid const& guid, bool exclaim)
 {
+    std::lock_guard<std::recursive_mutex> guard(_lock);
     if (!_ownerGuid.IsEmpty())
     {
         auto itr = _playersStore.find(_ownerGuid);
@@ -851,6 +929,7 @@ void Channel::UnsilenceAll(Player const* /*player*/, std::string const& /*name*/
 
 void Channel::JoinNotify(ObjectGuid const& guid)
 {
+    std::lock_guard<std::recursive_mutex> guard(_lock);
     if (IsConstant())
     {
         auto builder = [&](LocaleConstant locale)
@@ -885,6 +964,7 @@ void Channel::JoinNotify(ObjectGuid const& guid)
 
 void Channel::LeaveNotify(ObjectGuid const& guid)
 {
+    std::lock_guard<std::recursive_mutex> guard(_lock);
     auto builder = [&](LocaleConstant locale)
     {
         auto userlistRemove = new WorldPackets::Channel::UserlistRemove();
@@ -940,6 +1020,7 @@ void Channel::AddonSay(ObjectGuid const& guid, std::string const& prefix, std::s
     if (what.empty())
         return;
 
+    std::lock_guard<std::recursive_mutex> guard(_lock);
     if (!IsOn(guid))
     {
         NotMemberAppend appender;
@@ -960,6 +1041,7 @@ void Channel::AddonSay(ObjectGuid const& guid, std::string const& prefix, std::s
     auto builder = [&](LocaleConstant locale)
     {
         auto packet = new WorldPackets::Chat::Chat();
+        // the speaker's own packet handler runs in his thread
         if (auto player = ObjectAccessor::FindPlayer(guid))
             packet->Initialize(CHAT_MSG_CHANNEL, LANG_ADDON, player, player, what, 0, GetName(), DEFAULT_LOCALE, prefix);
         else
@@ -975,44 +1057,87 @@ void Channel::AddonSay(ObjectGuid const& guid, std::string const& prefix, std::s
     SendToAllWithAddon(builder, prefix, !_playersStore[guid].IsModerator() ? guid : ObjectGuid::Empty);
 }
 
+std::vector<ObjectGuid> Channel::GetMemberGuids() const
+{
+    std::lock_guard<std::recursive_mutex> guard(_lock);
+
+    std::vector<ObjectGuid> guids;
+    guids.reserve(_playersStore.size());
+    for (auto const& i : _playersStore)
+        guids.push_back(i.first);
+    return guids;
+}
+
+template <class Builder, class Filter, class Sender>
+void Channel::Deliver(std::vector<ObjectGuid> const& targets, Builder& builder, Filter&& filter, Sender&& send) const
+{
+    std::lock_guard<std::recursive_mutex> guard(_lock);
+
+    std::map<LocaleConstant, std::shared_ptr<WorldPackets::Packet>> packets;
+    for (ObjectGuid const& target : targets)
+    {
+        bool accepted = false;
+        LocaleConstant locale = LOCALE_enUS;
+        ObjectAccessor::WithPlayer(target, [&](Player* member)
+        {
+            accepted = filter(member);
+            locale = member->GetSession()->GetSessionDbLocaleIndex();
+        });
+
+        if (!accepted)
+            continue;
+
+        std::shared_ptr<WorldPackets::Packet>& packet = packets[locale];
+        if (!packet)
+        {
+            packet.reset(builder(locale));
+            packet->Write();
+        }
+
+        send(target, packet);
+    }
+}
+
+namespace
+{
+    bool AlwaysAccept(Player*) { return true; }
+
+    void SendNow(ObjectGuid const& guid, std::shared_ptr<WorldPackets::Packet> const& packet)
+    {
+        ObjectAccessor::SendToPlayer(guid, packet->GetRawPacket());
+    }
+}
+
 template <class Builder>
 void Channel::SendToAll(Builder& builder, ObjectGuid const& guid) const
 {
-    Trinity::LocalizedPacketDo<Builder> localizer(builder);
-
-    for (auto const& i : _playersStore)
-        if (auto player = ObjectAccessor::FindPlayer(i.first))
-            if (guid.IsEmpty() || !player->GetSocial()->HasIgnore(guid))
-                localizer(player);
+    Deliver(GetMemberGuids(), builder, [&guid](Player* member) { return guid.IsEmpty() || !member->GetSocial()->HasIgnore(guid); }, SendNow);
 }
 
 template <class Builder>
 void Channel::SendToAllButOne(Builder& builder, ObjectGuid const& who) const
 {
-    Trinity::LocalizedPacketDo<Builder> localizer(builder);
-
-    for (auto const& i : _playersStore)
-        if (i.first != who)
-            if (auto player = ObjectAccessor::FindPlayer(i.first))
-                localizer(player);
+    std::vector<ObjectGuid> targets = GetMemberGuids();
+    targets.erase(std::remove(targets.begin(), targets.end(), who), targets.end());
+    Deliver(targets, builder, AlwaysAccept, SendNow);
 }
 
 template <class Builder>
 void Channel::SendToOne(Builder& builder, ObjectGuid const& who) const
 {
-    Trinity::LocalizedPacketDo<Builder> localizer(builder);
-
-    if (auto player = ObjectAccessor::FindPlayer(who))
-        localizer(player);
+    Deliver(std::vector<ObjectGuid>{ who }, builder, AlwaysAccept, SendNow);
 }
 
+// An addon prefix list is written by the receiver's own session thread: the check runs there too
 template <class Builder>
 void Channel::SendToAllWithAddon(Builder& builder, std::string const& addonPrefix, ObjectGuid const& guid /*= ObjectGuid::Empty*/) const
 {
-    Trinity::LocalizedPacketDo<Builder> localizer(builder);
-
-    for (auto const& i : _playersStore)
-        if (auto player = ObjectAccessor::FindPlayer(i.first))
-            if (player->GetSession()->IsAddonRegistered(addonPrefix) && (guid.IsEmpty() || !player->GetSocial()->HasIgnore(guid)))
-                localizer(player);
+    Deliver(GetMemberGuids(), builder, AlwaysAccept, [&addonPrefix, &guid](ObjectGuid const& target, std::shared_ptr<WorldPackets::Packet> const& packet)
+    {
+        ObjectAccessor::PostToPlayer(target, [packet, prefix = addonPrefix, ignored = guid](Player* member)
+        {
+            if (member->GetSession()->IsAddonRegistered(prefix) && (ignored.IsEmpty() || !member->GetSocial()->HasIgnore(ignored)))
+                member->SendDirectMessage(packet->GetRawPacket());
+        });
+    });
 }

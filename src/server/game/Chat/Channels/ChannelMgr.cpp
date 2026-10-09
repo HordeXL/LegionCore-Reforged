@@ -22,8 +22,8 @@
 
 ChannelMgr* channelMgr(uint32 team)
 {
-    static ChannelMgr allianceChannelMgr;
-    static ChannelMgr hordeChannelMgr;
+    static ChannelMgr allianceChannelMgr(ALLIANCE);
+    static ChannelMgr hordeChannelMgr(HORDE);
     if (sWorld->getBoolConfig(CONFIG_ALLOW_TWO_SIDE_INTERACTION_CHANNEL))
         return &allianceChannelMgr;        // cross-faction
 
@@ -36,14 +36,6 @@ ChannelMgr* channelMgr(uint32 team)
     return nullptr;
 }
 
-ChannelMgr::~ChannelMgr()
-{
-    for (auto const& v : channels)
-        delete v.second;
-
-    channels.clear();
-}
-
 Channel* ChannelMgr::GetJoinChannel(std::string name, uint32 channel_id)
 {
     std::wstring wname;
@@ -52,14 +44,28 @@ Channel* ChannelMgr::GetJoinChannel(std::string name, uint32 channel_id)
 
     wstrToLower(wname);
 
-    if (channels.find(wname) == channels.end())
     {
-        auto nchan = new Channel(name, channel_id, team);
-        channels[wname] = nchan;
-        return nchan;
+        std::shared_lock<std::shared_mutex> guard(_lock);
+        ChannelMap::const_iterator i = channels.find(wname);
+        if (i != channels.end())
+            return i->second.get();
     }
 
-    return channels[wname];
+    // built outside _lock: a saved custom channel loads its state with a synchronous query
+    std::lock_guard<std::mutex> createGuard(_createLock);
+    {
+        std::shared_lock<std::shared_mutex> guard(_lock);
+        ChannelMap::const_iterator i = channels.find(wname);
+        if (i != channels.end())
+            return i->second.get();
+    }
+
+    std::unique_ptr<Channel> created = std::make_unique<Channel>(name, channel_id, team);
+    Channel* channel = created.get();
+
+    std::unique_lock<std::shared_mutex> guard(_lock);
+    channels.emplace(wname, std::move(created));
+    return channel;
 }
 
 Channel* ChannelMgr::GetChannel(std::string const& name, Player* player, bool notify /*= true*/)
@@ -70,35 +76,17 @@ Channel* ChannelMgr::GetChannel(std::string const& name, Player* player, bool no
 
     wstrToLower(wname);
 
-    ChannelMap::const_iterator i = channels.find(wname);
-    if (i == channels.end())
     {
-        if (notify)
-            SendNotOnChannelNotify(player, name);
-
-        return nullptr;
+        std::shared_lock<std::shared_mutex> guard(_lock);
+        ChannelMap::const_iterator i = channels.find(wname);
+        if (i != channels.end())
+            return i->second.get();
     }
 
-    return i->second;
-}
+    if (notify && player)
+        SendNotOnChannelNotify(player, name);
 
-void ChannelMgr::LeftChannel(std::string name)
-{
-    std::wstring wname;
-    Utf8toWStr(name, wname);
-    wstrToLower(wname);
-
-    ChannelMap::const_iterator i = channels.find(wname);
-    if (i == channels.end())
-        return;
-
-    Channel* channel = i->second;
-
-    if (channel->GetNumPlayers() == 0 && !channel->IsConstant())
-    {
-        channels.erase(wname);
-        delete channel;
-    }
+    return nullptr;
 }
 
 void ChannelMgr::SendNotOnChannelNotify(Player const* player, std::string const& name)
