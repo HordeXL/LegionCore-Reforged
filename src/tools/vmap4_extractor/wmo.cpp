@@ -323,6 +323,11 @@ int WMOGroup::ConvertToVMAPGroupWmo(FILE* output, bool preciseVectorData)
     fwrite(bbcorn2, sizeof(float), 3, output);
     fwrite(&liquflags,sizeof(uint32),1,output);
     int nColTriangles = 0;
+
+    // Antiportal groups (flag set, no BSP tree) only feed the renderer's occlusion culling: the client
+    // has no collision for them, so they are written empty. Their planes would otherwise cut walkways
+    // and line of sight (Ashran gates, group 1 of 6As_Ashran_Collision_*).
+    bool const noCollisionGroup = (mogpFlags & WMO_GROUP_ANTIPORTAL) && !(mogpFlags & WMO_GROUP_HAS_BSP);
     if (preciseVectorData)
     {
         char GRP[] = "GRP ";
@@ -341,7 +346,7 @@ int WMOGroup::ConvertToVMAPGroupWmo(FILE* output, bool preciseVectorData)
         fwrite(MobaEx,4,k,output);
         delete [] MobaEx;
 
-        uint32 nIdexes = nTriangles * 3;
+        uint32 nIdexes = noCollisionGroup ? 0 : nTriangles * 3;
 
         if(fwrite("INDX",4, 1, output) != 1)
         {
@@ -373,27 +378,28 @@ int WMOGroup::ConvertToVMAPGroupWmo(FILE* output, bool preciseVectorData)
             printf("Error while writing file nbraches ID");
             exit(0);
         }
-        wsize = sizeof(int) + sizeof(float) * 3 * nVertices;
+        int const nVertOut = noCollisionGroup ? 0 : nVertices;
+        wsize = sizeof(int) + sizeof(float) * 3 * nVertOut;
         if(fwrite(&wsize, sizeof(int), 1, output) != 1)
         {
             printf("Error while writing file wsize");
             // no need to exit?
         }
-        if(fwrite(&nVertices, sizeof(int), 1, output) != 1)
+        if(fwrite(&nVertOut, sizeof(int), 1, output) != 1)
         {
             printf("Error while writing file nVertices");
             exit(0);
         }
-        if(nVertices >0)
+        if(nVertOut >0)
         {
-            if(fwrite(MOVT, sizeof(float)*3, nVertices, output) != nVertices)
+            if(fwrite(MOVT, sizeof(float)*3, nVertOut, output) != uint32(nVertOut))
             {
                 printf("Error while writing file vectors");
                 exit(0);
             }
         }
 
-        nColTriangles = nTriangles;
+        nColTriangles = noCollisionGroup ? 0 : nTriangles;
     }
     else
     {
@@ -418,7 +424,7 @@ int WMOGroup::ConvertToVMAPGroupWmo(FILE* output, bool preciseVectorData)
         MoviEx = new uint16[nTriangles*3]; // "worst case" size...
         int *IndexRenum = new int[nVertices];
         memset(IndexRenum, 0xFF, nVertices*sizeof(int));
-        for (int i=0; i<nTriangles; ++i)
+        for (int i=0; i<nTriangles && !noCollisionGroup; ++i)
         {
             // Skip no collision triangles
             bool isRenderFace = (MOPY[2 * i] & WMO_MATERIAL_RENDER) && !(MOPY[2 * i] & WMO_MATERIAL_DETAIL);
