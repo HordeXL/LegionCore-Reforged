@@ -30,6 +30,8 @@ void WorldSession::HandleCalendarGetCalendar(WorldPackets::Calendar::CalendarGet
     WorldPackets::Calendar::CalendarSendCalendar packet;
     packet.ServerTime = currTime;
 
+    std::lock_guard<std::recursive_mutex> guard(sCalendarMgr->GetLock());
+
     CalendarInviteStore playerInvites = sCalendarMgr->GetPlayerInvites(guid);
     for (auto const& invite : playerInvites)
     {
@@ -119,6 +121,7 @@ namespace
 
 void WorldSession::HandleCalendarGetEvent(WorldPackets::Calendar::CalendarGetEvent& packet)
 {
+    std::lock_guard<std::recursive_mutex> guard(sCalendarMgr->GetLock());
     CalendarEvent* calendarEvent = sCalendarMgr->GetEvent(packet.EventID);
     if (calendarEvent && CanSeeCalendarEvent(*calendarEvent, _player))
         sCalendarMgr->SendCalendarEvent(_player->GetGUID(), *calendarEvent, CALENDAR_SENDTYPE_GET);
@@ -138,18 +141,9 @@ namespace
     // out of the count, since nothing removes them.
     bool IsOverEventCap(Player const* player, bool guildEvent)
     {
-        ObjectGuid::LowType const guildId = player->GetGuildId();
-        uint32 ownEvents = 0;
-        uint32 guildEvents = 0;
-        for (CalendarEvent const* event : sCalendarMgr->GetEvents())
-        {
-            if (event->GetDate() < GameTime::GetGameTime())
-                continue;
-            if (event->GetOwnerGUID() == player->GetGUID())
-                ++ownEvents;
-            if (guildId && event->GetGuildId() == guildId && (event->IsGuildEvent() || event->IsGuildAnnouncement()))
-                ++guildEvents;
-        }
+        uint32 ownEvents;
+        uint32 guildEvents;
+        sCalendarMgr->CountUpcomingEvents(player->GetGUID(), player->GetGuildId(), ownEvents, guildEvents);
 
         return guildEvent ? guildEvents >= CALENDAR_MAX_GUILD_EVENTS : ownEvents >= CALENDAR_MAX_EVENTS;
     }
@@ -177,6 +171,23 @@ void WorldSession::HandleCalendarAddEvent(WorldPackets::Calendar::CalendarAddEve
     }
 
     bool const guildEvent = (packet.EventInfo.Flags & (CALENDAR_FLAG_GUILD_EVENT | CALENDAR_FLAG_WITHOUT_INVITES)) != 0;
+
+    // The list at creation is checked like an invitation added later (existence, faction, ignore list);
+    // the packet array already caps it at CALENDAR_MAX_INVITES. The query is synchronous: it runs before the lock.
+    std::set<ObjectGuid> ignoringCreator;
+    if (!(packet.EventInfo.Flags & CALENDAR_FLAG_WITHOUT_INVITES)
+        && std::any_of(packet.EventInfo.Invites.begin(), packet.EventInfo.Invites.end(), [guid](WorldPackets::Calendar::CalendarAddEventInviteInfo const& invite) { return invite.Guid != guid; }))
+    {
+        if (QueryResult result = CharacterDatabase.PQuery("SELECT guid FROM character_social WHERE friend = %u AND (flags & %u) <> 0", guid.GetGUIDLow(), uint32(SOCIAL_FLAG_IGNORED)))
+        {
+            do
+                ignoringCreator.insert(ObjectGuid::Create<HighGuid::Player>(result->Fetch()[0].GetUInt64()));
+            while (result->NextRow());
+        }
+    }
+
+    std::lock_guard<std::recursive_mutex> guard(sCalendarMgr->GetLock());
+
     if (IsOverEventCap(_player, guildEvent))
     {
         sCalendarMgr->SendCalendarCommandResult(guid, guildEvent ? CALENDAR_ERROR_GUILD_EVENTS_EXCEEDED : CALENDAR_ERROR_EVENTS_EXCEEDED);
@@ -187,8 +198,7 @@ void WorldSession::HandleCalendarAddEvent(WorldPackets::Calendar::CalendarAddEve
         packet.EventInfo.Time, packet.EventInfo.Flags, packet.EventInfo.Title, packet.EventInfo.Description, time_t(0));
 
     if (calendarEvent->IsGuildEvent() || calendarEvent->IsGuildAnnouncement())
-        if (Player* creator = ObjectAccessor::FindPlayer(guid))
-            calendarEvent->SetGuildId(creator->GetGuildId());
+        calendarEvent->SetGuildId(_player->GetGuildId());
 
     if (calendarEvent->IsGuildAnnouncement())
     {
@@ -200,19 +210,6 @@ void WorldSession::HandleCalendarAddEvent(WorldPackets::Calendar::CalendarAddEve
         CharacterDatabaseTransaction trans;
         if (packet.EventInfo.Invites.size() > 1)
             trans = CharacterDatabase.BeginTransaction();
-
-        // The list at creation is checked like an invitation added later (existence, faction, ignore list);
-        // the packet array already caps it at CALENDAR_MAX_INVITES.
-        std::set<ObjectGuid> ignoringCreator;
-        if (std::any_of(packet.EventInfo.Invites.begin(), packet.EventInfo.Invites.end(), [guid](WorldPackets::Calendar::CalendarAddEventInviteInfo const& invite) { return invite.Guid != guid; }))
-        {
-            if (QueryResult result = CharacterDatabase.PQuery("SELECT guid FROM character_social WHERE friend = %u AND (flags & %u) <> 0", guid.GetGUIDLow(), uint32(SOCIAL_FLAG_IGNORED)))
-            {
-                do
-                    ignoringCreator.insert(ObjectGuid::Create<HighGuid::Player>(result->Fetch()[0].GetUInt64()));
-                while (result->NextRow());
-            }
-        }
 
         std::set<ObjectGuid> invited;
         for (auto i = 0; i < packet.EventInfo.Invites.size(); ++i)
@@ -268,6 +265,8 @@ void WorldSession::HandleCalendarUpdateEvent(WorldPackets::Calendar::CalendarUpd
         }
     }
 
+    std::lock_guard<std::recursive_mutex> guard(sCalendarMgr->GetLock());
+
     if (CalendarEvent* calendarEvent = sCalendarMgr->GetEvent(packet.EventInfo.EventID))
     {
         if (!sCalendarMgr->CanModify(calendarEvent, _player->GetGUID()))
@@ -294,6 +293,7 @@ void WorldSession::HandleCalendarUpdateEvent(WorldPackets::Calendar::CalendarUpd
 
 void WorldSession::HandleCalendarRemoveEvent(WorldPackets::Calendar::CalendarRemoveEvent& packet)
 {
+    std::lock_guard<std::recursive_mutex> guard(sCalendarMgr->GetLock());
     if (!sCalendarMgr->CanModify(sCalendarMgr->GetEvent(packet.EventID), _player->GetGUID()))
     {
         sCalendarMgr->SendCalendarCommandResult(_player->GetGUID(), CALENDAR_ERROR_PERMISSIONS);
@@ -309,6 +309,8 @@ void WorldSession::HandleCalendarCopyEvent(WorldPackets::Calendar::CalendarCopyE
 
     if (packet.Date < (GameTime::GetGameTime() - time_t(86400L)))
         return;
+
+    std::lock_guard<std::recursive_mutex> guard(sCalendarMgr->GetLock());
 
     if (CalendarEvent* oldEvent = sCalendarMgr->GetEvent(packet.EventID))
     {
@@ -368,13 +370,19 @@ void WorldSession::HandleCalendarEventInvite(WorldPackets::Calendar::CalendarEve
         }
     }
 
-    if (Player* player = ObjectAccessor::FindPlayerByName(packet.Name))
+    // the invitee may stand on another map
+    ObjectGuid onlineGuid = ObjectAccessor::FindPlayerGuidByName(packet.Name);
+    if (!onlineGuid.IsEmpty())
     {
-        inviteeGuid = player->GetGUID();
-        inviteeTeam = player->GetTeam();
-        inviteeGuildId = player->GetGuildId();
+        ObjectAccessor::WithPlayer(onlineGuid, [&inviteeGuid, &inviteeTeam, &inviteeGuildId](Player* player)
+        {
+            inviteeGuid = player->GetGUID();
+            inviteeTeam = player->GetTeam();
+            inviteeGuildId = player->GetGuildId();
+        });
     }
-    else
+
+    if (!inviteeGuid)
     {
         if (const CharacterInfo* nameData = sWorld->GetCharacterInfo(packet.Name))
         {
@@ -405,6 +413,9 @@ void WorldSession::HandleCalendarEventInvite(WorldPackets::Calendar::CalendarEve
             return;
         }
     }
+
+    // after the synchronous query above
+    std::lock_guard<std::recursive_mutex> guard(sCalendarMgr->GetLock());
 
     if (!packet.Creating)
     {
@@ -457,6 +468,8 @@ void WorldSession::HandleCalendarEventSignup(WorldPackets::Calendar::CalendarEve
 {
     ObjectGuid guid = _player->GetGUID();
 
+    std::lock_guard<std::recursive_mutex> guard(sCalendarMgr->GetLock());
+
     if (CalendarEvent* calendarEvent = sCalendarMgr->GetEvent(packet.EventID))
     {
         // signing up is for guild events of the player guild, once (announcements keep no invites)
@@ -484,6 +497,8 @@ void WorldSession::HandleCalendarEventSignup(WorldPackets::Calendar::CalendarEve
 void WorldSession::HandleCalendarEventRsvp(WorldPackets::Calendar::CalendarEventRSVP& packet)
 {
     ObjectGuid guid = _player->GetGUID();
+
+    std::lock_guard<std::recursive_mutex> guard(sCalendarMgr->GetLock());
 
     if (CalendarEvent* calendarEvent = sCalendarMgr->GetEvent(packet.EventID))
     {
@@ -513,6 +528,8 @@ void WorldSession::HandleCalendarEventRsvp(WorldPackets::Calendar::CalendarEvent
 void WorldSession::HandleCalendarEventRemoveInvite(WorldPackets::Calendar::CalendarRemoveInvite& packet)
 {
     ObjectGuid guid = _player->GetGUID();
+
+    std::lock_guard<std::recursive_mutex> guard(sCalendarMgr->GetLock());
 
     if (CalendarEvent* calendarEvent = sCalendarMgr->GetEvent(packet.EventID))
     {
@@ -547,6 +564,8 @@ void WorldSession::HandleCalendarEventStatus(WorldPackets::Calendar::CalendarEve
 {
     ObjectGuid guid = _player->GetGUID();
 
+    std::lock_guard<std::recursive_mutex> guard(sCalendarMgr->GetLock());
+
     if (CalendarEvent* calendarEvent = sCalendarMgr->GetEvent(packet.EventID))
     {
         if (!sCalendarMgr->CanModify(calendarEvent, guid))
@@ -573,6 +592,8 @@ void WorldSession::HandleCalendarEventStatus(WorldPackets::Calendar::CalendarEve
 void WorldSession::HandleCalendarEventModeratorStatus(WorldPackets::Calendar::CalendarEventModeratorStatus& packet)
 {
     ObjectGuid guid = _player->GetGUID();
+
+    std::lock_guard<std::recursive_mutex> guard(sCalendarMgr->GetLock());
 
     if (CalendarEvent* calendarEvent = sCalendarMgr->GetEvent(packet.EventID))
     {
