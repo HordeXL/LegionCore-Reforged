@@ -158,18 +158,18 @@ void WorldSession::HandleQueryCorpseLocation(WorldPackets::Query::QueryCorpseLoc
         return;
 
     WorldPackets::Query::CorpseLocation packet;
-    Corpse* corpse = sObjectAccessor->GetCorpseForPlayerGUID(queryCorpseLocation.Player);
-    if (!corpse)
+    ObjectAccessor::CorpseLocation corpse;
+    if (!sObjectAccessor->GetCorpseLocation(queryCorpseLocation.Player, corpse))
     {
         packet.CorpseOwnerGUID = queryCorpseLocation.Player;
         SendPacket(packet.Write());
         return;
     }
 
-    uint32 mapID = corpse->GetMapId();
-    float x = corpse->GetPositionX();
-    float y = corpse->GetPositionY();
-    float z = corpse->GetPositionZ();
+    uint32 mapID = corpse.mapId;
+    float x = corpse.pos.GetPositionX();
+    float y = corpse.pos.GetPositionY();
+    float z = corpse.pos.GetPositionZ();
     uint32 corpsemapid = mapID;
 
     if (mapID != playerMapId)
@@ -194,7 +194,7 @@ void WorldSession::HandleQueryCorpseLocation(WorldPackets::Query::QueryCorpseLoc
     packet.MapID = corpsemapid;
     packet.ActualMapID = mapID;
     packet.position = Position(x, y, z);
-    packet.Transport = corpse->GetTransGUID();
+    packet.Transport = corpse.transportGuid;
     SendPacket(packet.Write());
 }
 
@@ -253,11 +253,11 @@ void WorldSession::HandleQueryCorpseTransport(WorldPackets::Query::QueryCorpseTr
     bool sameRaid = false;
     if (ObjectAccessor::WithPlayer(packet.Player, [&](Player* player) { sameRaid = _player->IsInSameRaidWith(player); }) && sameRaid)
     {
-        Corpse* corpse = sObjectAccessor->GetCorpseForPlayerGUID(packet.Player);
-        if (corpse && !corpse->GetTransGUID().IsEmpty() && corpse->GetTransGUID() == packet.Transport)
+        ObjectAccessor::CorpseLocation corpse;
+        if (sObjectAccessor->GetCorpseLocation(packet.Player, corpse) && !corpse.transportGuid.IsEmpty() && corpse.transportGuid == packet.Transport)
         {
-            response.Pos = corpse->GetTransOffset();
-            response.Facing = corpse->GetTransOffsetO();
+            response.Pos = corpse.transOffset;
+            response.Facing = corpse.transOffsetO;
         }
     }
 

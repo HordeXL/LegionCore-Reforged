@@ -421,7 +421,7 @@ void CreatureTextMgr::SendNonChatPacket(WorldObject* source, WorldPacket const* 
     {
     case CHAT_MSG_MONSTER_PARTY:
     {
-        auto player = ObjectAccessor::FindPlayer(whisperGuid);
+        auto player = ObjectAccessor::GetPlayer(*source, whisperGuid);   // same map: a player of another map belongs to another thread
         if (!player || !player->GetSession())
             return;
 
@@ -433,7 +433,7 @@ void CreatureTextMgr::SendNonChatPacket(WorldObject* source, WorldPacket const* 
     case CHAT_MSG_RAID_BOSS_WHISPER:
         if (range == TEXT_RANGE_NORMAL)//ignores team and gmOnly
         {
-            Player* player = ObjectAccessor::FindPlayer(whisperGuid);
+            Player* player = ObjectAccessor::GetPlayer(*source, whisperGuid);
             if (!player || !player->GetSession())
                 return;
             player->SendDirectMessage(data);
@@ -468,10 +468,6 @@ void CreatureTextMgr::SendNonChatPacket(WorldObject* source, WorldPacket const* 
         }
         case TEXT_RANGE_MAP:
         {
-            auto playerSrc = ObjectAccessor::FindPlayer(whisperGuid);
-            if (playerSrc)
-                source = playerSrc;
-
             source->GetMap()->ApplyOnEveryPlayer([&](Player* player)
             {
                 if ((!team || Team(player->GetTeam()) == team) && (!gmOnly || player->isGameMaster()))
@@ -481,11 +477,13 @@ void CreatureTextMgr::SendNonChatPacket(WorldObject* source, WorldPacket const* 
         }
         case TEXT_RANGE_WORLD:
         {
-            auto const& smap = sWorld->GetAllSessions();
-            for (const auto& iter : smap)
-                if (auto player = iter.second->GetPlayer())
-                    if (player->GetSession() && (!team || Team(player->GetTeam()) == team) && (!gmOnly || player->isGameMaster()))
-                        player->SendDirectMessage(data);
+            // players of other maps belong to other threads: each one gets the packet in his own
+            auto packet = std::make_shared<WorldPacket const>(*data);
+            ObjectAccessor::PostToAllPlayers([packet, team, gmOnly](Player* player)
+            {
+                if (player->GetSession() && (!team || Team(player->GetTeam()) == team) && (!gmOnly || player->isGameMaster()))
+                    player->SendDirectMessage(packet.get());
+            }, 0, ObjectAccessor::PlayerScope::InWorld);
             return;
         }
         case TEXT_RANGE_NORMAL:

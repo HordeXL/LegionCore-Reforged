@@ -35,6 +35,7 @@ struct PlayerQueueInfo                                      // stores informatio
 struct GroupQueueInfo                                       // stores information about the group in queue (also used when joined as solo!)
 {
     std::map<ObjectGuid, PlayerQueueInfo*> Players;         // player queue info map
+    std::map<ObjectGuid, uint8> TempRoles;                  // role (LFG role bit) the queue picked per player, given with the invitation; read and written under the queue lock
     WorldPackets::Battleground::IgnorMapInfo ignore;
     uint64 GroupId;                                         // group id if rated match
     uint32 Team;                                            // Player team (ALLIANCE/HORDE

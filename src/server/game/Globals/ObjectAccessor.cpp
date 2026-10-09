@@ -359,6 +359,23 @@ Corpse* ObjectAccessor::GetCorpseForPlayerGUID(ObjectGuid guid)
     return iter->second;
 }
 
+bool ObjectAccessor::GetCorpseLocation(ObjectGuid owner, CorpseLocation& out)
+{
+    std::lock_guard<std::recursive_mutex> _lock(i_corpseLock);
+
+    auto iter = i_player2corpse.find(owner);
+    if (iter == i_player2corpse.end())
+        return false;
+
+    Corpse const* corpse = iter->second;
+    out.mapId = corpse->GetMapId();
+    out.pos = corpse->GetPosition();
+    out.transportGuid = corpse->GetTransGUID();
+    out.transOffset = corpse->GetTransOffset();
+    out.transOffsetO = corpse->GetTransOffsetO();
+    return true;
+}
+
 void ObjectAccessor::RemoveCorpse(Corpse* corpse)
 {
     ASSERT(corpse && corpse->GetType() != CORPSE_BONES);
@@ -496,13 +513,19 @@ Corpse* ObjectAccessor::ConvertCorpseForPlayer(ObjectGuid player_guid, bool insi
 
 void ObjectAccessor::RemoveOldCorpses()
 {
+    // corpses on a map are converted by Map::Update; the world thread only handles those without one
+    ConvertExpiredCorpses(nullptr);
+}
+
+void ObjectAccessor::ConvertExpiredCorpses(Map* map)
+{
     time_t now = GameTime::GetGameTime();
     // map threads add and remove corpses meanwhile; the lock is not held while converting to keep the map/corpse lock order
     GuidList expired;
     {
         std::lock_guard<std::recursive_mutex> _lock(i_corpseLock);
         for (auto const& itr : i_player2corpse)
-            if (itr.second->IsExpired(now))
+            if (itr.second->FindMap() == map && itr.second->IsExpired(now))
                 expired.push_back(itr.first);
     }
 

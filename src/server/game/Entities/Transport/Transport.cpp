@@ -527,22 +527,17 @@ void Transport::LoadStaticPassengers()
 {
     if (uint32 mapId = GetGOInfo()->GetSpawnMap())
     {
-        auto cells = sObjectMgr->GetMapObjectGuids(mapId, GetMap()->GetSpawnMode());
-        if (!cells)
-            return;
+        std::vector<ObjectGuid::LowType> creatures;
+        std::vector<ObjectGuid::LowType> gameobjects;
+        sObjectMgr->GetMapStaticPassengerGuids(mapId, GetMap()->GetSpawnMode(), creatures, gameobjects);
 
-        for (const auto& cell : *cells)
-        {
-            // Creatures on transport
-            auto guidEnd = cell.second.creatures.end();
-            for (auto guidItr = cell.second.creatures.begin(); guidItr != guidEnd; ++guidItr)
-                CreateNPCPassenger(*guidItr, sObjectMgr->GetCreatureData(*guidItr));
+        // Creatures on transport
+        for (ObjectGuid::LowType guid : creatures)
+            CreateNPCPassenger(guid, sObjectMgr->GetCreatureData(guid));
 
-            // GameObjects on transport
-            guidEnd = cell.second.gameobjects.end();
-            for (auto guidItr = cell.second.gameobjects.begin(); guidItr != guidEnd; ++guidItr)
-                CreateGOPassenger(*guidItr, sObjectMgr->GetGOData(*guidItr));
-        }
+        // GameObjects on transport
+        for (ObjectGuid::LowType guid : gameobjects)
+            CreateGOPassenger(guid, sObjectMgr->GetGOData(guid));
     }
 }
 

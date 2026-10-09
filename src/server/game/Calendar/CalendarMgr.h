@@ -20,6 +20,7 @@
 
 #include "Common.h"
 #include "ObjectGuid.h"
+#include <mutex>
 
 enum CalendarMailAnswers
 {
@@ -240,6 +241,10 @@ class CalendarMgr
         CalendarMgr();
         ~CalendarMgr();
 
+        // Protects _events, _invites, the free id queues and the max ids, and keeps the events and invites in them alive.
+        // Domain lock: only leaf locks and the player table are taken under it, never a guild or group lock.
+        mutable std::recursive_mutex _lock;
+
         CalendarEventStore _events;
         CalendarEventInviteStore _invites;
 
@@ -251,15 +256,18 @@ class CalendarMgr
     public:
     static CalendarMgr* instance();
 
+        // A CalendarEvent* or CalendarInvite* from this manager stays valid only while GetLock() is held: the packet
+        // handlers take it for their whole run, since another map thread may remove the event at any time.
+        std::recursive_mutex& GetLock() const { return _lock; }
+
         void LoadFromDB();
 
         CalendarEvent* GetEvent(uint64 eventId) const;
-        CalendarEventStore const& GetEvents() const { return _events; }
         CalendarEventStore GetPlayerEvents(ObjectGuid guid);
+        void CountUpcomingEvents(ObjectGuid owner, ObjectGuid::LowType guildId, uint32& ownEvents, uint32& guildEvents) const;
 
         CalendarInvite* GetInvite(uint64 inviteId) const;
-        CalendarEventInviteStore const& GetInvites() const { return _invites; }
-        CalendarInviteStore const& GetEventInvites(uint64 eventId);
+        CalendarInviteStore GetEventInvites(uint64 eventId);
         bool CanModify(CalendarEvent const* calendarEvent, ObjectGuid guid);
         CalendarInviteStore GetPlayerInvites(ObjectGuid guid);
 

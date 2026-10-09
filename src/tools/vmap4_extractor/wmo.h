@@ -38,6 +38,13 @@ enum MopyFlags
     WMO_MATERIAL_COLLIDE_HIT    = 0x80
 };
 
+// MOGP group flags used by the collision filter
+enum MogpFlags
+{
+    WMO_GROUP_HAS_BSP           = 0x00000001, // MOBN/MOBR present: the client only collides with groups that have a BSP tree
+    WMO_GROUP_ANTIPORTAL        = 0x04000000  // occlusion-only planes of the renderer
+};
+
 class WMOInstance;
 class WMOManager;
 class CASCFile;

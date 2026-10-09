@@ -439,6 +439,16 @@ public:
 
     //Thread safe
     Corpse* GetCorpseForPlayerGUID(ObjectGuid guid);
+    // the corpse belongs to its map's thread: other threads read it through this copy, made under the corpse lock
+    struct CorpseLocation
+    {
+        uint32 mapId = 0;
+        Position pos;
+        ObjectGuid transportGuid;
+        Position transOffset;
+        float transOffsetO = 0.0f;
+    };
+    bool GetCorpseLocation(ObjectGuid owner, CorpseLocation& out);
     void RemoveCorpse(Corpse* corpse);
     void AddCorpse(Corpse* corpse);
     void AddCorpsesToGrid(GridCoord const& gridpair, Grid& grid, Map* map);
@@ -447,6 +457,8 @@ public:
     //Thread unsafe
     void Update(uint32 diff);
     void RemoveOldCorpses();
+    // expired corpses standing on this map (nullptr: those on no map), converted by the map's own thread
+    void ConvertExpiredCorpses(Map* map);
     void UnloadAll();
 
 private:

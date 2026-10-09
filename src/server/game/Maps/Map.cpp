@@ -955,7 +955,10 @@ bool Map::AddPlayerToMap(Player* player, bool initPlayer /*= true*/)
         UpdateObjectsVisibilityFor(player, cell, cellCoord);
 
     sScriptMgr->OnPlayerEnterMap(this, player);
-    sOutdoorPvPMgr->HandlePlayerEnterMap(player->GetGUID(), player->GetCurrentZoneID());
+    // the cached zone was reset when the player left his previous map: take it from the position
+    uint32 const zoneId = player->GetZoneId();
+
+    sOutdoorPvPMgr->HandlePlayerEnterMap(player->GetGUID(), zoneId);
 
     return true;
 }
@@ -1068,6 +1071,14 @@ bool Map::IsGridLoaded(const GridCoord &p) const
 
 void Map::Update(const uint32 t_diff)
 {
+    // expired corpses of this map turn into bones here, in the map's own thread
+    m_corpseExpireTimer += t_diff;
+    if (m_corpseExpireTimer >= 20 * MINUTE * IN_MILLISECONDS)
+    {
+        m_corpseExpireTimer = 0;
+        sObjectAccessor->ConvertExpiredCorpses(this);
+    }
+
     if (b_isMapUnload) // Need update if start unload???
         return;
 

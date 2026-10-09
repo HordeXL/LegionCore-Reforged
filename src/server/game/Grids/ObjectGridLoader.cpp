@@ -136,20 +136,22 @@ void ObjectGridLoader::LoadN(NGrid const &grid, Map *map, Cell cell)
             cell.data.Part.cell_y = y;
 
             // Load creatures and gameobjects
-            if (auto const cellGuids = sObjectMgr->GetCellObjectGuids(map->GetId(), map->GetSpawnMode(), cell.GetCellCoord().GetId()))
+            CellObjectGuids cellGuids;
+            if (sObjectMgr->GetCellObjectGuids(map->GetId(), map->GetSpawnMode(), cell.GetCellCoord().GetId(), cellGuids))
             {
-                creatures += LoadHelper<Creature>(cellGuids->creatures, cell, map);
-                gameObjects += LoadHelper<GameObject>(cellGuids->gameobjects, cell, map);
-                gameObjects += LoadHelperST(cellGuids->statictransports, cell, map);
-                conversations += LoadHelper<Conversation>(cellGuids->conversation, cell, map);
-                eventobjects += LoadHelper<EventObject>(cellGuids->eventobject, cell, map);
+                creatures += LoadHelper<Creature>(cellGuids.creatures, cell, map);
+                gameObjects += LoadHelper<GameObject>(cellGuids.gameobjects, cell, map);
+                gameObjects += LoadHelperST(cellGuids.statictransports, cell, map);
+                conversations += LoadHelper<Conversation>(cellGuids.conversation, cell, map);
+                eventobjects += LoadHelper<EventObject>(cellGuids.eventobject, cell, map);
             }
 
             // Load corpses (not bones)
-            if (auto const cellGuids = sObjectMgr->GetCellObjectGuids(map->GetId(), 0, cell.GetCellCoord().GetId()))
+            CellCorpseMap cellCorpses;
+            if (sObjectMgr->GetCellCorpses(map->GetId(), cell.GetCellCoord().GetId(), cellCorpses))
             {
                 // corpses are always added to spawn mode 0 and they are spawned by their instance id
-                corpses += LoadHelper(cellGuids->corpses, cell, map);
+                corpses += LoadHelper(cellCorpses, cell, map);
             }
         }
     }

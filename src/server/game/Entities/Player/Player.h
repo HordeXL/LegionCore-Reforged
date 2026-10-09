@@ -45,6 +45,7 @@
 #include "SpellMgr.h"
 #include "Unit.h"
 #include "Util.h"
+#include <array>
 #include <functional>
 #include <queue>
 #include <safe_ptr.h>
@@ -2303,9 +2304,11 @@ class TC_GAME_API Player : public Unit, public GridObject<Player>
         void ActivateTalentGroup(ChrSpecializationEntry const* spec);
         void ForceChangeTalentGroup(uint32 specId);
 
-        void SetQueueRoleMask(uint8 bracketId, uint8 roleMask, bool temp = false) { if (temp) m_bgQueueRolesTemp[bracketId] = roleMask; else m_bgQueueRoles[bracketId] = roleMask; };
+        void SetQueueRoleMask(uint8 bracketId, uint8 roleMask, bool temp = false);
         uint8 GetQueueRoleMask(uint8 bracketId, bool temp = false) const;
-        int8 GetSingleQueueRole(uint8 bracketId) const;
+        // for the queue (world thread), under ObjectAccessor::WithPlayer: no group access, only the atomic request
+        uint8 GetRequestedQueueRoleMask(uint8 bracketId) const;
+        static int8 GetSingleQueueRole(uint8 roleMask);
 
         void ChangeSpecializationForBGIfNeed(uint8 bracketId);
         void ChangeSpecializationifNeed(uint8 role);
@@ -3802,8 +3805,10 @@ class TC_GAME_API Player : public Unit, public GridObject<Player>
         WargameRequest _wargameRequest;
         std::atomic<bool> _hasWargameRequest{ false };
         std::unordered_map<uint32, std::vector<ItemDynamicFieldArtifactPowers>> GlobalArtifactData;
-        std::unordered_map<uint8, uint8>  m_bgQueueRoles{};
-        std::unordered_map<uint8, uint8>  m_bgQueueRolesTemp{};
+        // by bracket; the queue reads the request from the world thread (0 = not set)
+        std::array<std::atomic<uint8>, MS::Battlegrounds::MaxBrackets> m_bgQueueRoles{};
+        // roles picked by the queue; only the player's thread touches them
+        std::array<uint8, MS::Battlegrounds::MaxBrackets> m_bgQueueRolesTemp{};
         uint32  m_lastActiveLFGRole{};
 
         std::unique_ptr<RestMgr> _restMgr;

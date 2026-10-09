@@ -27,6 +27,29 @@
 #include "WowTime.hpp"
 #include "DatabaseEnv.h"
 #include "Mail.h"
+#include "GameTime.h"
+#include "World.h"
+
+namespace
+{
+    // Level and guild of a character wherever he stands: online he is read under the accessor lock, offline from the character cache
+    void GetCharacterLevelAndGuild(ObjectGuid guid, uint8& level, ObjectGuid::LowType& guildId)
+    {
+        level = 0;
+        guildId = 0;
+        if (CharacterInfo const* info = sWorld->GetCharacterInfo(guid))
+        {
+            level = info->Level;
+            guildId = info->GuildId;
+        }
+
+        ObjectAccessor::WithPlayer(guid, [&level, &guildId](Player* player)
+        {
+            level = player->getLevel();
+            guildId = player->GetGuildId();
+        });
+    }
+}
 
 CalendarInvite::CalendarInvite(CalendarInvite const& calendarInvite, uint64 inviteId, uint64 eventId)
 {
@@ -102,6 +125,7 @@ CalendarMgr* CalendarMgr::instance()
 
 void CalendarMgr::LoadFromDB()
 {
+    std::lock_guard<std::recursive_mutex> guard(_lock);
     uint32 count = 0;
     _maxEventId = 0;
     _maxInviteId = 0;
@@ -175,6 +199,7 @@ void CalendarMgr::LoadFromDB()
 
 void CalendarMgr::AddEvent(CalendarEvent* calendarEvent, CalendarSendEventType sendType)
 {
+    std::lock_guard<std::recursive_mutex> guard(_lock);
     _events.insert(calendarEvent);
     UpdateEvent(calendarEvent);
     SendCalendarEvent(calendarEvent->GetOwnerGUID(), *calendarEvent, sendType);
@@ -188,6 +213,7 @@ void CalendarMgr::AddInvite(CalendarEvent* calendarEvent, CalendarInvite* invite
 
 void CalendarMgr::AddInvite(CalendarEvent* calendarEvent, CalendarInvite* invite, CharacterDatabaseTransaction& trans)
 {
+    std::lock_guard<std::recursive_mutex> guard(_lock);
     if (!calendarEvent->IsGuildAnnouncement() && calendarEvent->GetOwnerGUID() != invite->GetInviteeGUID())
         SendCalendarEventInvite(*invite);
 
@@ -203,6 +229,7 @@ void CalendarMgr::AddInvite(CalendarEvent* calendarEvent, CalendarInvite* invite
 
 void CalendarMgr::RemoveEvent(uint64 eventId, ObjectGuid remover)
 {
+    std::lock_guard<std::recursive_mutex> guard(_lock);
     CalendarEvent* calendarEvent = GetEvent(eventId);
 
     if (!calendarEvent)
@@ -243,6 +270,7 @@ void CalendarMgr::RemoveEvent(uint64 eventId, ObjectGuid remover)
 
 void CalendarMgr::RemoveInvite(uint64 inviteId, uint64 eventId, ObjectGuid /*remover*/)
 {
+    std::lock_guard<std::recursive_mutex> guard(_lock);
     CalendarEvent* calendarEvent = GetEvent(eventId);
 
     if (!calendarEvent)
@@ -273,6 +301,7 @@ void CalendarMgr::RemoveInvite(uint64 inviteId, uint64 eventId, ObjectGuid /*rem
 
 void CalendarMgr::UpdateEvent(CalendarEvent* calendarEvent)
 {
+    std::lock_guard<std::recursive_mutex> guard(_lock);
     CharacterDatabasePreparedStatement* stmt = CharacterDatabase.GetPreparedStatement(CHAR_REP_CALENDAR_EVENT);
     stmt->setUInt64(0, calendarEvent->GetEventId());
     stmt->setUInt64(1, calendarEvent->GetOwnerGUID().GetCounter());
@@ -294,6 +323,7 @@ void CalendarMgr::UpdateInvite(CalendarInvite* invite)
 
 void CalendarMgr::UpdateInvite(CalendarInvite* invite, CharacterDatabaseTransaction& trans)
 {
+    std::lock_guard<std::recursive_mutex> guard(_lock);
     CharacterDatabasePreparedStatement* stmt = CharacterDatabase.GetPreparedStatement(CHAR_REP_CALENDAR_INVITE);
     stmt->setUInt64(0, invite->GetInviteId());
     stmt->setUInt64(1, invite->GetEventId());
@@ -308,6 +338,7 @@ void CalendarMgr::UpdateInvite(CalendarInvite* invite, CharacterDatabaseTransact
 
 void CalendarMgr::RemoveAllPlayerEventsAndInvites(ObjectGuid guid)
 {
+    std::lock_guard<std::recursive_mutex> guard(_lock);
     // RemoveEvent erases from _events: step past the event before removing it
     for (auto itr = _events.begin(); itr != _events.end();)
     {
@@ -323,6 +354,7 @@ void CalendarMgr::RemoveAllPlayerEventsAndInvites(ObjectGuid guid)
 
 void CalendarMgr::RemovePlayerGuildEventsAndSignups(ObjectGuid guid, ObjectGuid::LowType guildId)
 {
+    std::lock_guard<std::recursive_mutex> guard(_lock);
     for (auto itr = _events.begin(); itr != _events.end();)
     {
         CalendarEvent* calendarEvent = *itr++;
@@ -339,6 +371,7 @@ void CalendarMgr::RemovePlayerGuildEventsAndSignups(ObjectGuid guid, ObjectGuid:
 
 CalendarEvent* CalendarMgr::GetEvent(uint64 eventId) const
 {
+    std::lock_guard<std::recursive_mutex> guard(_lock);
     for (auto itr : _events)
         if (itr->GetEventId() == eventId)
             return itr;
@@ -348,6 +381,7 @@ CalendarEvent* CalendarMgr::GetEvent(uint64 eventId) const
 
 CalendarInvite* CalendarMgr::GetInvite(uint64 inviteId) const
 {
+    std::lock_guard<std::recursive_mutex> guard(_lock);
     for (const auto& itr : _invites)
         for (auto itr2 : itr.second)
             if (itr2->GetInviteId() == inviteId)
@@ -361,6 +395,8 @@ void CalendarMgr::FreeEventId(uint64 id)
     if (!id)
         return;
 
+    std::lock_guard<std::recursive_mutex> guard(_lock);
+
     if (id == _maxEventId)
         --_maxEventId;
     else
@@ -369,6 +405,7 @@ void CalendarMgr::FreeEventId(uint64 id)
 
 uint64 CalendarMgr::GetFreeEventId()
 {
+    std::lock_guard<std::recursive_mutex> guard(_lock);
     if (_freeEventIds.empty())
         return ++_maxEventId;
 
@@ -384,6 +421,8 @@ void CalendarMgr::FreeInviteId(uint64 id)
     if (!id)
         return;
 
+    std::lock_guard<std::recursive_mutex> guard(_lock);
+
     if (id == _maxInviteId)
         --_maxInviteId;
     else
@@ -392,6 +431,7 @@ void CalendarMgr::FreeInviteId(uint64 id)
 
 uint64 CalendarMgr::GetFreeInviteId()
 {
+    std::lock_guard<std::recursive_mutex> guard(_lock);
     if (_freeInviteIds.empty())
         return ++_maxInviteId;
 
@@ -402,6 +442,7 @@ uint64 CalendarMgr::GetFreeInviteId()
 
 CalendarEventStore CalendarMgr::GetPlayerEvents(ObjectGuid guid)
 {
+    std::lock_guard<std::recursive_mutex> guard(_lock);
     CalendarEventStore events;
 
     for (CalendarEventInviteStore::const_iterator itr = _invites.begin(); itr != _invites.end(); ++itr)
@@ -419,11 +460,13 @@ CalendarEventStore CalendarMgr::GetPlayerEvents(ObjectGuid guid)
     // Guild events, but only for a real guild. Comparing the two ids alone let every guildless
     // player match every guildless event - which is to say, each of them saw the private events of
     // all the others.
-    if (Player* player = ObjectAccessor::FindPlayer(guid))
-        if (ObjectGuid::LowType guildId = player->GetGuildId())
-            for (auto itr : _events)
-                if (itr->IsGuildEvent() && itr->GetGuildId() == guildId)
-                    events.insert(itr);
+    uint8 level;
+    ObjectGuid::LowType guildId;
+    GetCharacterLevelAndGuild(guid, level, guildId);
+    if (guildId)
+        for (auto itr : _events)
+            if (itr->IsGuildEvent() && itr->GetGuildId() == guildId)
+                events.insert(itr);
 
     // Server events carry no owner and no invite, and go to everyone.
     for (auto itr : _events)
@@ -433,9 +476,30 @@ CalendarEventStore CalendarMgr::GetPlayerEvents(ObjectGuid guid)
     return events;
 }
 
-CalendarInviteStore const& CalendarMgr::GetEventInvites(uint64 eventId)
+CalendarInviteStore CalendarMgr::GetEventInvites(uint64 eventId)
 {
-    return _invites[eventId];
+    std::lock_guard<std::recursive_mutex> guard(_lock);
+
+    auto itr = _invites.find(eventId);
+    return itr != _invites.end() ? itr->second : CalendarInviteStore();
+}
+
+void CalendarMgr::CountUpcomingEvents(ObjectGuid owner, ObjectGuid::LowType guildId, uint32& ownEvents, uint32& guildEvents) const
+{
+    std::lock_guard<std::recursive_mutex> guard(_lock);
+
+    ownEvents = 0;
+    guildEvents = 0;
+    time_t const now = GameTime::GetGameTime();
+    for (CalendarEvent const* event : _events)
+    {
+        if (event->GetDate() < now)
+            continue;
+        if (event->GetOwnerGUID() == owner)
+            ++ownEvents;
+        if (guildId && event->GetGuildId() == guildId && (event->IsGuildEvent() || event->IsGuildAnnouncement()))
+            ++guildEvents;
+    }
 }
 
 // Who may change or delete an event. Neither the update nor the remove handler checked anything at
@@ -449,7 +513,7 @@ bool CalendarMgr::CanModify(CalendarEvent const* calendarEvent, ObjectGuid guid)
     if (calendarEvent->GetOwnerGUID() == guid)
         return true;
 
-    for (auto const& invite : _invites[calendarEvent->GetEventId()])
+    for (auto const& invite : GetEventInvites(calendarEvent->GetEventId()))
         if (invite->GetInviteeGUID() == guid && invite->GetRank() == CALENDAR_RANK_MODERATOR)
             return true;
 
@@ -458,6 +522,7 @@ bool CalendarMgr::CanModify(CalendarEvent const* calendarEvent, ObjectGuid guid)
 
 CalendarInviteStore CalendarMgr::GetPlayerInvites(ObjectGuid guid)
 {
+    std::lock_guard<std::recursive_mutex> guard(_lock);
     CalendarInviteStore invites;
 
     for (CalendarEventInviteStore::const_iterator itr = _invites.begin(); itr != _invites.end(); ++itr)
@@ -470,7 +535,7 @@ CalendarInviteStore CalendarMgr::GetPlayerInvites(ObjectGuid guid)
 
 uint32 CalendarMgr::GetPlayerNumPending(ObjectGuid guid)
 {
-    CalendarInviteStore const& invites = GetPlayerInvites(guid);
+    CalendarInviteStore const invites = GetPlayerInvites(guid);
 
     uint32 pendingNum = 0;
     for (auto itr : invites)
@@ -511,16 +576,19 @@ std::string CalendarEvent::BuildCalendarMailBody() const
 
 void CalendarMgr::SendCalendarEventInvite(CalendarInvite const& invite)
 {
+    std::lock_guard<std::recursive_mutex> guard(_lock);
     CalendarEvent* calendarEvent = GetEvent(invite.GetEventId());
 
     ObjectGuid invitee = invite.GetInviteeGUID();
-    Player* player = ObjectAccessor::FindPlayer(invitee);
+    uint8 inviteeLevel;
+    ObjectGuid::LowType inviteeGuildId;
+    GetCharacterLevelAndGuild(invitee, inviteeLevel, inviteeGuildId);
 
     WorldPackets::Calendar::SCalendarEventInvite packet;
     packet.EventID = calendarEvent ? calendarEvent->GetEventId() : 0;
     packet.InviteGuid = invitee;
     packet.InviteID = calendarEvent ? invite.GetInviteId() : 0;
-    packet.Level = player ? player->getLevel() : Player::GetLevelFromDB(invitee);
+    packet.Level = inviteeLevel;
     packet.ResponseTime = invite.GetResponseTime();
     packet.Status = invite.GetStatus();
     packet.Type = calendarEvent ? calendarEvent->IsGuildEvent() : 0;
@@ -528,8 +596,7 @@ void CalendarMgr::SendCalendarEventInvite(CalendarInvite const& invite)
 
     if (!calendarEvent)
     {
-        if (Player* playerSender = ObjectAccessor::FindPlayer(invite.GetSenderGUID()))
-            playerSender->SendDirectMessage(packet.Write());
+        ObjectAccessor::SendToPlayer(invite.GetSenderGUID(), packet.Write());
     }
     else
     {
@@ -620,17 +687,17 @@ void CalendarMgr::SendCalendarEventInviteAlert(CalendarEvent const& calendarEven
             guild->BroadcastPacket(packet.Write());
     }
     else
-        if (Player* player = ObjectAccessor::FindPlayer(invite.GetInviteeGUID()))
-            player->SendDirectMessage(packet.Write());
+        ObjectAccessor::SendToPlayer(invite.GetInviteeGUID(), packet.Write());
 }
 
 void CalendarMgr::SendCalendarEvent(ObjectGuid guid, CalendarEvent const& calendarEvent, CalendarSendEventType sendType)
 {
-    Player* player = ObjectAccessor::FindPlayer(guid);
-    if (!player)
+    std::lock_guard<std::recursive_mutex> guard(_lock);
+
+    if (!ObjectAccessor::IsPlayerOnline(guid))
         return;
 
-    CalendarInviteStore const& eventInviteeList = _invites[calendarEvent.GetEventId()];
+    CalendarInviteStore const eventInviteeList = GetEventInvites(calendarEvent.GetEventId());
 
     WorldPackets::Calendar::CalendarSendEvent packet;
     packet.Date = calendarEvent.GetDate();
@@ -650,10 +717,10 @@ void CalendarMgr::SendCalendarEvent(ObjectGuid guid, CalendarEvent const& calend
     for (auto const& calendarInvite : eventInviteeList)
     {
         ObjectGuid inviteeGuid = calendarInvite->GetInviteeGUID();
-        Player* invitee = ObjectAccessor::FindPlayer(inviteeGuid);
 
-        uint8 inviteeLevel = invitee ? invitee->getLevel() : Player::GetLevelFromDB(inviteeGuid);
-        ObjectGuid::LowType inviteeGuildId = invitee ? invitee->GetGuildId() : Player::GetGuildIdFromDB(inviteeGuid);
+        uint8 inviteeLevel;
+        ObjectGuid::LowType inviteeGuildId;
+        GetCharacterLevelAndGuild(inviteeGuid, inviteeLevel, inviteeGuildId);
 
         WorldPackets::Calendar::CalendarEventInviteInfo inviteInfo;
         inviteInfo.Guid = inviteeGuid;
@@ -668,60 +735,57 @@ void CalendarMgr::SendCalendarEvent(ObjectGuid guid, CalendarEvent const& calend
         packet.Invites.push_back(inviteInfo);
     }
 
-    player->SendDirectMessage(packet.Write());
+    ObjectAccessor::SendToPlayer(guid, packet.Write());
 }
 
 void CalendarMgr::SendCalendarEventInviteRemoveAlert(ObjectGuid guid, CalendarEvent const& calendarEvent, CalendarInviteStatus status)
 {
-    if (Player* player = ObjectAccessor::FindPlayer(guid))
-    {
-        WorldPackets::Calendar::CalendarEventInviteRemovedAlert packet;
-        packet.Date = calendarEvent.GetDate();
-        packet.EventID = calendarEvent.GetEventId();
-        packet.Flags = calendarEvent.GetFlags();
-        packet.Status = status;
-        player->SendDirectMessage(packet.Write());
-    }
+    WorldPackets::Calendar::CalendarEventInviteRemovedAlert packet;
+    packet.Date = calendarEvent.GetDate();
+    packet.EventID = calendarEvent.GetEventId();
+    packet.Flags = calendarEvent.GetFlags();
+    packet.Status = status;
+    ObjectAccessor::SendToPlayer(guid, packet.Write());
 }
 
 void CalendarMgr::SendCalendarClearPendingAction(ObjectGuid guid)
 {
-    if (Player* player = ObjectAccessor::FindPlayer(guid))
-        player->SendDirectMessage(WorldPackets::Calendar::CalendarClearPendingAction().Write());
+    ObjectAccessor::SendToPlayer(guid, WorldPackets::Calendar::CalendarClearPendingAction().Write());
 }
 
 void CalendarMgr::SendCalendarCommandResult(ObjectGuid guid, CalendarError err, char const* param /*= NULL*/)
 {
-    if (Player* player = ObjectAccessor::FindPlayer(guid))
+    WorldPackets::Calendar::CalendarCommandResult packet;
+    packet.Command = 1;
+    packet.Result = err;
+
+    switch (err)
     {
-        WorldPackets::Calendar::CalendarCommandResult packet;
-        packet.Command = 1;
-        packet.Result = err;
-
-        switch (err)
-        {
-            case CALENDAR_ERROR_OTHER_INVITES_EXCEEDED:
-            case CALENDAR_ERROR_ALREADY_INVITED_TO_EVENT_S:
-            case CALENDAR_ERROR_IGNORING_YOU_S:
-                packet.Name = param;
-                break;
-            default:
-                break;
-        }
-
-        player->SendDirectMessage(packet.Write());
+        case CALENDAR_ERROR_OTHER_INVITES_EXCEEDED:
+        case CALENDAR_ERROR_ALREADY_INVITED_TO_EVENT_S:
+        case CALENDAR_ERROR_IGNORING_YOU_S:
+            packet.Name = param;
+            break;
+        default:
+            break;
     }
+
+    ObjectAccessor::SendToPlayer(guid, packet.Write());
 }
 
 void CalendarMgr::SendPacketToAllEventRelatives(WorldPacket const* packet, CalendarEvent const& calendarEvent)
 {
+    std::lock_guard<std::recursive_mutex> guard(_lock);
     if (calendarEvent.IsGuildEvent() || calendarEvent.IsGuildAnnouncement())
         if (Guild* guild = sGuildMgr->GetGuildById(calendarEvent.GetGuildId()))
             guild->BroadcastPacket(packet);
 
-    CalendarInviteStore invites = _invites[calendarEvent.GetEventId()];
-    for (auto& itr : invites)
-        if (Player* player = ObjectAccessor::FindPlayer(itr->GetInviteeGUID()))
-            if (!calendarEvent.IsGuildEvent() || (calendarEvent.IsGuildEvent() && player->GetGuildId() != calendarEvent.GetGuildId()))
+    // guild members already got the packet through the guild
+    bool const guildEvent = calendarEvent.IsGuildEvent();
+    for (CalendarInvite const* invite : GetEventInvites(calendarEvent.GetEventId()))
+        ObjectAccessor::WithPlayer(invite->GetInviteeGUID(), [packet, guildEvent, &calendarEvent](Player* player)
+        {
+            if (!guildEvent || player->GetGuildId() != calendarEvent.GetGuildId())
                 player->SendDirectMessage(packet);
+        });
 }

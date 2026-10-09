@@ -26,6 +26,8 @@
 #include "World.h"
 #include "WorldSession.h"
 #include "ObjectVisitors.hpp" 
+#include "ObjectAccessor.h"
+#include <memory>
 
 template<class Builder>
 class CreatureTextLocalizer
@@ -63,7 +65,12 @@ public:
         else
             messageTemplate = _packetCache[localeConstant];
 
-        switch (_msgType)
+        Send(player, messageTemplate, _msgType, localeConstant);
+    }
+
+    static void Send(Player const* player, WorldPackets::Chat::Chat const* messageTemplate, ChatMsg msgType, LocaleConstant localeConstant)
+    {
+        switch (msgType)
         {
             case CHAT_MSG_MONSTER_WHISPER:
             case CHAT_MSG_RAID_BOSS_WHISPER:
@@ -159,11 +166,27 @@ void CreatureTextMgr::SendChatPacket(WorldObject* source, Builder const& builder
         }
         case TEXT_RANGE_WORLD:
         {
-            auto const& smap = sWorld->GetAllSessions();
-            for (const auto& iter : smap)
-                if (auto player = iter.second->GetPlayer())
-                    if (player->GetSession() && (!team || Team(player->GetTeam()) == team) && (!gmOnly || player->isGameMaster()))
-                        localizer(player);
+            // players of other maps belong to other threads: the packet of every locale is built here, then each
+            // player gets his in his own thread (the builder and its source must not outlive this call)
+            auto packets = std::make_shared<std::vector<std::unique_ptr<WorldPackets::Chat::Chat>>>();
+            for (uint8 locale = 0; locale < MAX_LOCALES; ++locale)
+            {
+                packets->emplace_back(static_cast<WorldPackets::Chat::Chat*>(builder(LocaleConstant(locale))));
+                packets->back()->Write();
+            }
+
+            ObjectAccessor::PostToAllPlayers([packets, msgType, team, gmOnly](Player* player)
+            {
+                if (!player->IsInWorld() || (team && Team(player->GetTeam()) != team) || (gmOnly && !player->isGameMaster()))
+                    return;
+
+                auto session = player->GetSession();
+                if (!session || session->PlayerLoading() || session->PlayerLogout())
+                    return;
+
+                auto localeConstant = session->GetSessionDbLocaleIndex();
+                CreatureTextLocalizer<Builder>::Send(player, (*packets)[localeConstant].get(), msgType, localeConstant);
+            }, 0, ObjectAccessor::PlayerScope::InWorld);
             return;
         }
         case TEXT_RANGE_NORMAL:

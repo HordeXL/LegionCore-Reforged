@@ -742,6 +742,8 @@ class TC_GAME_API Map
         IntervalTimer i_timer_bp;
         std::recursive_mutex i_objectLock;
 
+        uint32 m_corpseExpireTimer = 0;
+
         WorldSession* m_currentSession;
 };
 

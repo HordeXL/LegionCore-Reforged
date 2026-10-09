@@ -175,12 +175,12 @@ void OutdoorPvPMgr::HandlePlayerEnterMap(ObjectGuid guid, uint32 zoneID)
 
 void OutdoorPvPMgr::HandlePlayerLeaveMap(ObjectGuid guid, uint32 zoneID)
 {
-    auto itr = m_OutdoorPvPMap.find(zoneID);
-    if (itr == m_OutdoorPvPMap.end())
+    // callers pass the zone, as for the enter call (m_OutdoorPvPMap is keyed by map: the lookup never matched)
+    auto itr = m_OutdoorPvPZone.find(zoneID);
+    if (itr == m_OutdoorPvPZone.end())
         return;
 
-    for (auto v : itr->second)
-        v->HandlePlayerLeaveMap(guid, zoneID);
+    itr->second->HandlePlayerLeaveMap(guid, zoneID);
 }
 
 void OutdoorPvPMgr::HandlePlayerEnterArea(ObjectGuid guid, uint32 areaID)

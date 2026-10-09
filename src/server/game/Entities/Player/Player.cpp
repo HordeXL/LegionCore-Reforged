@@ -1835,6 +1835,12 @@ void Player::Update(uint32 p_time)
     if (pet && (HasUnitMovementFlag(MOVEMENTFLAG_FLYING) || !pet->IsWithinDistInMap(this, GetMap()->GetVisibilityRange())) && !pet->isPossessed())
         if (!GetTransport() || GetTransport() != pet->GetTransport()) // waiting full teleport player
             UnsummonPetTemporaryIfAny();
+
+    // a pet sent away during a flight comes back once on the ground: the dismount that resummons it often happens
+    // while still flying, the pet is sent away again at once and nothing else would bring it back
+    if (!pet && m_temporaryUnsummonedPetNumber && !HasUnitMovementFlag(MOVEMENTFLAG_FLYING) && !isInFlight() && !GetVehicle()
+        && !IsPetNeedBeTemporaryUnsummoned() && !GetMap()->IsBattlegroundOrArena())
+        ResummonPetTemporaryUnSummonedIfAny();
     
 
     //we should execute delayed teleports only for alive(!) players
@@ -3692,20 +3698,22 @@ void Player::RemoveFromGroup(Group* group, ObjectGuid guid, RemoveMethod method 
 {
     if (group)
     {
-        if (Scenario* progress = sScenarioMgr->GetScenario(group->m_challengeInstanceID))
+        // the scenario belongs to another map's thread: its state is copied under the store lock
+        bool chargeKey = false;
+        sScenarioMgr->WithScenario(group->m_challengeInstanceID, [&chargeKey, &group, &guid](Scenario* progress)
         {
             if (Challenge* _challenge = progress->GetChallenge())
-            {
-                if (guid == group->m_challengeOwner && !_challenge->_complete && _challenge->_run)
+                chargeKey = guid == group->m_challengeOwner && !_challenge->_complete && _challenge->_run;
+        });
+
+        if (chargeKey)
+        {
+            // the kicker may be on another map: the owner's item and key change on the owner's own thread
+            if (!ObjectAccessor::PostToPlayer(guid, [](Player* keyOwner) -> void
                 {
-                    // the kicker may be on another map: the owner's item and key change on the owner's own thread
-                    if (!ObjectAccessor::PostToPlayer(guid, [](Player* keyOwner) -> void
-                        {
-                            keyOwner->ChallengeKeyCharded(keyOwner->GetItemByEntry(138019, true), keyOwner->m_challengeKeyInfo.Level, false);
-                        }, 1, ObjectAccessor::PlayerScope::InWorld))
-                        CharacterDatabase.PExecute("UPDATE challenge_key SET KeyIsCharded = 0, InstanceID = 0 WHERE guid = %u", guid.GetGUIDLow());
-                }
-            }
+                    keyOwner->ChallengeKeyCharded(keyOwner->GetItemByEntry(138019, true), keyOwner->m_challengeKeyInfo.Level, false);
+                }, 1, ObjectAccessor::PlayerScope::InWorld))
+                CharacterDatabase.PExecute("UPDATE challenge_key SET KeyIsCharded = 0, InstanceID = 0 WHERE guid = %u", guid.GetGUIDLow());
         }
 
         group->RemoveMember(guid, false, method, kicker, reason);
@@ -34588,29 +34596,52 @@ void Player::ForceChangeTalentGroup(uint32 specId)
     }
 }
 
+void Player::SetQueueRoleMask(uint8 bracketId, uint8 roleMask, bool temp)
+{
+    if (bracketId >= MS::Battlegrounds::MaxBrackets)
+        return;
+
+    if (temp)
+        m_bgQueueRolesTemp[bracketId] = roleMask;
+    else
+        m_bgQueueRoles[bracketId].store(roleMask, std::memory_order_relaxed);
+}
+
 uint8 Player::GetQueueRoleMask(uint8 bracketId, bool temp) const
 {
-    if (!temp)
+    if (bracketId < MS::Battlegrounds::MaxBrackets)
     {
-        auto itr = m_bgQueueRoles.find(bracketId);
-        if (itr != m_bgQueueRoles.end())
-            return (*itr).second;
-        else
-            return GetSpecializationRoleMaskForGroup();
+        if (temp && m_bgQueueRolesTemp[bracketId])
+            return m_bgQueueRolesTemp[bracketId];
+
+        if (uint8 roleMask = m_bgQueueRoles[bracketId].load(std::memory_order_relaxed))
+            return roleMask;
     }
-    else
+
+    return GetSpecializationRoleMaskForGroup();
+}
+
+uint8 Player::GetRequestedQueueRoleMask(uint8 bracketId) const
+{
+    if (bracketId < MS::Battlegrounds::MaxBrackets)
+        if (uint8 roleMask = m_bgQueueRoles[bracketId].load(std::memory_order_relaxed))
+            return roleMask;
+
+    switch (GetSpecializationRole())
     {
-        auto itr = m_bgQueueRolesTemp.find(bracketId);
-        if (itr != m_bgQueueRolesTemp.end())
-            return (*itr).second;
-        else
-            return GetQueueRoleMask(bracketId, false);
+        case ROLES_HEALER:
+            return lfg::LfgRoles::PLAYER_ROLE_HEALER;
+        case ROLES_DPS:
+            return lfg::LfgRoles::PLAYER_ROLE_DAMAGE;
+        case ROLES_TANK:
+            return lfg::LfgRoles::PLAYER_ROLE_TANK;
+        default:
+            return lfg::LfgRoles::PLAYER_ROLE_NONE;
     }
 }
 
-int8 Player::GetSingleQueueRole(uint8 bracketId) const
+int8 Player::GetSingleQueueRole(uint8 roleMask)
 {
-    auto roleMask = GetQueueRoleMask(bracketId);
     if (roleMask == lfg::LfgRoles::PLAYER_ROLE_TANK)
         return ROLES_TANK;
     if (roleMask == lfg::LfgRoles::PLAYER_ROLE_HEALER)
@@ -39074,7 +39105,7 @@ void Player::CreateChallengeKey(Item* item)
 void Player::ApplyWeeklyChallengeKeyReset()
 {
     ChallengeKeyInfo& key = m_challengeKeyInfo;
-    OploteLoot const* chest = sChallengeMgr->GetOploteLoot(GetGUID());
+    std::optional<OploteLoot> const chest = sChallengeMgr->FindOploteLoot(GetGUID());
 
     // nothing to keep for a player who never had a key above +2
     if (!chest && !key.IsActive() && key.Level <= 2)

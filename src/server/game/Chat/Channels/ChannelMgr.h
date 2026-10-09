@@ -18,6 +18,11 @@
 #ifndef __TRINITY_CHANNELMGR_H
 #define __TRINITY_CHANNELMGR_H
 
+#include <map>
+#include <memory>
+#include <mutex>
+#include <shared_mutex>
+
 #include "Common.h"
 #include "Channel.h"
 
@@ -29,17 +34,22 @@
 class TC_GAME_API ChannelMgr
 {
     public:
-        ChannelMgr() { team = 0; }
-        ~ChannelMgr();
+        explicit ChannelMgr(uint32 teamId) : team(teamId) { }
+        ChannelMgr(ChannelMgr const&) = delete;
+        ChannelMgr& operator=(ChannelMgr const&) = delete;
 
-        uint32 team;
-        typedef std::map<std::wstring, Channel*> ChannelMap;
+        uint32 const team;
+        typedef std::map<std::wstring, std::unique_ptr<Channel>> ChannelMap;
 
+        // The returned channel is never freed while the server runs, so the pointer stays valid in every thread
         Channel* GetJoinChannel(std::string name, uint32 channel_id);
         Channel* GetChannel(std::string const& name, Player* player, bool notify = true);
-        void LeftChannel(std::string name);
+        // Nothing to free any more: an empty custom channel is reset when it is joined again
+        void LeftChannel(std::string const& /*name*/) { }
 
     private:
+        std::shared_mutex _lock;                            // channels
+        std::mutex _createLock;                             // one creator at a time: the constructor runs a synchronous query
         ChannelMap channels;
         static void SendNotOnChannelNotify(Player const* player, std::string const& name);
 };

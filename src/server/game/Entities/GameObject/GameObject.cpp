@@ -584,7 +584,7 @@ void GameObject::Update(uint32 diff)
                                                             // respawn timer
                             uint32 poolid = GetDBTableGUIDLow() ? sPoolMgr->IsPartOfAPool<GameObject>(GetDBTableGUIDLow()) : 0;
                             if (poolid)
-                                sPoolMgr->UpdatePool<GameObject>(poolid, GetDBTableGUIDLow());
+                                sPoolMgr->UpdatePool<GameObject>(poolid, GetDBTableGUIDLow(), this);
                             else
                                 GetMap()->AddToMap(this);
                             break;
@@ -901,7 +901,7 @@ void GameObject::Delete()
     SetUInt32Value(GAMEOBJECT_FIELD_FLAGS, GetGOInfo()->flags);
 
     if (auto poolid = GetDBTableGUIDLow() ? sPoolMgr->IsPartOfAPool<GameObject>(GetDBTableGUIDLow()) : 0)
-        sPoolMgr->UpdatePool<GameObject>(poolid, GetDBTableGUIDLow());
+        sPoolMgr->UpdatePool<GameObject>(poolid, GetDBTableGUIDLow(), this);
     else
         AddObjectToRemoveList();
 }
@@ -2051,22 +2051,29 @@ void GameObject::Use(Unit* user)
 
             Player* player = user->ToPlayer();
 
-            Player* targetPlayer = ObjectAccessor::FindPlayer(player->GetSelection());
+            // the target is usually on another map (that is the point of a summoning stone): read him under the accessor lock
+            ObjectGuid const targetGuid = player->GetSelection();
+            bool sameRaid = false;
+            bool targetInInstance = false;
+            uint8 targetLevel = 0;
+            if (targetGuid == player->GetGUID() || !ObjectAccessor::WithPlayer(targetGuid, [&](Player* target)
+            {
+                sameRaid = target->IsInSameRaidWith(player);
+                targetInInstance = target->InInstance();
+                targetLevel = target->getLevel();
+            }))
+                return;
 
             // accept only use by player from same raid as caster, except caster itself
-            if (!targetPlayer || targetPlayer == player || !targetPlayer->IsInSameRaidWith(player))
+            if (!sameRaid)
                 return;
 
             if (Group* group = player->GetGroup())
-                if (group->InChallenge() && player->InInstance() != targetPlayer->InInstance())
+                if (group->InChallenge() && player->InInstance() != targetInInstance)
                     return;
 
             //required lvl checks!
-            uint8 level = player->getLevel();
-            if (level < info->meetingStone.minLevel)
-                return;
-            level = targetPlayer->getLevel();
-            if (level < info->meetingStone.minLevel)
+            if (player->getLevel() < info->meetingStone.minLevel || targetLevel < info->meetingStone.minLevel)
                 return;
 
             if (info->entry == 194097)
@@ -2903,7 +2910,17 @@ Player* GameObject::GetLootRecipient() const
 {
     if (!m_lootRecipient)
         return nullptr;
-    return ObjectAccessor::FindPlayer(m_lootRecipient);
+
+    if (Player* recipient = ObjectAccessor::GetPlayer(*this, m_lootRecipient))
+        return recipient;
+
+    // the tapper left this map: a member of his group standing here keeps the right, nobody else gets it
+    if (Group* group = GetLootRecipientGroup())
+        for (Group::MemberSlot const& slot : group->GetMemberSlots())
+            if (Player* member = ObjectAccessor::GetPlayer(*this, slot.Guid))
+                return member;
+
+    return nullptr;
 }
 
 Group* GameObject::GetLootRecipientGroup() const

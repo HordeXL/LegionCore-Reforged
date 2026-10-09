@@ -34,6 +34,7 @@
 #include "ObjectDefines.h"
 #include "VehicleDefines.h"
 #include <limits>
+#include <shared_mutex>
 #include <utility>
 #include "ConditionMgr.h"
 #include "PhaseMgr.h"
@@ -722,8 +723,10 @@ class TC_GAME_API ObjectMgr
 
         MailLevelReward const* GetMailLevelReward(uint32 level, uint32 raceMask);
 
-        CellObjectGuids const* GetCellObjectGuids(uint16 mapid, uint8 spawnMode, uint32 cell_id) const;
-        CellObjectGuidsMap const* GetMapObjectGuids(uint16 mapid, uint8 spawnMode) const;
+        // These return copies: the cell store is written at runtime (events, pools, commands, corpses) while map threads read it
+        bool GetCellObjectGuids(uint16 mapid, uint8 spawnMode, uint32 cell_id, CellObjectGuids& out) const;
+        bool GetCellCorpses(uint16 mapid, uint32 cell_id, CellCorpseMap& out) const;
+        void GetMapStaticPassengerGuids(uint16 mapid, uint8 spawnMode, std::vector<ObjectGuid::LowType>& creatures, std::vector<ObjectGuid::LowType>& gameobjects) const;
 
         std::vector<TempSummonData> const* GetSummonGroup(uint32 summonerId, SummonerType summonerType, uint8 group) const;
 
@@ -1001,6 +1004,7 @@ class TC_GAME_API ObjectMgr
         HalfNameContainer _petHalfName1;
 
         MapObjectGuids _mapObjectGuidsStore;
+        mutable std::shared_mutex _mapObjectGuidsLock; // protects _mapObjectGuidsStore (leaf lock)
 
         CreatureDataContainer _creatureDataStore;
         CreatureTemplateContainer _creatureTemplateStore;

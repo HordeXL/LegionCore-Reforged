@@ -132,31 +132,51 @@ bool ChallengeMgr::CheckBestMemberMapId(ObjectGuid const& guid, ChallengeData* c
     return isBest;
 }
 
-void ChallengeMgr::SaveChallengeToDB(ChallengeData const* challengeData)
+std::vector<ObjectGuid> ChallengeMgr::AddChallenge(ChallengeData* challengeData)
+{
+    std::vector<ObjectGuid> personalBests;
+    std::optional<ChallengeData> saved;
+    {
+        std::unique_lock<std::shared_mutex> lock(_lock);
+        _challengeMap[challengeData->ID] = challengeData;
+        CheckBestMapId(challengeData);
+        CheckBestGuildMapId(challengeData);
+        for (ChallengeMember const& member : challengeData->member)
+            if (CheckBestMemberMapId(member.guid, challengeData))
+                personalBests.push_back(member.guid);
+
+        saved = *challengeData;
+    }
+
+    SaveChallengeToDB(*saved);
+    return personalBests;
+}
+
+void ChallengeMgr::SaveChallengeToDB(ChallengeData const& run)
 {
     CharacterDatabaseTransaction trans = CharacterDatabase.BeginTransaction();
 
     CharacterDatabasePreparedStatement* stmt = CharacterDatabase.GetPreparedStatement(CHAR_INS_CHALLENGE);
-    stmt->setUInt32(0, challengeData->ID);
-    stmt->setUInt64(1, challengeData->GuildID);
-    stmt->setUInt16(2, challengeData->MapID);
-    stmt->setUInt32(3, challengeData->RecordTime);
-    stmt->setUInt32(4, challengeData->Date);
-    stmt->setUInt8(5, challengeData->ChallengeLevel);
-    stmt->setUInt8(6, challengeData->TimerLevel);
+    stmt->setUInt32(0, run.ID);
+    stmt->setUInt64(1, run.GuildID);
+    stmt->setUInt16(2, run.MapID);
+    stmt->setUInt32(3, run.RecordTime);
+    stmt->setUInt32(4, run.Date);
+    stmt->setUInt8(5, run.ChallengeLevel);
+    stmt->setUInt8(6, run.TimerLevel);
     std::ostringstream affixesListIDs;
-    for (uint16 affixe : challengeData->Affixes)
+    for (uint16 affixe : run.Affixes)
         if (affixe)
             affixesListIDs << affixe << ' ';
     stmt->setString(7, affixesListIDs.str());
-    stmt->setUInt32(8, challengeData->ChestID);
-    stmt->setUInt16(9, challengeData->ChallengeID);
+    stmt->setUInt32(8, run.ChestID);
+    stmt->setUInt16(9, run.ChallengeID);
     trans->Append(stmt);
 
-    for (auto const& v : challengeData->member)
+    for (auto const& v : run.member)
     {
         stmt = CharacterDatabase.GetPreparedStatement(CHAR_INS_CHALLENGE_MEMBER);
-        stmt->setUInt32(0, challengeData->ID);
+        stmt->setUInt32(0, run.ID);
         stmt->setUInt64(1, v.guid.GetCounter());
         stmt->setUInt16(2, v.specId);
         stmt->setUInt32(3, v.ChallengeLevel);
@@ -170,7 +190,14 @@ void ChallengeMgr::SaveChallengeToDB(ChallengeData const* challengeData)
 
 void ChallengeMgr::LoadFromDB()
 {
-    if (QueryResult result = CharacterDatabase.Query("SELECT `ID`, `GuildID`, `MapID`, `RecordTime`, `Date`, `ChallengeLevel`, `TimerLevel`, `Affixes`, `ChestID`, `ChallengeID` FROM `challenge`"))
+    // queried before the lock is taken
+    QueryResult challengeResult = CharacterDatabase.Query("SELECT `ID`, `GuildID`, `MapID`, `RecordTime`, `Date`, `ChallengeLevel`, `TimerLevel`, `Affixes`, `ChestID`, `ChallengeID` FROM `challenge`");
+    QueryResult memberResult = CharacterDatabase.Query("SELECT `id`, `member`, `specID`, `ChallengeLevel`, `Date`, `ChestID` FROM `challenge_member`");
+    QueryResult lootResult = CharacterDatabase.Query("SELECT `guid`, `chestListID`, `date`, `ChallengeLevel` FROM `challenge_oplote_loot`");
+
+    std::unique_lock<std::shared_mutex> lock(_lock);
+
+    if (QueryResult& result = challengeResult)
     {
         do
         {
@@ -208,7 +235,7 @@ void ChallengeMgr::LoadFromDB()
         } while (result->NextRow());
     }
 
-    if (QueryResult result = CharacterDatabase.Query("SELECT `id`, `member`, `specID`, `ChallengeLevel`, `Date`, `ChestID` FROM `challenge_member`"))
+    if (QueryResult& result = memberResult)
     {
         do
         {
@@ -231,11 +258,11 @@ void ChallengeMgr::LoadFromDB()
 
     for (auto v : _challengeMap)
         if (v.second->member.empty())
-            CharacterDatabase.PQuery("DELETE FROM `challenge` WHERE `ID` = '%u';", v.first);
+            CharacterDatabase.PExecute("DELETE FROM `challenge` WHERE `ID` = '%u';", v.first);
 
     PruneHistory();
 
-    if (QueryResult result = CharacterDatabase.Query("SELECT `guid`, `chestListID`, `date`, `ChallengeLevel` FROM `challenge_oplote_loot`"))
+    if (QueryResult& result = lootResult)
     {
         do
         {
@@ -253,6 +280,8 @@ void ChallengeMgr::LoadFromDB()
 
         } while (result->NextRow());
     }
+
+    lock.unlock();
 
     if (sWorld->getWorldState(WS_CHALLENGE_AFFIXE1_RESET_TIME) == 0)
         GenerateCurrentWeekAffixes();
@@ -349,60 +378,74 @@ void ChallengeMgr::PruneHistory()
     TC_LOG_INFO("server.loading", ">> Mythic+ history: %zu old runs removed, %zu kept", removed.size(), _challengeMap.size());
 }
 
-ChallengeData* ChallengeMgr::BestServerChallenge(uint16 ChallengeID)
+std::optional<ChallengeData> ChallengeMgr::BestServerChallenge(uint16 ChallengeID) const
 {
-    return Trinity::Containers::MapGetValuePtr(_bestForMap, ChallengeID);
+    std::shared_lock<std::shared_mutex> lock(_lock);
+    auto itr = _bestForMap.find(ChallengeID);
+    if (itr == _bestForMap.end() || !itr->second)
+        return std::nullopt;
+
+    return *itr->second;
 }
 
-ChallengeData* ChallengeMgr::BestGuildChallenge(ObjectGuid::LowType const& GuildID, uint16 ChallengeID)
+std::optional<ChallengeData> ChallengeMgr::BestGuildChallenge(ObjectGuid::LowType const& GuildID, uint16 ChallengeID) const
 {
     if (!GuildID)
-        return nullptr;
+        return std::nullopt;
 
-    auto itr = m_GuildBest.find(GuildID);
-    if (itr == m_GuildBest.end())
-        return nullptr;
+    std::shared_lock<std::shared_mutex> lock(_lock);
+    auto guild = m_GuildBest.find(GuildID);
+    if (guild == m_GuildBest.end())
+        return std::nullopt;
 
-    return Trinity::Containers::MapGetValuePtr(itr->second, ChallengeID);
+    auto itr = guild->second.find(ChallengeID);
+    if (itr == guild->second.end() || !itr->second)
+        return std::nullopt;
+
+    return *itr->second;
 }
 
-void ChallengeMgr::SetChallengeMapData(ObjectGuid::LowType const& ID, ChallengeData* data)
+std::optional<ChallengeData> ChallengeMgr::BestForMemberMap(ObjectGuid const& guid, uint32 ChallengeID) const
 {
-    _challengeMap[ID] = data;
+    std::shared_lock<std::shared_mutex> lock(_lock);
+    auto member = _challengesOfMember.find(guid);
+    if (member == _challengesOfMember.end())
+        return std::nullopt;
+
+    auto itr = member->second.find(ChallengeID);
+    if (itr == member->second.end() || !itr->second)
+        return std::nullopt;
+
+    return *itr->second;
 }
 
-ChallengeByMap* ChallengeMgr::BestForMember(ObjectGuid const& guid)
+std::vector<MemberMapStat> ChallengeMgr::GetMapStatsForMember(ObjectGuid const& guid) const
 {
-   return Trinity::Containers::MapGetValuePtr(_challengesOfMember, guid);
-}
+    std::vector<MemberMapStat> stats;
 
-ChallengeByMap* ChallengeMgr::LastForMember(ObjectGuid const& guid)
-{
-    return Trinity::Containers::MapGetValuePtr(_lastForMember, guid);
-}
+    std::shared_lock<std::shared_mutex> lock(_lock);
+    auto last = _lastForMember.find(guid);
+    if (last == _lastForMember.end())
+        return stats;
 
-ChallengeData* ChallengeMgr::LastForMemberMap(ObjectGuid const& guid, uint32 ChallengeID)
-{
-    if (ChallengeByMap* _lastResalt = LastForMember(guid))
+    auto best = _challengesOfMember.find(guid);
+    for (auto const& v : last->second)
     {
-        auto itr = _lastResalt->find(ChallengeID);
-        if (itr != _lastResalt->end())
-            return itr->second;
+        if (!v.second)
+            continue;
+
+        MemberMapStat stat{ *v.second, v.second->RecordTime };
+        if (best != _challengesOfMember.end())
+        {
+            auto run = best->second.find(v.second->ChallengeID);
+            if (run != best->second.end() && run->second)
+                stat.bestRecordTime = run->second->RecordTime;
+        }
+
+        stats.push_back(std::move(stat));
     }
 
-    return nullptr;
-}
-
-ChallengeData* ChallengeMgr::BestForMemberMap(ObjectGuid const& guid, uint32 ChallengeID)
-{
-    if (ChallengeByMap* _lastResalt = BestForMember(guid))
-    {
-        auto itr = _lastResalt->find(ChallengeID);
-        if (itr != _lastResalt->end())
-            return itr->second;
-    }
-
-    return nullptr;
+    return stats;
 }
 
 void ChallengeMgr::GenerateCurrentWeekAffixes(time_t weekTime)
@@ -472,36 +515,46 @@ bool ChallengeMgr::HasManualAffixes()
         && sWorld->getIntConfig(CONFIG_CHALLENGE_MANUAL_AFFIX3) > 0 && sWorld->getIntConfig(CONFIG_CHALLENGE_MANUAL_AFFIX3) < 15;
 }
 
-bool ChallengeMgr::HasOploteLoot(ObjectGuid const& guid)
+bool ChallengeMgr::HasOploteLoot(ObjectGuid const& guid) const
 {
-    return Trinity::Containers::MapGetValuePtr(_oploteWeekLoot, guid);
+    std::shared_lock<std::shared_mutex> lock(_lock);
+    return _oploteWeekLoot.find(guid) != _oploteWeekLoot.end();
 }
 
-OploteLoot* ChallengeMgr::GetOploteLoot(ObjectGuid const& guid)
+std::optional<OploteLoot> ChallengeMgr::FindOploteLoot(ObjectGuid const& guid) const
 {
-    return Trinity::Containers::MapGetValuePtr(_oploteWeekLoot, guid);
+    std::shared_lock<std::shared_mutex> lock(_lock);
+    auto itr = _oploteWeekLoot.find(guid);
+    if (itr == _oploteWeekLoot.end())
+        return std::nullopt;
+
+    return itr->second;
 }
 
 void ChallengeMgr::SaveOploteLootToDB()
 {
     CharacterDatabaseTransaction trans = CharacterDatabase.BeginTransaction();
 
-    for (auto const& v : _oploteWeekLoot)
     {
-        if (v.second.needSave)
+        std::shared_lock<std::shared_mutex> lock(_lock);
+        for (auto const& v : _oploteWeekLoot)
         {
-            auto stmt = CharacterDatabase.GetPreparedStatement(CHAR_INS_CHALLENGE_OPLOTE_LOOT);
-            stmt->setUInt32(0, v.second.guid.GetCounter());
-            std::ostringstream chestLists;
-            for (uint32 chestList : v.second.chestListID)
-                if (chestList)
-                    chestLists << chestList << ' ';
-            stmt->setString(1, chestLists.str());
-            stmt->setUInt32(2, v.second.Date);
-            stmt->setUInt32(3, v.second.ChallengeLevel);
-            trans->Append(stmt);
+            if (v.second.needSave)
+            {
+                auto stmt = CharacterDatabase.GetPreparedStatement(CHAR_INS_CHALLENGE_OPLOTE_LOOT);
+                stmt->setUInt32(0, v.second.guid.GetCounter());
+                std::ostringstream chestLists;
+                for (uint32 chestList : v.second.chestListID)
+                    if (chestList)
+                        chestLists << chestList << ' ';
+                stmt->setString(1, chestLists.str());
+                stmt->setUInt32(2, v.second.Date);
+                stmt->setUInt32(3, v.second.ChallengeLevel);
+                trans->Append(stmt);
+            }
         }
     }
+
     CharacterDatabase.CommitTransaction(trans);
 }
 
@@ -511,14 +564,18 @@ void ChallengeMgr::DeleteOploteLoot(ObjectGuid const& guid)
     stmt->setUInt32(0, guid.GetCounter());
     CharacterDatabase.Execute(stmt);
 
+    std::unique_lock<std::shared_mutex> lock(_lock);
     _oploteWeekLoot.erase(guid);
 }
 
 void ChallengeMgr::GenerateOploteLoot(bool manual)
 {
+    // synchronous query, before the lock
+    CharacterDatabase.Query("DELETE FROM challenge_oplote_loot WHERE date <= UNIX_TIMESTAMP()");
+
+    std::unique_lock<std::shared_mutex> lock(_lock);
     TC_LOG_DEBUG("challenge", "GenerateOploteLoot manual %u _challengeWeekList %zu", manual, _challengeWeekList.size());
 
-    CharacterDatabase.Query("DELETE FROM challenge_oplote_loot WHERE date <= UNIX_TIMESTAMP()");
     _oploteWeekLoot.clear();
 
     for (auto const& c : _challengeWeekList)
@@ -554,6 +611,8 @@ void ChallengeMgr::GenerateOploteLoot(bool manual)
         }
     }
     _challengeWeekList.clear();
+    lock.unlock();
+
     SaveOploteLootToDB();
 }
 
@@ -593,14 +652,17 @@ bool ChallengeMgr::GetStartPosition(uint32 mapID, float& x, float& y, float& z, 
             WorldSafeLocID = 5355;
             break;
         case 1651:
-            if (Player* keyOwner = ObjectAccessor::FindPlayer(OwnerGuid))
+        {
+            uint16 keyChallengeId = 0;
+            if (ObjectAccessor::WithPlayer(OwnerGuid, [&keyChallengeId](Player* keyOwner) { keyChallengeId = keyOwner->m_challengeKeyInfo.ID; }))
             {
-                if (keyOwner->m_challengeKeyInfo.ID == 227)
+                if (keyChallengeId == 227)
                     WorldSafeLocID = 6022; // 7.2 Karazhan - Challenge Mode Start (Lower Karazhan)
                 else
                     WorldSafeLocID = 6023; // 7.2 Karazhan - Challenge Mode Start (Upper Karazhan)
             }
             break;
+        }
         case 1677:  // Cathedral of Eternal Night
             WorldSafeLocID = 5891;
             break;
@@ -754,14 +816,21 @@ void ChallengeMgr::ApplyWeeklyKeyReset(std::unordered_set<ObjectGuid::LowType> c
         uint32(CHALLENGE_KEY_WEEKLY_DECAY), keyFilter.c_str());
     trans->PAppend("DELETE FROM item_instance WHERE itemEntry = 138019%s", itemFilter.c_str());
 
-    // a completed key this week: the next key is the best one minus one, without decay
-    for (auto const& itr : _oploteWeekLoot)
+    std::vector<std::pair<ObjectGuid::LowType, uint32>> bestKeys;
     {
-        ObjectGuid::LowType guid = itr.first.GetCounter();
+        std::shared_lock<std::shared_mutex> lock(_lock);
+        for (auto const& itr : _oploteWeekLoot)
+            bestKeys.emplace_back(itr.first.GetCounter(), itr.second.ChallengeLevel);
+    }
+
+    // a completed key this week: the next key is the best one minus one, without decay
+    for (auto const& itr : bestKeys)
+    {
+        ObjectGuid::LowType guid = itr.first;
         if (onlineGuids.count(guid))
             continue;
 
-        uint32 level = GetKeyLevelAfterChest(itr.second.ChallengeLevel);
+        uint32 level = GetKeyLevelAfterChest(itr.second);
         trans->PAppend("INSERT INTO challenge_key (guid, ID, Level, KeyIsCharded) VALUES (" UI64FMTD ", 0, %u, 1) "
             "ON DUPLICATE KEY UPDATE ID = 0, Level = %u, KeyIsCharded = 1, InstanceID = 0", guid, level, level);
     }

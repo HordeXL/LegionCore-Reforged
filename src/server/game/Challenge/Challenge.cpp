@@ -65,9 +65,10 @@ Challenge::Challenge(InstanceMap* map, Player* player, uint32 instanceID, Scenar
             return;
         }
 
-        for (GroupReference* itr = group->GetFirstMember(); itr != nullptr; itr = itr->next())
-            if (Player* member = itr->getSource())
-                _challengers.insert(member->GetGUID());
+        // the connected members, wherever they are: only their guid is needed, never their Player
+        for (Group::MemberSlot const& slot : group->GetMemberSlots())
+            if (ObjectAccessor::WithPlayer(slot.Guid, [](Player*) { }, ObjectAccessor::PlayerScope::InOrOutOfWorld))
+                _challengers.insert(slot.Guid);
 
         _affixes = group->m_affixes;
         _challengeLevel = group->m_challengeLevel;
@@ -320,20 +321,32 @@ void Challenge::Update(uint32 diff)
         if (_item)
             keyOwner->ChallengeKeyCharded(_item, _challengeLevel);
         else
-        {
-            keyOwner = ObjectAccessor::FindPlayer(m_ownerGuid);
-            if (keyOwner)
-            {
-                _item = keyOwner->GetItemByGuid(m_itemGuid);
-                if (_item)
-                    keyOwner->ChallengeKeyCharded(_item, _challengeLevel);
-                else
-                    CharacterDatabase.PQuery("UPDATE challenge_key SET KeyIsCharded = 0, InstanceID = 0 WHERE guid = %u", m_ownerGuid.GetGUIDLow());
-            }
-            else
-                CharacterDatabase.PQuery("UPDATE challenge_key SET KeyIsCharded = 0, InstanceID = 0 WHERE guid = %u", m_ownerGuid.GetGUIDLow());
-        }
+            DepleteOwnerKey();
     }
+}
+
+// The owner is on another map thread (or offline) while the key ends: his key changes in his own thread, only if it
+// still belongs to this run (an already depleted or completed key has InstanceID reset). The same condition in the
+// database covers an owner offline, or logging out before the posted action runs (a key flagged KeyIsCharded = 0
+// is depleted once at the next login).
+void Challenge::DepleteOwnerKey()
+{
+    ObjectAccessor::PostToPlayer(m_ownerGuid, [itemGuid = m_itemGuid, level = _challengeLevel, instanceId = _instanceID](Player* keyOwner) -> void
+    {
+        ChallengeKeyInfo& info = keyOwner->m_challengeKeyInfo;
+        if (info.InstanceID != instanceId)
+            return;
+
+        Item* item = keyOwner->GetItemByGuid(itemGuid);
+        if (!item)
+            item = keyOwner->GetItemByEntry(138019, true);
+        keyOwner->ChallengeKeyCharded(item, level);
+
+        info.InstanceID = 0;
+        info.needUpdate = true;
+    });
+
+    CharacterDatabase.PExecute("UPDATE challenge_key SET KeyIsCharded = 0, InstanceID = 0 WHERE guid = %u AND InstanceID = %u", m_ownerGuid.GetGUIDLow(), _instanceID);
 }
 
 bool Challenge::CanStart()
@@ -349,7 +362,8 @@ void Challenge::Start()
     if (!_canRun)
         return;
 
-    Player* keyOwner = ObjectAccessor::FindPlayer(m_ownerGuid);
+    // the key is read and marked in this map's thread: the owner has to be here (the start is retried otherwise)
+    Player* keyOwner = ObjectAccessor::FindPlayer(_map, m_ownerGuid);
     if (!keyOwner)
         return;
 
@@ -455,19 +469,7 @@ void Challenge::Complete()
         _item->SetState(ITEM_CHANGED, keyOwner);
     }
     else
-    {
-        keyOwner = ObjectAccessor::FindPlayer(m_ownerGuid);
-        if (keyOwner)
-        {
-            _item = keyOwner->GetItemByGuid(m_itemGuid);
-            if (_item)
-                keyOwner->ChallengeKeyCharded(_item, _challengeLevel);
-            else
-                CharacterDatabase.PQuery("UPDATE challenge_key SET KeyIsCharded = 0, InstanceID = 0 WHERE guid = %u", m_ownerGuid.GetGUIDLow());
-        }
-        else
-            CharacterDatabase.PQuery("UPDATE challenge_key SET KeyIsCharded = 0, InstanceID = 0 WHERE guid = %u", m_ownerGuid.GetGUIDLow());
-    }
+        DepleteOwnerKey();
 
     auto challengeData = new ChallengeData;
     challengeData->ID = sObjectMgr->GetGenerator<HighGuid::Scenario>()->Generate();
@@ -504,16 +506,6 @@ void Challenge::Complete()
             guildCounter[player->GetGuildId()]++;
 
         challengeData->member.insert(member);
-        if (sChallengeMgr->CheckBestMemberMapId(member.guid, challengeData))
-            SendChallengeModeNewPlayerRecord(player);
-
-        SendChallengeModeMapStatsUpdate(player);
-
-        player->UpdateAchievementCriteria(CRITERIA_TYPE_INSTANSE_MAP_ID, _mapID, _rewardLevel);
-
-        player->RemoveAura(ChallengersBurden);
-        player->CastSpell(player, SPELL_CHALLENGE_ANTIKICK, true);
-        player->KilledMonsterCredit(542180); // for daily event quest
     });
 
     if (GetChallengeTimer() < 9 * MINUTE)
@@ -529,10 +521,22 @@ void Challenge::Complete()
         if (v.second >= 3)
             challengeData->GuildID = v.first;
 
-    sChallengeMgr->SetChallengeMapData(challengeData->ID, challengeData);
-    sChallengeMgr->CheckBestMapId(challengeData);
-    sChallengeMgr->CheckBestGuildMapId(challengeData);
-    sChallengeMgr->SaveChallengeToDB(challengeData);
+    // the run is complete before it is published: the leaderboards are read by other threads
+    std::vector<ObjectGuid> const personalBests = sChallengeMgr->AddChallenge(challengeData);
+
+    _map->ApplyOnEveryPlayer([&](Player* player)
+    {
+        if (std::find(personalBests.begin(), personalBests.end(), player->GetGUID()) != personalBests.end())
+            SendChallengeModeNewPlayerRecord(player);
+
+        SendChallengeModeMapStatsUpdate(player);
+
+        player->UpdateAchievementCriteria(CRITERIA_TYPE_INSTANSE_MAP_ID, _mapID, _rewardLevel);
+
+        player->RemoveAura(ChallengersBurden);
+        player->CastSpell(player, SPELL_CHALLENGE_ANTIKICK, true);
+        player->KilledMonsterCredit(542180); // for daily event quest
+    });
 }
 
 void Challenge::HitTimer()
@@ -705,15 +709,8 @@ void Challenge::SendChallengeModeMapStatsUpdate(Player* player)
     if (!_challengeEntry)
         return;
 
-    ChallengeByMap* bestMap = sChallengeMgr->BestForMember(player->GetGUID());
-    if (!bestMap)
-        return;
-
-    auto itr = bestMap->find(_challengeEntry->ID); // the records are keyed by ChallengeID, not by map
-    if (itr == bestMap->end())
-        return;
-
-    ChallengeData* best = itr->second;
+    // the records are keyed by ChallengeID, not by map
+    std::optional<ChallengeData> const best = sChallengeMgr->BestForMemberMap(player->GetGUID(), _challengeEntry->ID);
     if (!best)
         return;
 
@@ -726,8 +723,7 @@ void Challenge::SendChallengeModeMapStatsUpdate(Player* player)
     update.Stats.BestMedalDate = best->Date;
     update.Stats.Affixes = best->Affixes;
 
-    ChallengeMemberList members = best->member;
-    for (auto const& v : members)
+    for (auto const& v : best->member)
         update.Stats.BestSpecID.push_back(v.specId);
 
     if (player)

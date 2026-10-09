@@ -48,11 +48,8 @@ void WorldSession::HandleJoinChannel(WorldPackets::Channel::JoinChannel& packet)
         return;
 
     if (ChannelMgr* cMgr = channelMgr(player->GetTeam()))
-    {
-        cMgr->team = player->GetTeam();
         if (Channel* channel = cMgr->GetJoinChannel(packet.ChannelName, packet.ChatChannelId))
             channel->JoinChannel(player, packet.Password, true);
-    }
 }
 
 void WorldSession::HandleLeaveChannel(WorldPackets::Channel::LeaveChannel& packet)
@@ -68,12 +65,8 @@ void WorldSession::HandleLeaveChannel(WorldPackets::Channel::LeaveChannel& packe
         return;
 
     if (ChannelMgr* cMgr = channelMgr(player->GetTeam()))
-    {
         if (Channel* channel = cMgr->GetChannel(packet.ChannelName, player))
             channel->LeaveChannel(player, true, true);
-
-        cMgr->LeftChannel(packet.ChannelName);
-    }
 }
 
 void WorldSession::HandleChannelCommandAnnounce(WorldPackets::Channel::ChannelPlayerCommand& packet)

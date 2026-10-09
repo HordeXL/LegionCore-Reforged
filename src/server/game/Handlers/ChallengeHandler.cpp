@@ -33,7 +33,7 @@ void WorldSession::HandleRequestLeaders(WorldPackets::ChallengeMode::RequestLead
     result.LastGuildUpdate = GameTime::GetGameTime();
     result.LastRealmUpdate = GameTime::GetGameTime();
 
-    if (auto bestGuild = sChallengeMgr->BestGuildChallenge(_player->GetGuildId(), packet.ChallengeID))
+    if (std::optional<ChallengeData> bestGuild = sChallengeMgr->BestGuildChallenge(_player->GetGuildId(), packet.ChallengeID))
     {
         WorldPackets::ChallengeMode::ModeAttempt guildLeaders;
         guildLeaders.InstanceRealmAddress = GetVirtualRealmAddress();
@@ -55,7 +55,7 @@ void WorldSession::HandleRequestLeaders(WorldPackets::ChallengeMode::RequestLead
         result.GuildLeaders.emplace_back(guildLeaders);
     }
 
-    if (ChallengeData* bestServer = sChallengeMgr->BestServerChallenge(packet.ChallengeID))
+    if (std::optional<ChallengeData> bestServer = sChallengeMgr->BestServerChallenge(packet.ChallengeID))
     {
         WorldPackets::ChallengeMode::ModeAttempt realmLeaders;
         realmLeaders.InstanceRealmAddress = GetVirtualRealmAddress();
@@ -88,29 +88,25 @@ void WorldSession::HandleGetChallengeModeRewards(WorldPackets::ChallengeMode::Mi
 void WorldSession::HandleChallengeModeRequestMapStats(WorldPackets::ChallengeMode::Misc& /*packet*/)
 {
     WorldPackets::ChallengeMode::AllMapStats stats;
-    if (ChallengeByMap* last = sChallengeMgr->LastForMember(_player->GetGUID()))
+    for (MemberMapStat const& stat : sChallengeMgr->GetMapStatsForMember(_player->GetGUID()))
     {
-        for (auto const& v : *last)
-        {
-            WorldPackets::ChallengeMode::ChallengeModeMap modeMap;
-            modeMap.ChallengeID = v.second->ChallengeID;
-            modeMap.BestMedalDate = v.second->Date;
-            modeMap.MapId = v.second->MapID;
-            modeMap.CompletedChallengeLevel = v.second->ChallengeLevel;
+        ChallengeData const& last = stat.last;
 
-            modeMap.LastCompletionMilliseconds = v.second->RecordTime;
-            if (ChallengeData* _lastData = sChallengeMgr->BestForMemberMap(_player->GetGUID(), v.second->ChallengeID))
-                modeMap.BestCompletionMilliseconds = _lastData->RecordTime;
-            else
-                modeMap.BestCompletionMilliseconds = v.second->RecordTime;
+        WorldPackets::ChallengeMode::ChallengeModeMap modeMap;
+        modeMap.ChallengeID = last.ChallengeID;
+        modeMap.BestMedalDate = last.Date;
+        modeMap.MapId = last.MapID;
+        modeMap.CompletedChallengeLevel = last.ChallengeLevel;
 
-            modeMap.Affixes = v.second->Affixes;
+        modeMap.LastCompletionMilliseconds = last.RecordTime;
+        modeMap.BestCompletionMilliseconds = stat.bestRecordTime;
 
-            for (auto const& z : v.second->member)
-                modeMap.BestSpecID.push_back(z.specId);
+        modeMap.Affixes = last.Affixes;
 
-            stats.ChallengeModeMaps.push_back(modeMap);
-        }
+        for (auto const& z : last.member)
+            modeMap.BestSpecID.push_back(z.specId);
+
+        stats.ChallengeModeMaps.push_back(modeMap);
     }
 
     SendPacket(stats.Write());
@@ -171,12 +167,24 @@ void WorldSession::HandleStartChallengeMode(WorldPackets::ChallengeMode::StartCh
             return;
         }
 
-        if (Group* group = _player->GetGroup())
-        {
-            for (GroupReference* itr = group->GetFirstMember(); itr != nullptr; itr = itr->next())
+        // a member on another map belongs to another thread: only the ones standing here are read, the others stop the start
+        Group* group = _player->GetGroup();
+        std::vector<Player*> members;
+        bool memberElsewhere = false;
+        if (group)
+            for (Group::MemberSlot const& slot : group->GetMemberSlots())
             {
-                Player* player = itr->getSource();
-                if (!player || !player->IsAlive())
+                if (Player* member = ObjectAccessor::GetPlayer(*_player, slot.Guid))
+                    members.push_back(member);
+                else if (ObjectAccessor::WithPlayer(slot.Guid, [](Player*) { }, ObjectAccessor::PlayerScope::InOrOutOfWorld))
+                    memberElsewhere = true;
+            }
+
+        if (group)
+        {
+            for (Player* player : members)
+            {
+                if (!player->IsAlive())
                 {
                     ChatHandler(_player).PSendSysMessage("Error: Player not found or die.");
                     return;
@@ -187,12 +195,12 @@ void WorldSession::HandleStartChallengeMode(WorldPackets::ChallengeMode::StartCh
                     ChatHandler(_player).PSendSysMessage("Error: Player in combat.");
                     return;
                 }
+            }
 
-                if (!player->GetMap() || player->GetMap()->ToInstanceMap() != inst)
-                {
-                    ChatHandler(_player).PSendSysMessage("Error: Player in group not this map.");
-                    return;
-                }
+            if (memberElsewhere)
+            {
+                ChatHandler(_player).PSendSysMessage("Error: Player in group not this map.");
+                return;
             }
 
             group->m_challengeEntry = sMapChallengeModeStore.LookupEntry(_player->m_challengeKeyInfo.ID);
@@ -229,15 +237,12 @@ void WorldSession::HandleStartChallengeMode(WorldPackets::ChallengeMode::StartCh
 
             group->SetDungeonDifficultyID(DIFFICULTY_MYTHIC_KEYSTONE);
 
-            for (GroupReference* itr = group->GetFirstMember(); itr != nullptr; itr = itr->next())
+            for (Player* player : members)
             {
-                if (Player* player = itr->getSource())
-                {
-                    player->SetDungeonDifficultyID(DIFFICULTY_MYTHIC_KEYSTONE);
-                    player->SendDirectMessage(result2.Write());
-                    player->TeleportToChallenge(_player->GetMapId(), x, y, z, o);
-                    player->CastSpell(player, ChallengersBurden, true);
-                }
+                player->SetDungeonDifficultyID(DIFFICULTY_MYTHIC_KEYSTONE);
+                player->SendDirectMessage(result2.Write());
+                player->TeleportToChallenge(_player->GetMapId(), x, y, z, o);
+                player->CastSpell(player, ChallengersBurden, true);
             }
             if (GameObject* challengeOrb = sObjectAccessor->FindGameObject(packet.GameObjectGUID))
             {

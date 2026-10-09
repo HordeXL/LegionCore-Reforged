@@ -1268,7 +1268,7 @@ void Creature::RegenerateHealth()
 
     // Not only pet, but any controlled creature
     if (GetCharmerOrOwnerGUID())
-        addvalue = uint32(24.376 * sWorld->getRate(RATE_HEALTH));
+        addvalue = uint64(0.015f * float(maxValue) * sWorld->getRate(RATE_HEALTH));   // 1.5 % per tick, as TrinityCore: a flat 24 was nothing at Legion health
     else
         addvalue = maxValue / 1.2;
 
@@ -2803,7 +2803,11 @@ void Creature::Respawn(bool force, uint32 timer /*= 3*/)
 
         uint32 poolid = GetDBTableGUIDLow() ? sPoolMgr->IsPartOfAPool<Creature>(GetDBTableGUIDLow()) : 0;
         if (poolid)
-            sPoolMgr->UpdatePool<Creature>(poolid, GetDBTableGUIDLow());
+        {
+            sPoolMgr->UpdatePool<Creature>(poolid, GetDBTableGUIDLow(), this);
+            if (IsPreDelete())      // the pool moved the spawn elsewhere: this creature is on its way out
+                return;
+        }
         ScheduleRareDeparture(this);
 
         //Re-initialize reactstate that could be altered by movementgenerators

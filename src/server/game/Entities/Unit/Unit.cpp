@@ -22067,7 +22067,7 @@ void Unit::Kill(Unit* victim, bool durabilityLoss, SpellInfo const* spellProto)
                 group->UpdateLooterGuid(creature, true);
                 if (group->GetLooterGuid())
                 {
-                    looter = ObjectAccessor::FindPlayer(group->GetLooterGuid());
+                    looter = ObjectAccessor::GetPlayer(*creature, group->GetLooterGuid());   // a looter on another map belongs to another thread
                     if (looter)
                     {
                         creature->SetLootRecipient(looter);   // update creature loot recipient to the allowed looter.

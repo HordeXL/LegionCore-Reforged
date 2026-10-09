@@ -2323,6 +2323,7 @@ void ObjectMgr::LoadPersonalLootTemplate()
 
 void ObjectMgr::AddEventObjectToGrid(ObjectGuid::LowType const& guid, EventObjectData const* data)
 {
+    std::unique_lock<std::shared_mutex> lock(_mapObjectGuidsLock);
     uint64 mask = data->spawnMask;
     for (uint8 i = 0; mask != 0; i++, mask >>= 1)
     {
@@ -2343,6 +2344,7 @@ void ObjectMgr::AddEventObjectToGrid(ObjectGuid::LowType const& guid, EventObjec
 
 void ObjectMgr::AddConversationToGrid(ObjectGuid::LowType const& guid, ConversationSpawnData const* data)
 {
+    std::unique_lock<std::shared_mutex> lock(_mapObjectGuidsLock);
     uint64 mask = data->spawnMask;
     for (uint8 i = 0; mask != 0; i++, mask >>= 1)
     {
@@ -2363,6 +2365,7 @@ void ObjectMgr::AddConversationToGrid(ObjectGuid::LowType const& guid, Conversat
 
 void ObjectMgr::AddCreatureToGrid(ObjectGuid::LowType const& guid, CreatureData const* data)
 {
+    std::unique_lock<std::shared_mutex> lock(_mapObjectGuidsLock);
     uint64 mask = data->spawnMask;
     for (uint8 i = 0; mask != 0; i++, mask >>= 1)
     {
@@ -2383,6 +2386,7 @@ void ObjectMgr::AddCreatureToGrid(ObjectGuid::LowType const& guid, CreatureData 
 
 void ObjectMgr::RemoveCreatureFromGrid(ObjectGuid::LowType const& guid, CreatureData const* data)
 {
+    std::unique_lock<std::shared_mutex> lock(_mapObjectGuidsLock);
     uint64 mask = data->spawnMask;
     for (uint8 i = 0; mask != 0; i++, mask >>= 1)
     {
@@ -2788,6 +2792,7 @@ void ObjectMgr::LoadGameobjects()
 
 void ObjectMgr::AddGameobjectToGrid(ObjectGuid::LowType const& guid, GameObjectData const* data)
 {
+    std::unique_lock<std::shared_mutex> lock(_mapObjectGuidsLock);
     uint64 mask = data->spawnMask;
     for (uint8 i = 0; mask != 0; i++, mask >>= 1)
     {
@@ -2811,6 +2816,7 @@ void ObjectMgr::AddGameobjectToGrid(ObjectGuid::LowType const& guid, GameObjectD
 
 void ObjectMgr::RemoveGameobjectFromGrid(ObjectGuid::LowType const& guid, GameObjectData const* data)
 {
+    std::unique_lock<std::shared_mutex> lock(_mapObjectGuidsLock);
     uint64 mask = data->spawnMask;
     for (uint8 i = 0; mask != 0; i++, mask >>= 1)
     {
@@ -5196,29 +5202,52 @@ MailLevelReward const* ObjectMgr::GetMailLevelReward(uint32 level, uint32 raceMa
     return nullptr;
 }
 
-CellObjectGuids const* ObjectMgr::GetCellObjectGuids(uint16 mapid, uint8 spawnMode, uint32 cell_id) const
+bool ObjectMgr::GetCellObjectGuids(uint16 mapid, uint8 spawnMode, uint32 cell_id, CellObjectGuids& out) const
 {
+    std::shared_lock<std::shared_mutex> lock(_mapObjectGuidsLock);
+
     if (mapid >= _mapObjectGuidsStore.size())
-        return nullptr;
+        return false;
 
     if (spawnMode >= _mapObjectGuidsStore[mapid].size())
-        return nullptr;
+        return false;
 
-    if (_mapObjectGuidsStore[mapid][spawnMode].empty())
-        return nullptr;
+    CellObjectGuids const* cell = Trinity::Containers::MapGetValuePtr(_mapObjectGuidsStore[mapid][spawnMode], cell_id);
+    if (!cell)
+        return false;
 
-    return Trinity::Containers::MapGetValuePtr(_mapObjectGuidsStore[mapid][spawnMode], cell_id);
+    out = *cell;
+    return true;
 }
 
-CellObjectGuidsMap const* ObjectMgr::GetMapObjectGuids(uint16 mapid, uint8 spawnMode) const
+bool ObjectMgr::GetCellCorpses(uint16 mapid, uint32 cell_id, CellCorpseMap& out) const
 {
-    if (mapid >= _mapObjectGuidsStore.size())
-        return nullptr;
+    std::shared_lock<std::shared_mutex> lock(_mapObjectGuidsLock);
 
-    if (spawnMode >= _mapObjectGuidsStore[mapid].size())
-        return nullptr;
+    // corpses are always stored in spawn mode 0
+    if (mapid >= _mapObjectGuidsStore.size() || _mapObjectGuidsStore[mapid].empty())
+        return false;
 
-    return &_mapObjectGuidsStore[mapid][spawnMode];
+    CellObjectGuids const* cell = Trinity::Containers::MapGetValuePtr(_mapObjectGuidsStore[mapid][0], cell_id);
+    if (!cell || cell->corpses.empty())
+        return false;
+
+    out = cell->corpses;
+    return true;
+}
+
+void ObjectMgr::GetMapStaticPassengerGuids(uint16 mapid, uint8 spawnMode, std::vector<ObjectGuid::LowType>& creatures, std::vector<ObjectGuid::LowType>& gameobjects) const
+{
+    std::shared_lock<std::shared_mutex> lock(_mapObjectGuidsLock);
+
+    if (mapid >= _mapObjectGuidsStore.size() || spawnMode >= _mapObjectGuidsStore[mapid].size())
+        return;
+
+    for (auto const& cell : _mapObjectGuidsStore[mapid][spawnMode])
+    {
+        creatures.insert(creatures.end(), cell.second.creatures.begin(), cell.second.creatures.end());
+        gameobjects.insert(gameobjects.end(), cell.second.gameobjects.begin(), cell.second.gameobjects.end());
+    }
 }
 
 uint32 ObjectMgr::GenerateAuctionID()
@@ -6229,6 +6258,7 @@ void ObjectMgr::DeleteGOData(ObjectGuid::LowType const& guid)
 
 void ObjectMgr::AddCorpseCellData(uint32 mapid, uint32 cellid, ObjectGuid player_guid, uint32 instance)
 {
+    std::unique_lock<std::shared_mutex> lock(_mapObjectGuidsLock);
     if (mapid >= _mapObjectGuidsStore.size())
         _mapObjectGuidsStore.resize(mapid + 1);
 
@@ -6242,6 +6272,7 @@ void ObjectMgr::AddCorpseCellData(uint32 mapid, uint32 cellid, ObjectGuid player
 
 void ObjectMgr::DeleteCorpseCellData(uint32 mapid, uint32 cellid, ObjectGuid player_guid)
 {
+    std::unique_lock<std::shared_mutex> lock(_mapObjectGuidsLock);
     if (mapid >= _mapObjectGuidsStore.size())
         _mapObjectGuidsStore.resize(mapid + 1);
 
