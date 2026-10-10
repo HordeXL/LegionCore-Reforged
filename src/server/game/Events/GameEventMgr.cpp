@@ -364,11 +364,12 @@ void GameEventMgr::LoadFromDB()
 
             pGameEvent.description = fields[6].GetString();
 
-            // timewalking weeks follow the realm's rotation, not the dates of the table
+            // timewalking weeks follow the realm's rotation, not the dates of the table; counted from the
+            // running or coming week, so that a daylight saving change does not shift them by an hour
             int32 const timewalkingSlot = Timewalking::GetSlot(pGameEvent.holiday_id);
             if (timewalkingSlot >= 0)
             {
-                pGameEvent.start = Timewalking::GetFirstStart(uint32(timewalkingSlot));
+                pGameEvent.start = Timewalking::GetCurrentStart(uint32(timewalkingSlot));
                 pGameEvent.occurence = Timewalking::GetPeriodMinutes();
                 pGameEvent.length = WEEK / MINUTE;
             }

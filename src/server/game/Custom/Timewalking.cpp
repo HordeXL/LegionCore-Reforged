@@ -41,6 +41,16 @@ namespace
         t.tm_isdst = -1;
         return mktime(&t);
     }
+
+    // counted in calendar days, so that a week past a daylight saving change still starts at the reset hour
+    time_t AddDays(time_t time, int64 days)
+    {
+        tm t;
+        localtime_r(&time, &t);
+        t.tm_mday += int(days);
+        t.tm_isdst = -1;
+        return mktime(&t);
+    }
 }
 
 uint32 Timewalking::GetIntervalWeeks()
@@ -63,7 +73,19 @@ int32 Timewalking::GetSlot(uint32 holidayId)
 
 time_t Timewalking::GetFirstStart(uint32 slot)
 {
-    return Anchor() + time_t(slot) * GetIntervalWeeks() * WEEK;
+    return AddDays(Anchor(), int64(slot) * GetIntervalWeeks() * 7);
+}
+
+time_t Timewalking::GetCurrentStart(uint32 slot)
+{
+    time_t const now = time(nullptr);
+    int64 const periodDays = int64(GetPeriodMinutes()) * MINUTE / DAY;
+    time_t start = GetFirstStart(slot);
+    if (now > start)
+        start = AddDays(start, int64((now - start) / (periodDays * DAY)) * periodDays);
+    if (now >= AddDays(start, 7))
+        start = AddDays(start, periodDays);
+    return start;
 }
 
 uint32 Timewalking::GetPeriodMinutes()
@@ -74,18 +96,11 @@ uint32 Timewalking::GetPeriodMinutes()
 void Timewalking::PrepareCalendar()
 {
     bool const enabled = sWorld->getBoolConfig(CONFIG_TIMEWALKING_ENABLE);
-    time_t const now = time(nullptr);
     time_t const period = time_t(GetPeriodMinutes()) * MINUTE;
 
     for (uint32 slot = 0; slot < std::size(Holidays); ++slot)
     {
-        // the running week of that expansion, or its next one
-        time_t start = GetFirstStart(slot);
-        if (now > start)
-            start += (now - start) / period * period;
-        if (now >= start + WEEK)
-            start += period;
-
+        time_t const start = GetCurrentStart(slot);
         WorldDatabase.DirectPExecute("UPDATE custom_calendar_event SET StartDate = FROM_UNIXTIME(%u), EndDate = NULL, DurationDays = 7, "
             "RepeatDays = %u, Enabled = %u WHERE HolidayID = %u", uint32(start), uint32(period / DAY), uint32(enabled), Holidays[slot]);
     }

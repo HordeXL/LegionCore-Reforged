@@ -165,9 +165,12 @@ void CalendarAnnouncements::Publish()
         uint32 occurrences = 0;
         for (uint32 k = 0; k < (repeat ? MAX_OCCURRENCES : 1u); ++k)
         {
-            time_t t = start + time_t(k) * time_t(repeat) * DAY;
+            // counted in calendar days, so that a date past a daylight saving change keeps its hour
             tm lt;
-            localtime_r(&t, &lt);
+            localtime_r(&start, &lt);
+            lt.tm_mday += int(k * repeat);
+            lt.tm_isdst = -1;
+            mktime(&lt);
             dates[k] = PackDate(lt);
             ++occurrences;
         }
@@ -183,15 +186,17 @@ void CalendarAnnouncements::Publish()
         // `CalendarFlags1 = 3` is what makes a date visible: read off every Blizzard holiday that
         // shows up. At zero the client accepts the record and then has nothing to draw. `Flags = 13`
         // and `CalendarFilterType = 0` come from the PvP Brawls, the closest thing to a one-off
-        // announcement.
+        // announcement. Durations and calendar flags are not one per date but the phases of each
+        // occurrence, one after the other: only the first is set, as in Blizzard's timewalking
+        // holidays, or every date would come back as many times as there are durations.
         vHolidays << "(" << holidayId;
         for (uint32 k = 0; k < MAX_OCCURRENCES; ++k)
             vHolidays << "," << dates[k];                            // Date1..Date10
         for (uint32 k = 0; k < MAX_OCCURRENCES; ++k)
-            vHolidays << "," << (k < occurrences ? duration : 0);     // Duration1..Duration10
+            vHolidays << "," << (k ? 0 : duration);                   // Duration1..Duration10
         vHolidays << ",0,0";                                         // Region, Looping
         for (uint32 k = 0; k < MAX_OCCURRENCES; ++k)
-            vHolidays << "," << (k < occurrences ? 3 : 0);            // CalendarFlags1..10
+            vHolidays << "," << (k ? 0 : 3);                          // CalendarFlags1..10
         vHolidays << ",0,0,13," << nameId << "," << descId << ","
                   << tex1 << "," << tex2 << "," << tex3 << "," << BUILD << ")";
 

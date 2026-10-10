@@ -32,6 +32,8 @@ namespace Timewalking
     int32 GetSlot(uint32 holidayId);
     // a week of that slot, starting at the weekly reset
     time_t GetFirstStart(uint32 slot);
+    // the running week of that slot, or its next one
+    time_t GetCurrentStart(uint32 slot);
     // minutes between two weeks of the same slot
     uint32 GetPeriodMinutes();
 
