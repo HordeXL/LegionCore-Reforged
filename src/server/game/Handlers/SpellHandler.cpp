@@ -86,13 +86,6 @@ void WorldSession::HandleUseItemOpcode(WorldPackets::Spells::ItemUse& cast)
         return;
     }
 
-#ifdef ELUNA_TRINITY
-    // Let Eluna handle the item use first (for item gossip menus, etc.)
-    if (Eluna* e = sElunaMgr->Get(ElunaInfoKey(pUser->GetMapId(), pUser->GetInstanceId())))
-        if (e->OnItemUse(pUser, pItem, targets))
-            return; // Eluna handled it (e.g. gossip menu)
-#endif
-
     // only allow conjured consumable, bandage, poisons (all should have the 2^21 item flag set in DB)
     if (proto->GetClass() == ITEM_CLASS_CONSUMABLE && !(proto->GetFlags() & ITEM_FLAG_IGNORE_DEFAULT_ARENA_RESTRICTIONS) && pUser->InArena())
     {

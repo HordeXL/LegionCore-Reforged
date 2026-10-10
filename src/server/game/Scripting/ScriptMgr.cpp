@@ -1630,8 +1630,10 @@ bool ScriptMgr::OnItemUse(Player* player, Item* item, SpellCastTargets const& ta
 {
 #ifdef ELUNA_TRINITY
     if (sElunaConfig->IsElunaEnabled())
+        // Eluna OnUse: true = allow spell cast, false = a script intercepted it (e.g. item gossip menu shown).
+        // Core convention: return true = handled, do not cast the default spell.
         if (Eluna* e = sElunaMgr->Get(ElunaInfoKey(player->GetMapId(), player->GetInstanceId())))
-            if (e->OnUse(player, item, targets))
+            if (!e->OnUse(player, item, targets))
                 return true;
 #endif
     ASSERT(player);
@@ -1910,7 +1912,8 @@ void ScriptMgr::OnGameObjectDestroyed(GameObject* go, Player* player)
 {
 #ifdef ELUNA_TRINITY
     if (sElunaConfig->IsElunaEnabled())
-        if (Eluna* e = sElunaMgr->Get(ElunaInfoKey(player->GetMapId(), player->GetInstanceId())))
+        // player can be null when a destructible building changes state without an invoker (e.g. battlefield setup)
+        if (Eluna* e = sElunaMgr->Get(player ? ElunaInfoKey(player->GetMapId(), player->GetInstanceId()) : ElunaInfoKey::MakeGlobalKey(0)))
             e->OnDestroyed(go, player);
 #endif
 
@@ -1924,7 +1927,8 @@ void ScriptMgr::OnGameObjectDamaged(GameObject* go, Player* player)
 {
 #ifdef ELUNA_TRINITY
     if (sElunaConfig->IsElunaEnabled())
-        if (Eluna* e = sElunaMgr->Get(ElunaInfoKey(player->GetMapId(), player->GetInstanceId())))
+        // player can be null when a destructible building changes state without an invoker (e.g. battleground start)
+        if (Eluna* e = sElunaMgr->Get(player ? ElunaInfoKey(player->GetMapId(), player->GetInstanceId()) : ElunaInfoKey::MakeGlobalKey(0)))
             e->OnDamaged(go, player);
 #endif
 
