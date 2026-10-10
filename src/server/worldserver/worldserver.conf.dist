@@ -1242,11 +1242,11 @@ AllowTwoSide.WhoList = 0
 AllowTwoSide.AddFriend = 0
 
 #
-#    AllowTwoSide.Trade
+#    AllowTwoSide.trade
 #        Allows trading between factions.
 #        Default: 0 - (Disallowed)
 
-AllowTwoSide.Trade = 0
+AllowTwoSide.trade = 0
 
 #
 #    TalentsInspecting
@@ -1432,7 +1432,8 @@ Visibility.GroupMode = 1
 
 Visibility.Distance.Continents = 90
 Visibility.Distance.Instances = 170
-Visibility.Distance.BGArenas = 533
+Visibility.Distance.BG = 533
+Visibility.Distance.Arenas = 533
 
 #
 #    Visibility.RelocationLowerLimit
@@ -1818,22 +1819,22 @@ Battleground.QueueAnnouncer.PlayerOnly = 0
 Battleground.InvitationType = 0
 
 #
-#    BattleGround.PrematureFinishTimer
+#    Battleground.PrematureFinishTimer
 #        Time (in milliseconds) before a battleground ends prematurely
 #        if a team does not have enough players.
 #        Default: 300000 - (5 minutes)
 #                 0      - (Disabled, not recommended)
 
-BattleGround.PrematureFinishTimer = 300000
+Battleground.PrematureFinishTimer = 300000
 
 #
-#    BattleGround.PremadeGroupWaitForMatch
+#    Battleground.PremadeGroupWaitForMatch
 #        Time (in milliseconds) a premade group waits for a matching
 #        group of the opposing faction before entering.
 #        Default: 1800000 - (30 minutes)
 #                 0       - (Disabled)
 
-BattleGround.PremadeGroupWaitForMatch = 1800000
+Battleground.PremadeGroupWaitForMatch = 1800000
 
 #
 #    Battleground.GiveXPForKills
@@ -2158,11 +2159,11 @@ Ra.IP = "0.0.0.0"
 Ra.Port = 3443
 
 #
-#    Ra.MinLevel
+#    RA.MinLevel
 #        Required security level to use the remote console.
 #        Default: 3 - (Administrator)
 
-Ra.MinLevel = 3
+RA.MinLevel = 3
 
 #
 #    SOAP.Enabled
