@@ -15,8 +15,11 @@
 
 #include "Timewalking.h"
 #include "Common.h"
+#include "GameEventMgr.h"
+#include "ObjectAccessor.h"
 #include "DatabaseEnv.h"
 #include "Log.h"
+#include "Player.h"
 #include "SharedDefines.h"
 #include "World.h"
 #include <algorithm>
@@ -29,6 +32,10 @@ namespace
 
     // weekly quests of the two raids (Disturbance Detected, Black Temple and Ulduar): the raids are not open
     uint32 const RaidQuests[] = { 47523, 50316 };
+
+    // the visible marker of each rotation slot, and the level its dungeons open at
+    uint32 const Markers[] = { 193101, 193102, 201001, 233495 };
+    uint8 const MarkerMinLevel[] = { 71, 81, 86, 91 };
 
     // the weekly reset of Legion's launch week (Tuesday 30 August 2016 with the default reset day)
     time_t Anchor()
@@ -106,4 +113,22 @@ void Timewalking::PrepareCalendar()
     }
 
     TC_LOG_INFO("server.loading", ">> Timewalking: %s, one week every %u", enabled ? "on" : "off", GetIntervalWeeks());
+}
+
+void Timewalking::UpdateMarker(Player* player)
+{
+    bool const enabled = sWorld->getBoolConfig(CONFIG_TIMEWALKING_ENABLE);
+    for (uint32 slot = 0; slot < std::size(Holidays); ++slot)
+    {
+        bool const wanted = enabled && player->getLevel() >= MarkerMinLevel[slot] && IsHolidayActive(HolidayIds(Holidays[slot]));
+        if (wanted && !player->HasAura(Markers[slot]))
+            player->CastSpell(player, Markers[slot], true);
+        else if (!wanted && player->HasAura(Markers[slot]))
+            player->RemoveAurasDueToSpell(Markers[slot]);
+    }
+}
+
+void Timewalking::UpdateAllMarkers()
+{
+    ObjectAccessor::PostToAllPlayers([](Player* player) { UpdateMarker(player); });
 }

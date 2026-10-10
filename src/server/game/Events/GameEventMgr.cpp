@@ -1254,6 +1254,9 @@ void GameEventMgr::UnApplyEvent(uint16 event_id)
     UpdateEventWorldState(event_id, false);
     // disable worldquest
     UpdateEventWorldQuest(event_id, false);
+    // the timewalking week's buff leaves with it
+    if (Timewalking::GetSlot(mGameEvent[event_id].holiday_id) >= 0)
+        Timewalking::UpdateAllMarkers();
 }
 
 void GameEventMgr::ApplyNewEvent(uint16 event_id)
@@ -1288,6 +1291,9 @@ void GameEventMgr::ApplyNewEvent(uint16 event_id)
     UpdateEventWorldState(event_id, true);
     // enable worldquest
     UpdateEventWorldQuest(event_id, true);
+    // the timewalking week's buff
+    if (Timewalking::GetSlot(mGameEvent[event_id].holiday_id) >= 0)
+        Timewalking::UpdateAllMarkers();
     // check for seasonal quest reset.
     sWorld->ResetEventSeasonalQuests(event_id);
 }
