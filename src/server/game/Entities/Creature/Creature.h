@@ -535,6 +535,8 @@ typedef std::map<uint32, time_t> CreatureSpellCooldowns;
 
 #define MAX_VENDOR_ITEMS 150                                // Limitation in 4.x.x item count in SMSG_VENDOR_INVENTORY
 
+class IdleChat;
+
 class TC_GAME_API Creature : public Unit, public GridObject<Creature>, public MapObject
 {
     public:
@@ -929,6 +931,7 @@ class TC_GAME_API Creature : public Unit, public GridObject<Creature>, public Ma
         uint32 m_sendInterval;
         MovementGeneratorType m_defaultMovementType;
         uint64 m_DBTableGuid;                  ///< For new or temporary creatures is 0 for saved it is lowguid
+        IdleChat* m_idleChat = nullptr;        // leads the chat of a group of creature_idle_chat
         uint8 m_equipmentId;
         int8 m_originalEquipmentId; // can be -1
 

@@ -36,6 +36,7 @@
 #include "BracketMgr.h"
 #include "CalendarMgr.h"
 #include "CalendarAnnouncements.h"
+#include "IdleChat.h"
 #include "BuiltInConfig.h"
 #include "CellImpl.h"
 #include "ChallengeMgr.h"
@@ -2043,6 +2044,7 @@ void World::SetInitialWorldSettings()
 
     TC_LOG_INFO("server.loading", "Loading Creature Addon Data...");
     sObjectMgr->LoadCreatureAddons();                            // must be after LoadCreatureTemplates() and LoadCreatures()
+    sIdleChatMgr->Load();                                        // must be after LoadCreatures()
     sObjectMgr->LoadCreatureActionData();
 
     TC_LOG_INFO("server.loading", "Loading Creature Movement Overrides...");

@@ -17,6 +17,7 @@
  */
 
 #include "Creature.h"
+#include "IdleChat.h"
 #include "ContributionMgr.h"
 #include "BattlegroundMgr.h"
 #include "CellImpl.h"
@@ -475,6 +476,7 @@ Creature::Creature(bool isWorldObject) : Unit(isWorldObject), lootForPickPockete
 Creature::~Creature()
 {
     m_vendorItemCounts.clear();
+    delete m_idleChat;
 
     delete i_AI;
     i_AI = nullptr;
@@ -1146,6 +1148,9 @@ void Creature::Update(uint32 diff)
                 i_AI->UpdateAI(diff);
                 m_AI_locked = false;
             }
+
+            if (m_idleChat)
+                m_idleChat->Update(this, diff);
 
             if (m_regenTimer > 0)
             {
@@ -2303,6 +2308,11 @@ bool Creature::LoadCreatureFromDB(ObjectGuid::LowType guid, Map* map, bool addTo
     }
 
     m_DBTableGuid = guid;
+
+    delete m_idleChat;
+    m_idleChat = nullptr;
+    if (IdleChatGroup const* group = sIdleChatMgr->GetLedGroup(guid))
+        m_idleChat = new IdleChat(*group);
 
     if (map->GetInstanceId() == 0)
     {
