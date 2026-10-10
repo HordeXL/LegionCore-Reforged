@@ -3900,6 +3900,13 @@ MapDifficultyEntry const* Map::GetMapDifficulty() const
 
 uint32 Map::GetDifficultyLootItemContext(bool isQuest, bool maxLevel, bool isBoss) const
 {
+    // Everything that drops in a timewalking instance is timewalking loot (context 22), the trash and
+    // the chests as much as the bosses: it scales with its owner like the bosses' loot.
+    if (!isQuest && (i_lootDifficulty == DIFFICULTY_TIMEWALKING || i_lootDifficulty == DIFFICULTY_TIMEWALKING_RAID))
+        if (DifficultyEntry const* difficulty = sDifficultyStore.LookupEntry(i_lootDifficulty))
+            if (difficulty->ItemContext)
+                return difficulty->ItemContext;
+
     if (isBoss || IsRaid())
     {
         if (MapDifficultyEntry const* mapDifficulty = sDB2Manager.GetMapDifficultyData(GetId(), i_lootDifficulty))

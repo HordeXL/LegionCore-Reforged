@@ -39115,6 +39115,9 @@ void Player::EnterInTimeWalk(LFGDungeonsEntry const* dbc, bool apply)
 void Player::RescaleAllForTimeWalk(uint32 level, uint32 ilevelMax, uint32 ilevelMin)
 {
     float healthPct = GetHealthPct();
+    uint32 const maxMana = GetMaxPower(POWER_MANA);
+    float const manaPct = maxMana ? GetPower(POWER_MANA) * 100.0f / maxMana : 0.0f;
+    bool const alive = IsAlive();
     bool isArenaOrBG = false;
 
     if (Map* map = GetMap())
@@ -39131,7 +39134,19 @@ void Player::RescaleAllForTimeWalk(uint32 level, uint32 ilevelMax, uint32 ilevel
     SetEffectiveLevel(level);
     SetMaxItemLevel(ilevelMax);
     SetMinItemLevel(ilevelMin);
+
+    // InitStatsForLevel is meant for a level up or a login: it also clears states that must outlive a
+    // rescale in the middle of the game (mount, ghost, GM, AFK, combat, flight, stand state, aura states).
+    static uint16 const keptFields[] = { UNIT_FIELD_FLAGS, PLAYER_FIELD_PLAYER_FLAGS, UNIT_FIELD_MOUNT_DISPLAY_ID, UNIT_FIELD_AURA_STATE,
+        UNIT_FIELD_BYTES_1, UNIT_FIELD_BYTES_2, PLAYER_FIELD_OVERRIDE_SPELLS_ID, PLAYER_FIELD_BYTES_7 };
+    uint32 keptValues[std::size(keptFields)];
+    for (size_t i = 0; i < std::size(keptFields); ++i)
+        keptValues[i] = GetUInt32Value(keptFields[i]);
+
     InitStatsForLevel(true);
+
+    for (size_t i = 0; i < std::size(keptFields); ++i)
+        SetUInt32Value(keptFields[i], keptValues[i]);
 
     if (!isArenaOrBG)
     {
@@ -39140,7 +39155,10 @@ void Player::RescaleAllForTimeWalk(uint32 level, uint32 ilevelMax, uint32 ilevel
                 if (CanUseAttackType(GetAttackBySlot(i)))
                     _ApplyItemMods(item, i, true);
 
-        SetHealth(std::max(uint64(1ull), uint64(healthPct * (float)GetMaxHealth() / 100.0f)));
+        // a dead timewalker (a ghost running back in) stays dead; mana keeps its share like health does
+        SetHealth(alive ? std::max(uint64(1ull), uint64(healthPct * (float)GetMaxHealth() / 100.0f)) : 0);
+        if (maxMana && GetMaxPower(POWER_MANA))
+            SetPower(POWER_MANA, int32(manaPct * GetMaxPower(POWER_MANA) / 100.0f));
 
         SendOperationsAfterDelay(OAD_RECALC_ITEM_LVL);
 

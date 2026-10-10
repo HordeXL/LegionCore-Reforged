@@ -3893,7 +3893,8 @@ uint8 Creature::GetLevelForTarget(WorldObject const* target) const
     {
         if (isWorldBoss())
         {
-            uint8 level = unitTarget->getLevel() + sWorld->getIntConfig(CONFIG_WORLD_BOSS_LEVEL_DIFF);
+            // the level the target fights at: a timewalker brought down to 70 faces a level 73 boss, not 113
+            uint8 level = unitTarget->GetEffectiveLevel() + sWorld->getIntConfig(CONFIG_WORLD_BOSS_LEVEL_DIFF);
             return RoundToInterval<uint8>(level, 1u, 255u);
         }
 
@@ -3901,7 +3902,7 @@ uint8 Creature::GetLevelForTarget(WorldObject const* target) const
         // between UNIT_FIELD_SCALING_LEVEL_MIN and UNIT_FIELD_SCALING_LEVEL_MAX
         if (HasScalableLevels())
         {
-            uint8 targetLevelWithDelta = unitTarget->getLevel() + GetInt32Value(UNIT_FIELD_SCALING_LEVEL_DELTA);
+            uint8 targetLevelWithDelta = unitTarget->GetEffectiveLevel() + GetInt32Value(UNIT_FIELD_SCALING_LEVEL_DELTA);
 
             if (target->IsPlayer())
                 targetLevelWithDelta += target->GetUInt32Value(PLAYER_FIELD_SCALING_PLAYER_LEVEL_DELTA);

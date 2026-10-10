@@ -1212,7 +1212,8 @@ class TC_GAME_API Unit : public WorldObject
         bool CanVehicleAI() const;
 
         uint8 getLevel() const;
-        uint8 GetLevelForTarget(WorldObject const* /*target*/) const override { return getLevel(); }
+        // the level a unit fights at: lowered by timewalking or raised by a battleground bracket
+        uint8 GetLevelForTarget(WorldObject const* /*target*/) const override { return GetEffectiveLevel(); }
         uint8 GetEffectiveLevel() const;
         float getScaleForTarget(int32 delta) const;
         uint32 GetDamageFromLevelScale(Unit* target, uint32 damage);
