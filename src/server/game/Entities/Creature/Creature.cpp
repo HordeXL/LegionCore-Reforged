@@ -23,6 +23,7 @@
 #include "LuaEngine.h"
 #endif
 
+#include "IdleChat.h"
 #include "ContributionMgr.h"
 #include "BattlegroundMgr.h"
 #include "CellImpl.h"
@@ -481,6 +482,7 @@ Creature::Creature(bool isWorldObject) : Unit(isWorldObject), lootForPickPockete
 Creature::~Creature()
 {
     m_vendorItemCounts.clear();
+    delete m_idleChat;
 
     delete i_AI;
     i_AI = nullptr;
@@ -1162,6 +1164,9 @@ void Creature::Update(uint32 diff)
                 i_AI->UpdateAI(diff);
                 m_AI_locked = false;
             }
+
+            if (m_idleChat)
+                m_idleChat->Update(this, diff);
 
             if (m_regenTimer > 0)
             {
@@ -2319,6 +2324,11 @@ bool Creature::LoadCreatureFromDB(ObjectGuid::LowType guid, Map* map, bool addTo
     }
 
     m_DBTableGuid = guid;
+
+    delete m_idleChat;
+    m_idleChat = nullptr;
+    if (IdleChatGroup const* group = sIdleChatMgr->GetLedGroup(guid))
+        m_idleChat = new IdleChat(*group);
 
     if (map->GetInstanceId() == 0)
     {
@@ -3900,7 +3910,8 @@ uint8 Creature::GetLevelForTarget(WorldObject const* target) const
     {
         if (isWorldBoss())
         {
-            uint8 level = unitTarget->getLevel() + sWorld->getIntConfig(CONFIG_WORLD_BOSS_LEVEL_DIFF);
+            // the level the target fights at: a timewalker brought down to 70 faces a level 73 boss, not 113
+            uint8 level = unitTarget->GetEffectiveLevel() + sWorld->getIntConfig(CONFIG_WORLD_BOSS_LEVEL_DIFF);
             return RoundToInterval<uint8>(level, 1u, 255u);
         }
 
@@ -3908,7 +3919,7 @@ uint8 Creature::GetLevelForTarget(WorldObject const* target) const
         // between UNIT_FIELD_SCALING_LEVEL_MIN and UNIT_FIELD_SCALING_LEVEL_MAX
         if (HasScalableLevels())
         {
-            uint8 targetLevelWithDelta = unitTarget->getLevel() + GetInt32Value(UNIT_FIELD_SCALING_LEVEL_DELTA);
+            uint8 targetLevelWithDelta = unitTarget->GetEffectiveLevel() + GetInt32Value(UNIT_FIELD_SCALING_LEVEL_DELTA);
 
             if (target->IsPlayer())
                 targetLevelWithDelta += target->GetUInt32Value(PLAYER_FIELD_SCALING_PLAYER_LEVEL_DELTA);

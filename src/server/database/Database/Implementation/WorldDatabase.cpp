@@ -63,7 +63,10 @@ void WorldDatabaseConnection::DoPrepareStatements()
     PrepareStatement(WORLD_SEL_WAYPOINT_DATA_WPGUID_BY_ID, "SELECT wpguid FROM waypoint_data WHERE id = ? and wpguid <> 0", CONNECTION_SYNCH);
     PrepareStatement(WOLRD_SEL_WAYPOINT_DATA_ACTION, "SELECT DISTINCT action FROM waypoint_data", CONNECTION_SYNCH);
     PrepareStatement(WORLD_SEL_WAYPOINT_SCRIPTS_MAX_ID, "SELECT MAX(guid) FROM waypoint_scripts", CONNECTION_SYNCH);
-    PrepareStatement(WORLD_INS_CREATURE_ADDON, "INSERT INTO creature_addon(guid, path_id) VALUES (?, ?)", CONNECTION_ASYNC);
+    // a spawn row hides the one of its entry: it starts as a copy of it (mount, sheath, emote, auras)
+    PrepareStatement(WORLD_INS_CREATURE_ADDON, "INSERT INTO creature_addon (guid, path_id, mount, bytes1, bytes2, emote, auras) "
+        "SELECT c.guid, ?, IFNULL(a.mount, 0), IFNULL(a.bytes1, 0), IFNULL(a.bytes2, 0), IFNULL(a.emote, 0), a.auras "
+        "FROM creature c LEFT JOIN creature_template_addon a ON a.entry = c.id WHERE c.guid = ?", CONNECTION_ASYNC);
     PrepareStatement(WORLD_UPD_CREATURE_ADDON_PATH, "UPDATE creature_addon SET path_id = ? WHERE guid = ?", CONNECTION_ASYNC);
     PrepareStatement(WORLD_DEL_CREATURE_ADDON, "DELETE FROM creature_addon WHERE guid = ?", CONNECTION_ASYNC);
     PrepareStatement(WORLD_SEL_CREATURE_ADDON_BY_GUID, "SELECT guid FROM creature_addon WHERE guid = ?", CONNECTION_SYNCH);

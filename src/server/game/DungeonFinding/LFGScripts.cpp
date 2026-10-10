@@ -57,8 +57,11 @@ void LFGPlayerScript::OnLogin(Player* player)
         sLFGMgr->SetupGroupMember(guid, group->GetGUID());
     }
 
-    if (LFGDungeonData const* dungeonData = sLFGMgr->GetLFGDungeon(sLFGMgr->GetDungeon(gguid)))
-        player->EnterInTimeWalk(dungeonData->dbc, true);
+    // only inside the group's dungeon: a timewalker logging in elsewhere keeps his own level
+    uint32 queueId = 0;
+    if (!gguid.IsEmpty() && sLFGMgr->inLfgDungeonMap(gguid, player->GetMapId(), player->GetMap()->GetDifficultyID(), queueId))
+        if (LFGDungeonData const* dungeonData = sLFGMgr->GetLFGDungeon(sLFGMgr->GetDungeon(gguid)))
+            player->EnterInTimeWalk(dungeonData->dbc, true);
     /// @todo - Restore LfgPlayerData and send proper status to player if it was in a group
 }
 
@@ -91,7 +94,14 @@ void LFGPlayerScript::OnMapChanged(Player* player)
             player->CastSpell(player, LFG_SPELL_LUCK_OF_THE_DRAW, true);
 
         if (LFGDungeonData const* dungeonData = sLFGMgr->GetLFGDungeon(sLFGMgr->GetDungeon(group->GetGUID())))
+        {
             player->EnterInTimeWalk(dungeonData->dbc, true);
+
+            // An instance only remembers it is a timewalking one while it lives: recreated from its save
+            // (a restart, a reset), it would hand out plain heroic loot. Every timewalker entering sets it again.
+            if (dungeonData->dbc && dungeonData->dbc->MentorItemLevel && dungeonData->dbc->MentorCharLevel && dungeonData->difficulty == DIFFICULTY_HEROIC)
+                player->GetMap()->SetLootDifficulty(DIFFICULTY_TIMEWALKING);
+        }
     }
     else
     {

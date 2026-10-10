@@ -200,8 +200,8 @@ public:
         {
             stmt = WorldDatabase.GetPreparedStatement(WORLD_INS_CREATURE_ADDON);
 
-            stmt->setUInt64(0, guidLow);
-            stmt->setUInt32(1, pathid);
+            stmt->setUInt32(0, pathid);
+            stmt->setUInt64(1, guidLow);
         }
 
         WorldDatabase.Execute(stmt);

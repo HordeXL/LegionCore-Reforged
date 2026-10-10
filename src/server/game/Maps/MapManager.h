@@ -22,6 +22,8 @@
 #include "Common.h"
 #include "Map.h"
 #include "Position.h"
+#include <mutex>
+#include <unordered_map>
 
 class WorldLocation;
 class ChatHandler;
@@ -72,6 +74,11 @@ class TC_GAME_API MapManager
         void DoDelayedMovesAndRemoves();
 
         bool CanPlayerEnter(uint32 mapid, Player* player, bool loginCheck = false);
+
+        // Hourly instance limit of an account (AccountInstancesPerHour): a new instance counts for an hour,
+        // going back into one already counted is always allowed.
+        bool CanEnterInstanceThisHour(uint32 accountId, uint32 instanceId);
+        void AddInstanceEnter(uint32 accountId, uint32 instanceId);
         void InitializeVisibilityDistanceInfo();
 
         /* statistics */
@@ -105,6 +112,10 @@ class TC_GAME_API MapManager
 
         // atomic op counter for active scripts amount
         std::atomic<uint32> _scheduledScripts;
+
+        // account -> instance -> time it stops counting; map threads add players in parallel
+        std::mutex _instanceEnterLock;
+        std::unordered_map<uint32, std::unordered_map<uint32, time_t>> _instanceEnters;
 };
 #define sMapMgr MapManager::instance()
 #endif

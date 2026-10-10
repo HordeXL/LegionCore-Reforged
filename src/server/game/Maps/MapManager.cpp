@@ -279,8 +279,57 @@ bool MapManager::CanPlayerEnter(uint32 mapid, Player* player, bool loginCheck)
                     return false;
     }
 
+    // the hourly instance limit, outside the dungeon finder: the instance the player would go back to does not count
+    if (!loginCheck && !entry->IsScenario() && (!group || !group->isLFGGroup()))
+    {
+        uint32 instanceId = 0;
+        if (group)
+        {
+            if (InstanceSave* save = group->GetBoundInstanceCopy(entry).save)
+                instanceId = save->GetInstanceId();
+        }
+        else if (InstancePlayerBind* bind = player->GetBoundInstance(mapid, targetDifficulty))
+            if (bind->save)
+                instanceId = bind->save->GetInstanceId();
+
+        if (!CanEnterInstanceThisHour(player->GetSession()->GetAccountId(), instanceId))
+        {
+            player->SendTransferAborted(mapid, TRANSFER_ABORT_TOO_MANY_INSTANCES, targetDifficulty);
+            return false;
+        }
+    }
+
     //Other requirements
     return player->Satisfy(sObjectMgr->GetAccessRequirement(mapid, targetDifficulty), mapid, true);
+}
+
+bool MapManager::CanEnterInstanceThisHour(uint32 accountId, uint32 instanceId)
+{
+    uint32 const limit = sWorld->getIntConfig(CONFIG_MAX_INSTANCES_PER_HOUR);
+    if (!limit)
+        return true;
+
+    std::lock_guard<std::mutex> lock(_instanceEnterLock);
+    auto itr = _instanceEnters.find(accountId);
+    if (itr == _instanceEnters.end())
+        return true;
+
+    time_t const now = time(nullptr);
+    for (auto entry = itr->second.begin(); entry != itr->second.end();)
+    {
+        if (entry->second <= now)
+            entry = itr->second.erase(entry);
+        else
+            ++entry;
+    }
+
+    return itr->second.size() < limit || (instanceId && itr->second.count(instanceId));
+}
+
+void MapManager::AddInstanceEnter(uint32 accountId, uint32 instanceId)
+{
+    std::lock_guard<std::mutex> lock(_instanceEnterLock);
+    _instanceEnters[accountId].emplace(instanceId, time(nullptr) + HOUR);
 }
 
 void MapManager::Update(uint32 /*diff*/)

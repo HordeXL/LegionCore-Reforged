@@ -1719,8 +1719,16 @@ public:
         // The difficulty is carried by the item CONTEXT, not by the bonus list: the adventure
         // guide sends the same bonus id whatever difficulty is selected. So build the tree from
         // the link context, then add the link bonus ids on top of it.
-        std::vector<uint32> bonusListIDs = sObjectMgr->GetItemBonusTree(itemId,
-            linkContext ? linkContext : player->GetMap()->GetDifficultyLootItemContext(), player->getLevel());
+        uint32 context = linkContext ? linkContext : player->GetMap()->GetDifficultyLootItemContext();
+
+        // Old dungeon items only have a default (context 0) branch, which carries their level
+        // scaling: without it the item keeps the link bonus alone and shows a meaningless level.
+        uint32 treeItemLevel = 0;
+        if (context && sDB2Manager.GetItemBonusTree(itemId, context, treeItemLevel).empty()
+            && !sDB2Manager.GetItemBonusTree(itemId, 0, treeItemLevel).empty())
+            context = 0;
+
+        std::vector<uint32> bonusListIDs = sObjectMgr->GetItemBonusTree(itemId, context, player->getLevel());
 
         for (uint32 linkBonus : linkBonusListIDs)
             if (std::find(bonusListIDs.begin(), bonusListIDs.end(), linkBonus) == bonusListIDs.end())

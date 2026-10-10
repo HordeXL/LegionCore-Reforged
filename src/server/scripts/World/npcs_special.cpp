@@ -3494,6 +3494,55 @@ public:
     }
 };
 
+// Healing training dummy: stays alive at 1 hp, takes no damage and slowly loses what it was healed,
+// so that it never sits at full health between two heals.
+struct npc_training_dummy_healing : Scripted_NoMovementAI
+{
+    npc_training_dummy_healing(Creature* creature) : Scripted_NoMovementAI(creature) {}
+
+    uint32 _decayTimer = 0;
+    bool _lowered = false;
+
+    void Reset() override
+    {
+        if (!me->isTrainingDummy())
+            me->AddUnitTypeMask(UNIT_MASK_TRAINING_DUMMY);
+
+        me->setRegeneratingHealth(false);
+        me->SetReactState(REACT_PASSIVE);
+        me->ApplySpellImmune(0, IMMUNITY_EFFECT, SPELL_EFFECT_KNOCK_BACK, true);
+        _decayTimer = 1000;
+        _lowered = false;
+    }
+
+    void DamageTaken(Unit* /*attacker*/, uint32& damage, DamageEffectType /*dmgType*/) override
+    {
+        damage = 0;
+    }
+
+    void UpdateAI(uint32 diff) override
+    {
+        // the spawn gives it full health after the AI is set up
+        if (!_lowered)
+        {
+            _lowered = true;
+            me->SetHealth(1);
+        }
+
+        if (_decayTimer > diff)
+        {
+            _decayTimer -= diff;
+            return;
+        }
+        _decayTimer = 1000;
+
+        // 3% of its health a second: healed to full, it is back to 1 hp in about half a minute
+        uint64 health = me->GetHealth();
+        if (health > 1)
+            me->SetHealth(std::max<uint64>(1, health - std::max<uint64>(1, me->GetMaxHealth() * 3 / 100)));
+    }
+};
+
 struct npc_anatomical_dummy : ScriptedAI
 {
     npc_anatomical_dummy(Creature* creature) : ScriptedAI(creature) {}
@@ -7570,6 +7619,7 @@ void AddSC_npcs_special()
     RegisterCreatureAI(npc_snowglobe_stalker);
     RegisterCreatureAI(npc_areatrigger_debugger);
     RegisterCreatureAI(npc_anatomical_dummy);
+    RegisterCreatureAI(npc_training_dummy_healing);
     RegisterCreatureAI(npc_future_you);
     RegisterCreatureAI(npc_hearthstation);
     RegisterCreatureAI(npc_instant_statue_pedestal);
