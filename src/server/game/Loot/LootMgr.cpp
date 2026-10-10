@@ -565,6 +565,11 @@ static KarazhanBossItemLevel const KarazhanBossTable[] =
 // (ChallengeMgr for keystones, context 21 for the rest).
 static uint32 GetPatchItemLevelForDifficulty(uint32 mapId, uint32 difficultyId, uint32 objEntry)
 {
+    // Content tiers only concern Legion: a dungeon of an older expansion keeps its original loot.
+    MapEntry const* map = sMapStore.LookupEntry(mapId);
+    if (!map || map->ExpansionID < EXPANSION_LEGION)
+        return 0;
+
     if (mapId == 1651)
         for (KarazhanBossItemLevel const& boss : KarazhanBossTable)
             if (boss.CreatureEntry == objEntry)

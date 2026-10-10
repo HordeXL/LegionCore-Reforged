@@ -2237,13 +2237,13 @@ namespace
     // The number the client shows comes from ItemLevelSelector, reached through the bonus tree of
     // the item: tree 463 carries all 1477 Legion dungeon items and points at one selector per
     // difficulty context. Rewriting those three rows moves the whole set at once. Karazhan hangs
-    // off its own trees (855/860/875 per wing) and is deliberately left alone.
+    // off its own trees (855/860/875 per wing) and is deliberately left alone, and so is the
+    // timewalking selector: it only serves items of older expansions.
     struct DungeonItemLevels
     {
         uint16 Normal;
         uint16 Heroic;
         uint16 Mythic;
-        uint16 Timewalking;
     };
 
     // Indexed by Custom.ItemLevel.DungeonTier - 1, deliberately its own setting rather than
@@ -2252,18 +2252,17 @@ namespace
     // an interpolation and should be corrected when real values turn up.
     DungeonItemLevels const DungeonLevelsByPatch[] =
     {
-        { 805, 825, 840, 820 },     // 7.0  Emerald Nightmare
-        { 805, 825, 840, 820 },     // 7.1  Trial of Valor
-        { 805, 825, 840, 820 },     // 7.1.5 Nighthold
-        { 825, 845, 860, 840 },     // 7.2  Tomb of Sargeras
-        { 845, 865, 885, 880 },     // 7.3  Antorus - the shipped values
+        { 805, 825, 840 },     // 7.0  Emerald Nightmare
+        { 805, 825, 840 },     // 7.1  Trial of Valor
+        { 805, 825, 840 },     // 7.1.5 Nighthold
+        { 825, 845, 860 },     // 7.2  Tomb of Sargeras
+        { 845, 865, 885 },     // 7.3  Antorus - the shipped values
     };
 
-    // The selectors tree 463 points at, one per difficulty context, plus the timewalking one.
+    // The selectors tree 463 points at, one per difficulty context.
     uint32 const SELECTOR_DUNGEON_NORMAL = 13;      // context 1
     uint32 const SELECTOR_DUNGEON_HEROIC = 12;      // context 2
     uint32 const SELECTOR_DUNGEON_MYTHIC = 17;      // context 23
-    uint32 const SELECTOR_TIMEWALKING    = 108;     // context 22
 
     // The generator takes a plain function pointer, so the value travels through a file static.
     uint16 WantedItemLevel = 0;
@@ -2288,7 +2287,6 @@ uint32 DB2Manager::ApplyDungeonItemLevels(uint32 patch)
         { SELECTOR_DUNGEON_NORMAL, levels.Normal },
         { SELECTOR_DUNGEON_HEROIC, levels.Heroic },
         { SELECTOR_DUNGEON_MYTHIC, levels.Mythic },
-        { SELECTOR_TIMEWALKING,    levels.Timewalking },
     };
 
     for (auto const& target : targets)

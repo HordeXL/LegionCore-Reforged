@@ -8395,6 +8395,20 @@ ScenarioData const* ObjectMgr::GetScenarioOnMap(uint32 mapId, uint32 difficultyI
 std::vector<uint32> ObjectMgr::GetItemBonusTree(uint32 ItemID, uint32 itemBonusTreeMod, uint32 ownerLevel, int32 levelBonus, int32 challengeLevel, int32 needLevel, bool onlyBonus)
 {
     ItemTemplate const* pProto = GetItemTemplate(ItemID);
+
+    // Before Legion an item keeps Blizzard's own bonuses only: the realm's item levels, qualities
+    // and stat rolls are tuned for Legion content and would distort the older items' scaling.
+    if (pProto && pProto->GetExpansion() < EXPANSION_LEGION)
+    {
+        // An old item with no branch for the asked context (a timewalking trash drop, a guide link) takes
+        // its default one, which carries its level scaling.
+        uint32 treeItemLevel = 0;
+        std::vector<uint32> treeBonuses = sDB2Manager.GetItemBonusTree(ItemID, itemBonusTreeMod, treeItemLevel);
+        if (treeBonuses.empty() && itemBonusTreeMod)
+            treeBonuses = sDB2Manager.GetItemBonusTree(ItemID, 0, treeItemLevel);
+        return treeBonuses;
+    }
+
     std::vector<uint32> bonusListIDs = GetItemBonusForLevel(ItemID, itemBonusTreeMod, ownerLevel, needLevel);
     if (!pProto)
         return bonusListIDs;
