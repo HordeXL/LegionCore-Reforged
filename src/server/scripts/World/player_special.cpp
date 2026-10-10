@@ -1,3 +1,4 @@
+#include "Timewalking.h"
 #include "ScriptPCH.h"
 #include <ScriptMgr.h>
 #include "GameEventMgr.h"
@@ -818,6 +819,8 @@ public:
                 if (!sGameEventMgr->IsActiveEvent(90))
                     player->RemoveActiveQuest(44166);
             }
+
+            Timewalking::UpdateMarker(player);
         });
     }
 
@@ -841,6 +844,8 @@ public:
                 if (!sGameEventMgr->IsActiveEvent(97))
                     player->RemoveAura(225787);
             }
+
+            Timewalking::UpdateMarker(player);
         });
     }
 };

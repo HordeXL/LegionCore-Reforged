@@ -15,8 +15,11 @@
 
 #include "Timewalking.h"
 #include "Common.h"
+#include "GameEventMgr.h"
+#include "ObjectAccessor.h"
 #include "DatabaseEnv.h"
 #include "Log.h"
+#include "Player.h"
 #include "SharedDefines.h"
 #include "World.h"
 #include <algorithm>
@@ -30,6 +33,10 @@ namespace
     // weekly quests of the two raids (Disturbance Detected, Black Temple and Ulduar): the raids are not open
     uint32 const RaidQuests[] = { 47523, 50316 };
 
+    // the visible marker of each rotation slot, and the level its dungeons open at
+    uint32 const Markers[] = { 193101, 193102, 201001, 233495 };
+    uint8 const MarkerMinLevel[] = { 71, 81, 86, 91 };
+
     // the weekly reset of Legion's launch week (Tuesday 30 August 2016 with the default reset day)
     time_t Anchor()
     {
@@ -38,6 +45,16 @@ namespace
         t.tm_mon = 7;
         t.tm_mday = 28 + int(sWorld->getIntConfig(CONFIG_WEEKLY_RESET_DAY));    // the 28th was a Sunday
         t.tm_hour = int(sWorld->getIntConfig(CONFIG_WEEKLY_RESET_HOUR));
+        t.tm_isdst = -1;
+        return mktime(&t);
+    }
+
+    // counted in calendar days, so that a week past a daylight saving change still starts at the reset hour
+    time_t AddDays(time_t time, int64 days)
+    {
+        tm t;
+        localtime_r(&time, &t);
+        t.tm_mday += int(days);
         t.tm_isdst = -1;
         return mktime(&t);
     }
@@ -63,7 +80,19 @@ int32 Timewalking::GetSlot(uint32 holidayId)
 
 time_t Timewalking::GetFirstStart(uint32 slot)
 {
-    return Anchor() + time_t(slot) * GetIntervalWeeks() * WEEK;
+    return AddDays(Anchor(), int64(slot) * GetIntervalWeeks() * 7);
+}
+
+time_t Timewalking::GetCurrentStart(uint32 slot)
+{
+    time_t const now = time(nullptr);
+    int64 const periodDays = int64(GetPeriodMinutes()) * MINUTE / DAY;
+    time_t start = GetFirstStart(slot);
+    if (now > start)
+        start = AddDays(start, int64((now - start) / (periodDays * DAY)) * periodDays);
+    if (now >= AddDays(start, 7))
+        start = AddDays(start, periodDays);
+    return start;
 }
 
 uint32 Timewalking::GetPeriodMinutes()
@@ -74,21 +103,32 @@ uint32 Timewalking::GetPeriodMinutes()
 void Timewalking::PrepareCalendar()
 {
     bool const enabled = sWorld->getBoolConfig(CONFIG_TIMEWALKING_ENABLE);
-    time_t const now = time(nullptr);
     time_t const period = time_t(GetPeriodMinutes()) * MINUTE;
 
     for (uint32 slot = 0; slot < std::size(Holidays); ++slot)
     {
-        // the running week of that expansion, or its next one
-        time_t start = GetFirstStart(slot);
-        if (now > start)
-            start += (now - start) / period * period;
-        if (now >= start + WEEK)
-            start += period;
-
+        time_t const start = GetCurrentStart(slot);
         WorldDatabase.DirectPExecute("UPDATE custom_calendar_event SET StartDate = FROM_UNIXTIME(%u), EndDate = NULL, DurationDays = 7, "
             "RepeatDays = %u, Enabled = %u WHERE HolidayID = %u", uint32(start), uint32(period / DAY), uint32(enabled), Holidays[slot]);
     }
 
     TC_LOG_INFO("server.loading", ">> Timewalking: %s, one week every %u", enabled ? "on" : "off", GetIntervalWeeks());
+}
+
+void Timewalking::UpdateMarker(Player* player)
+{
+    bool const enabled = sWorld->getBoolConfig(CONFIG_TIMEWALKING_ENABLE);
+    for (uint32 slot = 0; slot < std::size(Holidays); ++slot)
+    {
+        bool const wanted = enabled && player->getLevel() >= MarkerMinLevel[slot] && IsHolidayActive(HolidayIds(Holidays[slot]));
+        if (wanted && !player->HasAura(Markers[slot]))
+            player->CastSpell(player, Markers[slot], true);
+        else if (!wanted && player->HasAura(Markers[slot]))
+            player->RemoveAurasDueToSpell(Markers[slot]);
+    }
+}
+
+void Timewalking::UpdateAllMarkers()
+{
+    ObjectAccessor::PostToAllPlayers([](Player* player) { UpdateMarker(player); });
 }

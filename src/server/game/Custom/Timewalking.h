@@ -19,6 +19,8 @@
 #include "Define.h"
 #include <ctime>
 
+class Player;
+
 // Timewalking weeks come one expansion after the other in release order (The Burning Crusade, Wrath of
 // the Lich King, Cataclysm, Mists of Pandaria), so the same one never comes twice in a row: one every
 // Timewalking.Interval weeks, every week by default, whatever the content tier.
@@ -32,12 +34,19 @@ namespace Timewalking
     int32 GetSlot(uint32 holidayId);
     // a week of that slot, starting at the weekly reset
     time_t GetFirstStart(uint32 slot);
+    // the running week of that slot, or its next one
+    time_t GetCurrentStart(uint32 slot);
     // minutes between two weeks of the same slot
     uint32 GetPeriodMinutes();
 
     // writes the coming weeks of each expansion into custom_calendar_event; to run before
     // CalendarAnnouncements::Publish
     void PrepareCalendar();
+
+    // the buff that tells which expansion's week is running, given to whoever is old enough for its dungeons
+    void UpdateMarker(Player* player);
+    // the same for everyone online, when a week starts or ends
+    void UpdateAllMarkers();
 }
 
 #endif

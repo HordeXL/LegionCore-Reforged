@@ -197,10 +197,11 @@ void LFGGroupScript::OnRemoveMember(Group* group, ObjectGuid const& guid, Remove
 
         sLFGMgr->SendLfgUpdateParty(guid, LfgUpdateData(LFG_UPDATETYPE_LEADER_UNK1, sLFGMgr->GetSelectedDungeons(guid, queueId)));
 
+        // left in the dungeon: a minute to leave, as a hand-made group's member, before being sent out
         ObjectAccessor::PostToPlayer(guid, [](Player* player) -> void
         {
-            if (player->GetMap()->IsDungeon())            // Teleport player out the dungeon
-                sLFGMgr->TeleportPlayer(player, true);
+            if (player->GetMap()->IsDungeon() && !player->isGameMaster())
+                player->m_InstanceValid = false;
         }, 0, ObjectAccessor::PlayerScope::InWorld);
     }
 

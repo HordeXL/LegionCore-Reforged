@@ -381,11 +381,12 @@ void GameEventMgr::LoadFromDB()
 
             pGameEvent.description = fields[6].GetString();
 
-            // timewalking weeks follow the realm's rotation, not the dates of the table
+            // timewalking weeks follow the realm's rotation, not the dates of the table; counted from the
+            // running or coming week, so that a daylight saving change does not shift them by an hour
             int32 const timewalkingSlot = Timewalking::GetSlot(pGameEvent.holiday_id);
             if (timewalkingSlot >= 0)
             {
-                pGameEvent.start = Timewalking::GetFirstStart(uint32(timewalkingSlot));
+                pGameEvent.start = Timewalking::GetCurrentStart(uint32(timewalkingSlot));
                 pGameEvent.occurence = Timewalking::GetPeriodMinutes();
                 pGameEvent.length = WEEK / MINUTE;
             }
@@ -1270,6 +1271,9 @@ void GameEventMgr::UnApplyEvent(uint16 event_id)
     UpdateEventWorldState(event_id, false);
     // disable worldquest
     UpdateEventWorldQuest(event_id, false);
+    // the timewalking week's buff leaves with it
+    if (Timewalking::GetSlot(mGameEvent[event_id].holiday_id) >= 0)
+        Timewalking::UpdateAllMarkers();
 }
 
 void GameEventMgr::ApplyNewEvent(uint16 event_id)
@@ -1304,6 +1308,9 @@ void GameEventMgr::ApplyNewEvent(uint16 event_id)
     UpdateEventWorldState(event_id, true);
     // enable worldquest
     UpdateEventWorldQuest(event_id, true);
+    // the timewalking week's buff
+    if (Timewalking::GetSlot(mGameEvent[event_id].holiday_id) >= 0)
+        Timewalking::UpdateAllMarkers();
     // check for seasonal quest reset.
     sWorld->ResetEventSeasonalQuests(event_id);
 }

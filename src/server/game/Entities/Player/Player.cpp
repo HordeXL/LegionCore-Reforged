@@ -28908,11 +28908,12 @@ void Player::UpdateHomebindTime(uint32 time)
     }
     else
     {
-        m_HomebindTimer = 0;
+        // the instance is no longer the player's (group left, instance reset): a minute to finish and leave,
+        // announced by the client's countdown, before being sent out
+        m_HomebindTimer = MINUTE * IN_MILLISECONDS;
         SendRaidGroupOnlyMessage(RaidGroupReason::REQUIREMENTS_UNMATCH, m_HomebindTimer);
 
         TC_LOG_DEBUG("maps", "PLAYER: Player '%s' (GUID: %u) will be teleported to homebind in 60 seconds", GetName(), GetGUIDLow());
-        RepopAtGraveyard(true);
     }
 }
 
