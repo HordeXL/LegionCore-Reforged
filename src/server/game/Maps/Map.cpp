@@ -3651,6 +3651,11 @@ bool InstanceMap::AddPlayerToMap(Player* player, bool initPlayer /*= true*/)
     // this will acquire the same mutex so it cannot be in the previous block
     Map::AddPlayerToMap(player, initPlayer);
 
+    // the hourly instance limit counts what the dungeon finder did not choose
+    Group* group = player->GetGroup();
+    if (IsDungeon() && !IsScenario() && !IsGarrison() && !player->isGameMaster() && (!group || !group->isLFGGroup()))
+        sMapMgr->AddInstanceEnter(player->GetSession()->GetAccountId(), GetInstanceId());
+
     SendInstanceGroupSizeChanged();
 
     return true;
