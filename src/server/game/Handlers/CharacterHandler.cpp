@@ -895,11 +895,18 @@ void WorldSession::HandlePlayerLogin(LoginQueryHolder const& holder)
     if (pCurrChar->HasSpell(CALL_PET_SPELL_ID))
         SendStablePet(ObjectGuid::Empty);
 
+    // a finished season stays the latest one: shown as ended (previous = N, current = 0), not as the one before it
     WorldPackets::Battleground::PVPSeason season;
     if (uint32 current = sWorld->getIntConfig(CONFIG_ARENA_SEASON_ID))
-        season.PreviousSeason = current - 1;
-    if (sWorld->getBoolConfig(CONFIG_ARENA_SEASON_IN_PROGRESS))
-        season.CurrentSeason = sWorld->getIntConfig(CONFIG_ARENA_SEASON_ID);
+    {
+        if (sWorld->getBoolConfig(CONFIG_ARENA_SEASON_IN_PROGRESS))
+        {
+            season.PreviousSeason = current - 1;
+            season.CurrentSeason = current;
+        }
+        else
+            season.PreviousSeason = current;
+    }
     SendPacket(season.Write());
 
     auto sess = sWorld->FindSession(GetAccountId());
