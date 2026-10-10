@@ -62,6 +62,21 @@ Legionfall.ContributionsRequired = 200
 Legionfall.MageTower.AlwaysBuilt = 0
 
 #
+#    Timewalking.Enable
+#        Timewalking weeks (The Burning Crusade, Wrath of the Lich King, Cataclysm and Mists of
+#        Pandaria dungeons). 0 keeps their events from starting: queues, Archmage Timear's weekly
+#        quests and vendors.
+#        Default: 1
+#
+#    Timewalking.Interval
+#        One Timewalking week every N weeks, the expansions taking turns in release order. A week
+#        starts at the weekly reset (WeeklyReset.Day / .Hour).
+#        Default: 1 (every week)
+
+Timewalking.Enable = 1
+Timewalking.Interval = 1
+
+#
 #    Custom.ItemLevel.Catchup.Enable
 #        Item level catch-up.
 #            0 - Loot uses the original item levels of the content tier set by Game.Patch

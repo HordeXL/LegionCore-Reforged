@@ -17,6 +17,7 @@
  */
 
 #include "GameEventMgr.h"
+#include "Timewalking.h"
 #include "BattlegroundMgr.h"
 #include "DatabaseEnv.h"
 #include "GameObjectAI.h"
@@ -59,6 +60,19 @@ bool GameEventMgr::CheckOneGameEvent(uint16 entry) const
 {
     if (sWorld->getIntConfig(CONFIG_LEGION_ENABLED_PATCH) < GetEventRequiredPatch(entry))
         return false;
+
+    // timewalking switched off: its weeks never start, so its queues, quests and vendors stay away
+    if (!sWorld->getBoolConfig(CONFIG_TIMEWALKING_ENABLE))
+        switch (mGameEvent[entry].holiday_id)
+        {
+            case HOLIDAY_TIMEWALKING_BC:
+            case HOLIDAY_TIMEWALKING_WOTLK:
+            case HOLIDAY_TIMEWALKING_CATACLYSM:
+            case HOLIDAY_TIMEWALKING_PANDARIA:
+                return false;
+            default:
+                break;
+        }
 
     switch (mGameEvent[entry].state)
     {
@@ -350,6 +364,15 @@ void GameEventMgr::LoadFromDB()
 
             pGameEvent.description = fields[6].GetString();
 
+            // timewalking weeks follow the realm's rotation, not the dates of the table
+            int32 const timewalkingSlot = Timewalking::GetSlot(pGameEvent.holiday_id);
+            if (timewalkingSlot >= 0)
+            {
+                pGameEvent.start = Timewalking::GetFirstStart(uint32(timewalkingSlot));
+                pGameEvent.occurence = Timewalking::GetPeriodMinutes();
+                pGameEvent.length = WEEK / MINUTE;
+            }
+
             ++count;
         } while (result->NextRow());
 
@@ -619,6 +642,10 @@ void GameEventMgr::LoadFromDB()
                     TC_LOG_ERROR("sql.sql", "`game_event_creature_quest` game event id (%u) is out of range compared to max event id in `game_event`", event_id);
                     continue;
                 }
+
+                // the timewalking raids' weekly quests: the raids are not open
+                if (!Timewalking::IsQuestOpen(quest))
+                    continue;
 
                 QuestRelList& questlist = mGameEventCreatureQuests[event_id];
                 questlist.push_back(QuestRelation(id, quest));

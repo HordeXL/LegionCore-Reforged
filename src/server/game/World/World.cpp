@@ -37,6 +37,7 @@
 #include "CalendarMgr.h"
 #include "CalendarAnnouncements.h"
 #include "IdleChat.h"
+#include "Timewalking.h"
 #include "BuiltInConfig.h"
 #include "CellImpl.h"
 #include "ChallengeMgr.h"
@@ -1563,6 +1564,8 @@ void World::LoadConfigSettings(bool reload)
             m_int_configs[CONFIG_ITEMLEVEL_DUNGEON_TIER], uint32(PATCH_7_3));
         m_int_configs[CONFIG_ITEMLEVEL_DUNGEON_TIER] = 0;
     }
+    m_bool_configs[CONFIG_TIMEWALKING_ENABLE] = sConfigMgr->GetBoolDefault("Timewalking.Enable", true);
+    m_int_configs[CONFIG_TIMEWALKING_INTERVAL] = sConfigMgr->GetIntDefault("Timewalking.Interval", 1);
     m_int_configs[CONFIG_LEGIONFALL_CONTRIBUTIONS_REQUIRED] = sConfigMgr->GetIntDefault("Legionfall.ContributionsRequired", 200);
     m_bool_configs[CONFIG_LEGIONFALL_MAGE_TOWER_ALWAYS_BUILT] = sConfigMgr->GetBoolDefault("Legionfall.MageTower.AlwaysBuilt", false);
     m_bool_configs[CONFIG_LEGION_INVASIONS_ENABLE] = sConfigMgr->GetBoolDefault("Custom.LegionInvasions.Enable", false);
@@ -1813,6 +1816,7 @@ void World::SetInitialWorldSettings()
     // Before the DB2 stores: they read their hotfixes as they load, and calendar announcements
     // written afterwards would only be seen at the next startup.
     TC_LOG_INFO("server.loading", "Publishing calendar announcements...");
+    Timewalking::PrepareCalendar();
     CalendarAnnouncements::Publish();
 
     TC_LOG_INFO("server.loading", "Loading db2 info...");
