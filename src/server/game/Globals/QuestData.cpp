@@ -437,9 +437,11 @@ void QuestDataStoreMgr::LoadQuests()
 
     uint32 oldMSTime = getMSTime();
 
+    // RewardMoneyMultiplier goes through a double: the text protocol rounds a FLOAT to six digits, enough to lose
+    // a few coppers on a large reward.
     QueryResult result = WorldDatabase.Query("SELECT "
         "ID, QuestType, QuestLevel, QuestPackageID, MinLevel, QuestSortID, QuestInfoID, SuggestedGroupNum, RewardNextQuest, RewardXPDifficulty, RewardXPMultiplier, RewardMoney, RewardMoneyDifficulty, "
-        "RewardMoneyMultiplier, RewardBonusMoney, RewardDisplaySpell1, RewardDisplaySpell2, RewardDisplaySpell3, RewardSpell, RewardHonor, RewardKillHonor, `RewardArtifactXP`, `RewardArtifactXPMultiplier`, RewardArtifactCategoryID, "
+        "RewardMoneyMultiplier + 0E0, RewardBonusMoney, RewardDisplaySpell1, RewardDisplaySpell2, RewardDisplaySpell3, RewardSpell, RewardHonor, RewardKillHonor, `RewardArtifactXP`, `RewardArtifactXPMultiplier`, RewardArtifactCategoryID, "
         "StartItem, Flags, FlagsEx, RewardItem1, RewardAmount1, RewardItem2, RewardAmount2, RewardItem3, RewardAmount3, RewardItem4, RewardAmount4, "
         "ItemDrop1, ItemDropQuantity1, ItemDrop2, ItemDropQuantity2, ItemDrop3, ItemDropQuantity3, ItemDrop4, ItemDropQuantity4, "
         "RewardChoiceItemID1, RewardChoiceItemQuantity1, RewardChoiceItemDisplayID1, RewardChoiceItemID2, RewardChoiceItemQuantity2, RewardChoiceItemDisplayID2, RewardChoiceItemID3, RewardChoiceItemQuantity3, RewardChoiceItemDisplayID3, "
