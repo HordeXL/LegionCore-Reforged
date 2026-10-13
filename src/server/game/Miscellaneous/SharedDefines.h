@@ -6338,7 +6338,8 @@ constexpr auto AFFIXES_ALL =
 	(1 << Affixes::Fortified) | (1 << Affixes::Bursting) | (1 << Affixes::Grievous) |
 	(1 << Affixes::FelExplosives) | (1 << Affixes::Quaking) | (1 << Affixes::Relentless) | (1 << Affixes::Infested));
 
-static const int32 Reputation_Cap    =  42000;
+static const int32 Reputation_Cap      =  42999;
+static const int32 Reputation_Exalted  =  42000;      // start of exalted, where the paragon bar takes over
 static const int32 Reputation_Bottom = -42000;
 
 enum Maps : uint32

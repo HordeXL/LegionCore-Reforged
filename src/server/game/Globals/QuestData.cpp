@@ -991,7 +991,7 @@ void QuestDataStoreMgr::LoadQuests()
         {
             if (qinfo->RewardFactionId[j])
             {
-                if (abs(qinfo->RewardFactionValue[j]) > 10)
+                if (abs(qinfo->RewardFactionValue[j]) > 9)
                     TC_LOG_ERROR("sql.sql", "LoadQuests() >> Quest %u has RewardFactionValue%d = %i. That is outside the range of valid values (-9 to 9).", qinfo->GetQuestId(), j + 1, qinfo->RewardFactionValue[j]);
 
                 if (!sFactionStore.LookupEntry(qinfo->RewardFactionId[j]))

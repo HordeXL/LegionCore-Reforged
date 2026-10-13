@@ -1,0 +1,7 @@
+-- Quest reputation: QuestFactionReward's penalties are negative, the column becomes signed.
+ALTER TABLE `quest_faction_reward`
+  MODIFY `Difficulty1` SMALLINT NOT NULL DEFAULT 0, MODIFY `Difficulty2` SMALLINT NOT NULL DEFAULT 0,
+  MODIFY `Difficulty3` SMALLINT NOT NULL DEFAULT 0, MODIFY `Difficulty4` SMALLINT NOT NULL DEFAULT 0,
+  MODIFY `Difficulty5` SMALLINT NOT NULL DEFAULT 0, MODIFY `Difficulty6` SMALLINT NOT NULL DEFAULT 0,
+  MODIFY `Difficulty7` SMALLINT NOT NULL DEFAULT 0, MODIFY `Difficulty8` SMALLINT NOT NULL DEFAULT 0,
+  MODIFY `Difficulty9` SMALLINT NOT NULL DEFAULT 0, MODIFY `Difficulty10` SMALLINT NOT NULL DEFAULT 0;
