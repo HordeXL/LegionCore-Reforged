@@ -24,20 +24,20 @@
 #include "GameTime.h"
 
 // CUSTOM CONTENT: retail raised the whole curve at every patch and kept loot keys around +15;
-// this core keeps one curve for every tier and opens higher loot keys instead, up to +25.
+// this core keeps one curve for every tier and opens higher loot keys instead.
 //
 // Mythic+ item level bonus per key level. The final value is ItemLevel.MythicPlus.Base plus this
 // bonus, forced through Loot::_needLevel, so it no longer depends on the DB2 base.
 //
-// Key +1 is worth 840, exactly mythic 0, so that there is no step to climb when leaving the plain
-// dungeons. The retail pace up to +10 (845 at +2/+3, 850 at +4/+5, 855 at +6/+7, 860 at +8/+9,
-// 865 at +10), then 5 per key, so that each tier's loot key lands on its heroic raid:
+// Key +1 is worth 840, exactly mythic 0. The retail pace up to +10 (845 at +2/+3, 850 at +4/+5, 855
+// at +6/+7, 860 at +8/+9, 865 at +10), then 5 per key, up to each tier's cap, five below its heroic
+// raid, the weekly chest reaching that heroic raid:
 //
-//   +10  865   The Emerald Nightmare   heroic
-//   +12  875   Trial of Valor          heroic
-//   +15  890   The Nighthold           heroic
-//   +20  915   Tomb of Sargeras        heroic
-//   +25  945   Antorus                 heroic (a 10 point step, to reach it)
+//   +8   860   The Emerald Nightmare   (heroic 865)
+//   +11  870   Trial of Valor          (heroic 875)
+//   +14  885   The Nighthold           (heroic 890)
+//   +19  910   Tomb of Sargeras        (heroic 915)
+//   +25  940   Antorus                 (heroic 945)
 //
 // The result is capped by ItemLevel.MythicPlus.Cap, and loot stops at Challenge.LevelMax, the key
 // reaching that cap; higher keys stay possible, harder for the same loot.
@@ -48,9 +48,8 @@ static uint32 stepLeveling[26]
 };
 
 // Mythic+ weekly chest (GenerateOploteLoot keeps the best key of the week at the reset): five above
-// the end-of-run loot, with its own cap (ItemLevel.MythicPlus.WeeklyCap, heroic raid plus five),
-// without which the end-of-run cap would shave those five points off at +25. The mythic raid keeps
-// a ten point lead.
+// the end-of-run loot, with its own cap (ItemLevel.MythicPlus.WeeklyCap, the heroic raid), without
+// which the end-of-run cap would shave those five points off at the loot key. The mythic raid stays ahead.
 static uint32 stepOplotLeveling[26]
 {
     // 0  1  2  3  4  5  6  7  8  9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25
@@ -743,8 +742,7 @@ uint32 ChallengeMgr::GetKeyLevelForItemLevel(uint32 baseItemLevel, uint32 itemLe
     return maxLevel;
 }
 
-// Content tier in which a dungeon joined Mythic+ (Game.Patch)
-static uint32 GetChallengeMapPatch(uint32 mapID)
+uint32 ChallengeMgr::GetChallengeMapPatch(uint32 mapID)
 {
     switch (mapID)
     {

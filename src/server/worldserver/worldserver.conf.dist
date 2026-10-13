@@ -108,13 +108,13 @@ Custom.ItemLevel.Catchup.Enable = 0
 #        This is deliberately its own setting, NOT tied to Game.Patch: a realm can open 7.3
 #        content while still handing out launch rewards.
 #              0   leave the client data alone (7.3 values, 845/865/885)
-#              1   7.0    805 / 825 / 840, timewalking 820
+#              1   7.0    805 / 825 / 840
 #              2   7.1    same as 7.0
 #              3   7.1.5  same as 7.0
-#              4   7.2    825 / 845 / 860, timewalking 840
-#              5   7.3    845 / 865 / 885, timewalking 880 - what the DB2 already holds
+#              4   7.2    805 / 825 / 845: the mythic takes one step, then stays
+#              5   7.3    same as 7.2
 #        Raids are untouched: their values are per tier and were never inflated. Karazhan
-#        keeps its own per-wing levels (855/860/875).
+#        keeps its own levels (850/855/870).
 #        Default: 0 - leave the client data alone
 
 Custom.ItemLevel.DungeonTier = 0
@@ -178,9 +178,11 @@ Artifact.Knowledge.BookLoot.Raids = 31
 #
 #    ItemLevel.Dungeon.Normal / Heroic / Mythic
 #    ItemLevel.MythicPlus.Base
-#        Item level of dungeon loot. KEPT on the 7.0 values whatever the active content tier
-#        (805 / 825 / 840, and 840 for Mythic+ key 1): dungeons stay a permanent entry ramp,
-#        only raids move gear from one tier to the next.
+#        Item level of Legion dungeon loot: 805 / 825 / 840 up to 7.1.5, then the mythic takes
+#        one step to 845 with 7.2 and stays there. Dungeons stay a permanent entry ramp, only
+#        raids move gear from one tier to the next.
+#        Mythic+ base (+2 and +3 = base + 5, chest + 10): 840 at every tier, so a +2 gives 845,
+#        at least a mythic 0.
 #
 #        Raid loot item level is not configurable: Blizzard never raised the item level of an
 #        existing raid, so each raid keeps its values for good. They are set per map in
@@ -199,19 +201,20 @@ Artifact.Knowledge.BookLoot.Raids = 31
 #            can go higher (Challenge.LevelLimit): harder, for no better loot.
 #
 #        Leave it commented out: the value follows Game.Patch and Mythic+ opens with the tier, as
-#        soon as the raid is out, without waiting for its difficulties. It stays capped at the
-#        heroic raid of the tier, and the mythic raid always keeps the lead.
+#        soon as the raid is out, without waiting for its difficulties. End-of-run loot stays
+#        five below the heroic raid of the tier, the weekly chest reaches it, and the mythic raid
+#        always keeps the lead.
 #
 #          Tier    Raid                    End of run   Chest   Loot key
-#          7.0     Emerald Nightmare       865          870     +10
-#          7.1     Trial of Valor          875          880     +12
-#          7.1.5   The Nighthold           890          895     +15
-#          7.2     Tomb of Sargeras        915          920     +20
-#          7.3     Antorus                 945          950     +25
+#          7.0     Emerald Nightmare       860          865     +8
+#          7.1     Trial of Valor          870          875     +11
+#          7.1.5   The Nighthold           885          890     +14
+#          7.2     Tomb of Sargeras        910          915     +19
+#          7.3     Antorus                 940          945     +25
 #
 #        Optional brake: a lower value holds Mythic+ back (chest and max key included), for
 #        instance to keep it at the previous tier during the first weeks of a raid. Loot key
-#        obtained: 840 -> +2, 865 -> +10, 875 -> +12, 890 -> +15, 915 -> +20.
+#        obtained: 840 -> +1, 860 -> +8, 870 -> +11, 885 -> +14, 910 -> +19.
 #
 #        Raid item levels, for reference:
 #          Raid                        Patch    LFR   Normal   Heroic   Mythic
@@ -223,19 +226,19 @@ Artifact.Knowledge.BookLoot.Raids = 31
 #        The last boss gives more: +5 for Helya and Gul'dan, +10 for Kil'jaeden and Argus.
 #        The first three bosses of The Nighthold give 5 less than the others.
 
-#ItemLevel.MythicPlus.Cap = 865
+#ItemLevel.MythicPlus.Cap = 860
 
 #
 #    ItemLevel.MythicPlus.WeeklyCap
 #        Weekly chest cap. Leave it commented out: it is ItemLevel.MythicPlus.Cap plus 5, so it
 #        follows the table above on its own. Set it only to depart from it.
 
-#ItemLevel.MythicPlus.WeeklyCap = 870
+#ItemLevel.MythicPlus.WeeklyCap = 865
 
 #
 #    Challenge.LevelMax
 #        Loot key: loot no longer rises above it. Leave it unset: it follows
-#        ItemLevel.MythicPlus.Cap (the "Loot key" column above), from +10 in 7.0 to +25 in 7.3.
+#        ItemLevel.MythicPlus.Cap (the "Loot key" column above), from +8 in 7.0 to +25 in 7.3.
 #
 #    Challenge.LevelLimit
 #        Highest level a keystone can be upgraded to by a timed run. As on retail, keys can go
