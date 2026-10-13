@@ -1566,6 +1566,8 @@ void World::LoadConfigSettings(bool reload)
     }
     m_bool_configs[CONFIG_TIMEWALKING_ENABLE] = sConfigMgr->GetBoolDefault("Timewalking.Enable", true);
     m_int_configs[CONFIG_TIMEWALKING_INTERVAL] = sConfigMgr->GetIntDefault("Timewalking.Interval", 1);
+    m_int_configs[CONFIG_GNOMEREGAN_RUN_MONTHS] = std::min<uint32>(std::max<uint32>(sConfigMgr->GetIntDefault("Custom.GnomereganRun.Months", 12), 1), 12);
+    m_int_configs[CONFIG_GNOMEREGAN_RUN_DAYS] = std::min<uint32>(std::max<uint32>(sConfigMgr->GetIntDefault("Custom.GnomereganRun.Days", 1), 1), 28);
     m_int_configs[CONFIG_LEGIONFALL_CONTRIBUTIONS_REQUIRED] = sConfigMgr->GetIntDefault("Legionfall.ContributionsRequired", 200);
     m_bool_configs[CONFIG_LEGIONFALL_MAGE_TOWER_ALWAYS_BUILT] = sConfigMgr->GetBoolDefault("Legionfall.MageTower.AlwaysBuilt", false);
     m_bool_configs[CONFIG_LEGION_INVASIONS_ENABLE] = sConfigMgr->GetBoolDefault("Custom.LegionInvasions.Enable", false);
@@ -1817,6 +1819,7 @@ void World::SetInitialWorldSettings()
     // written afterwards would only be seen at the next startup.
     TC_LOG_INFO("server.loading", "Publishing calendar announcements...");
     Timewalking::PrepareCalendar();
+    GreatGnomereganRun::PrepareCalendar();
     CalendarAnnouncements::Publish();
 
     TC_LOG_INFO("server.loading", "Loading db2 info...");

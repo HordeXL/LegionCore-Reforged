@@ -3,7 +3,9 @@
 #include "Config.h"
 #include "DatabaseEnv.h"
 #include "Log.h"
+#include "World.h"
 
+#include <algorithm>
 #include <ctime>
 #include <sstream>
 #include <string>
@@ -71,7 +73,7 @@ void CalendarAnnouncements::Publish()
     QueryResult result = WorldDatabase.Query(
         "SELECT HolidayID, HolidayNameID, HolidayDescriptionID, NameLocalized, DescriptionLocalized, "
         "UNIX_TIMESTAMP(StartDate), DurationDays, Texture1, Texture2, Texture3, Enabled, GameEventID, "
-        "Name, Description, RepeatDays, UNIX_TIMESTAMP(EndDate) "
+        "Name, Description, RepeatDays, UNIX_TIMESTAMP(EndDate), RepeatMonths "
         "FROM custom_calendar_event ORDER BY HolidayID");
 
     if (!result)
@@ -107,6 +109,7 @@ void CalendarAnnouncements::Publish()
         uint32 repeat      = f[14].GetUInt32();
         bool hasEnd        = !f[15].IsNull();
         time_t end         = hasEnd ? time_t(f[15].GetUInt64()) : time_t(0);
+        uint32 repeatMonths = f[16].GetUInt32();
 
         // A game event can follow the announcement's dates: `game_event.holiday` names a holiday,
         // and GameEventMgr reads its dates to know when to fire. The link is set while the
@@ -163,12 +166,16 @@ void CalendarAnnouncements::Publish()
         // many as the file accepts, `RepeatDays` apart. At zero, a single one.
         uint32 dates[MAX_OCCURRENCES] = { };
         uint32 occurrences = 0;
-        for (uint32 k = 0; k < (repeat ? MAX_OCCURRENCES : 1u); ++k)
+        for (uint32 k = 0; k < (repeat || repeatMonths ? MAX_OCCURRENCES : 1u); ++k)
         {
-            // counted in calendar days, so that a date past a daylight saving change keeps its hour
+            // counted in calendar days (or months: `RepeatMonths`), so that a date past a daylight saving
+            // change keeps its hour
             tm lt;
             localtime_r(&start, &lt);
-            lt.tm_mday += int(k * repeat);
+            if (repeatMonths)
+                lt.tm_mon += int(k * repeatMonths);
+            else
+                lt.tm_mday += int(k * repeat);
             lt.tm_isdst = -1;
             mktime(&lt);
             dates[k] = PackDate(lt);
@@ -283,4 +290,43 @@ void CalendarAnnouncements::Publish()
     TC_LOG_INFO("server.loading", ">> Calendar: %u announcement(s) published in %s%s%s.", published,
         localeNames[locale], translated ? " (English as fallback)" : "",
         undated ? ", some enabled rows have no date" : "");
+}
+
+time_t GreatGnomereganRun::GetCurrentStart()
+{
+    uint32 const months = std::max<uint32>(sWorld->getIntConfig(CONFIG_GNOMEREGAN_RUN_MONTHS), 1);
+    uint32 const days = std::max<uint32>(sWorld->getIntConfig(CONFIG_GNOMEREGAN_RUN_DAYS), 1);
+    time_t const now = time(nullptr);
+
+    // from last year's 14th of October, step by step up to the occurrence not yet over
+    tm t;
+    localtime_r(&now, &t);
+    tm first = { };
+    first.tm_year = t.tm_year - 1;
+    first.tm_mon = 9;
+    first.tm_mday = 14;
+    first.tm_isdst = -1;
+    time_t start = mktime(&first);
+    while (start + time_t(days) * DAY <= now)
+        start = GetNextStart(start);
+    return start;
+}
+
+time_t GreatGnomereganRun::GetNextStart(time_t start)
+{
+    tm t;
+    localtime_r(&start, &t);
+    t.tm_mon += int(std::max<uint32>(sWorld->getIntConfig(CONFIG_GNOMEREGAN_RUN_MONTHS), 1));
+    t.tm_isdst = -1;
+    return mktime(&t);
+}
+
+void GreatGnomereganRun::PrepareCalendar()
+{
+    // Blizzard's dates are already the client's own: the realm's entry only shows when they differ
+    uint32 const months = sWorld->getIntConfig(CONFIG_GNOMEREGAN_RUN_MONTHS);
+    uint32 const days = sWorld->getIntConfig(CONFIG_GNOMEREGAN_RUN_DAYS);
+    bool const custom = months != 12 || days != 1;
+    WorldDatabase.DirectPExecute("UPDATE custom_calendar_event SET StartDate = FROM_UNIXTIME(%u), EndDate = NULL, DurationDays = %u, "
+        "RepeatDays = 0, RepeatMonths = %u, Enabled = %u WHERE HolidayID = %u", uint32(GetCurrentStart()), days, months, uint32(custom), HOLIDAY_ID);
 }

@@ -77,6 +77,16 @@ Timewalking.Enable = 1
 Timewalking.Interval = 1
 
 #
+#    Custom.GnomereganRun.Months / Custom.GnomereganRun.Days
+#        Great Gnomeregan Run: one race every N months from midnight on the 14th of October, lasting
+#        N days. 12 and 1 are Blizzard's dates, those of the client's calendar; any other value makes
+#        the calendar show the realm's own dates.
+#        Default: 12 and 1
+
+Custom.GnomereganRun.Months = 12
+Custom.GnomereganRun.Days = 1
+
+#
 #    Custom.ItemLevel.Catchup.Enable
 #        Item level catch-up.
 #            0 - Loot uses the original item levels of the content tier set by Game.Patch

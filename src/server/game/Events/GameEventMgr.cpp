@@ -17,6 +17,7 @@
  */
 
 #include "GameEventMgr.h"
+#include "CalendarAnnouncements.h"
 #include "Timewalking.h"
 #include "BattlegroundMgr.h"
 #include "DatabaseEnv.h"
@@ -372,6 +373,14 @@ void GameEventMgr::LoadFromDB()
                 pGameEvent.start = Timewalking::GetCurrentStart(uint32(timewalkingSlot));
                 pGameEvent.occurence = Timewalking::GetPeriodMinutes();
                 pGameEvent.length = WEEK / MINUTE;
+            }
+
+            // the Great Gnomeregan Run follows its calendar date (Custom.GnomereganRun.*), not a period in minutes
+            if (pGameEvent.holiday_id == GreatGnomereganRun::HOLIDAY_ID)
+            {
+                pGameEvent.start = GreatGnomereganRun::GetCurrentStart();
+                pGameEvent.occurence = uint32((GreatGnomereganRun::GetNextStart(pGameEvent.start) - pGameEvent.start) / MINUTE);
+                pGameEvent.length = sWorld->getIntConfig(CONFIG_GNOMEREGAN_RUN_DAYS) * DAY / MINUTE;
             }
 
             ++count;
