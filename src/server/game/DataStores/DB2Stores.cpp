@@ -22,6 +22,7 @@
 #include "DB2LoadInfo.h"
 #include "DatabaseEnv.h"
 #include "ObjectMgr.h"
+#include "ChallengeMgr.h"
 
 DB2Storage<AchievementEntry>                    sAchievementStore("Achievement.db2", AchievementLoadInfo::Instance());
 DB2Storage<Achievement_CategoryEntry>           sAchievement_CategoryStore("Achievement_Category.db2", Achievement_CategoryLoadInfo::Instance());
@@ -2255,8 +2256,8 @@ namespace
         { 805, 825, 840 },     // 7.0  Emerald Nightmare
         { 805, 825, 840 },     // 7.1  Trial of Valor
         { 805, 825, 840 },     // 7.1.5 Nighthold
-        { 825, 845, 860 },     // 7.2  Tomb of Sargeras
-        { 845, 865, 885 },     // 7.3  Antorus - the shipped values
+        { 805, 825, 845 },     // 7.2  Tomb of Sargeras: the mythic one step up, then frozen
+        { 805, 825, 845 },     // 7.3  Antorus
     };
 
     // The selectors tree 463 points at, one per difficulty context.
@@ -2318,6 +2319,25 @@ void DB2Manager::LoadingExtraHotfixData()
     if (uint32 const tier = sWorld->getIntConfig(CONFIG_ITEMLEVEL_DUNGEON_TIER))
         if (uint32 const rows = ApplyDungeonItemLevels(tier))
             TC_LOG_INFO("server.loading", ">> Rewrote %u dungeon item level selector(s) for content tier %u", rows, tier);
+
+    // Mythic+ dungeons of a later patch leave the client's challenge list: a record the server no longer holds
+    // reaches the client as a deletion. The open ones are announced too, for a client that saw another patch.
+    {
+        uint32 const patch = sWorld->getIntConfig(CONFIG_LEGION_ENABLED_PATCH);
+        std::vector<uint32> closed, open;
+        for (MapChallengeModeEntry const* entry : sMapChallengeModeStore)
+            if (uint32 const opening = ChallengeMgr::GetChallengeMapPatch(entry->MapID); opening > PATCH_7_0)
+                (patch < opening ? closed : open).push_back(entry->ID);
+
+        for (uint32 id : closed)
+            sMapChallengeModeStore.EraseRecord(id);
+        for (std::vector<uint32> const* ids : { &closed, &open })
+            for (uint32 id : *ids)
+                InsertNewHotfix(sMapChallengeModeStore.GetTableHash(), id);
+
+        if (!closed.empty())
+            TC_LOG_INFO("server.loading", ">> Mythic+: %u dungeon(s) of later patches withdrawn for patch %u", uint32(closed.size()), patch);
+    }
 
     // Artifact research notes (139390 class hall research order, 146745 completed notes).
     // Patch 7.3 replaced the flavour text with "these notes became obsolete the moment class

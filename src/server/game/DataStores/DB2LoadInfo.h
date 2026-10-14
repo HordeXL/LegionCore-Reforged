@@ -8218,16 +8218,16 @@ struct QuestFactionRewardLoadInfo
         static DB2FieldMeta const fields[] =
         {
             { true, FT_INT, "ID" },
-            { false, FT_SHORT, "Difficulty1" },
-            { false, FT_SHORT, "Difficulty2" },
-            { false, FT_SHORT, "Difficulty3" },
-            { false, FT_SHORT, "Difficulty4" },
-            { false, FT_SHORT, "Difficulty5" },
-            { false, FT_SHORT, "Difficulty6" },
-            { false, FT_SHORT, "Difficulty7" },
-            { false, FT_SHORT, "Difficulty8" },
-            { false, FT_SHORT, "Difficulty9" },
-            { false, FT_SHORT, "Difficulty10" },
+            { true, FT_SHORT, "Difficulty1" },
+            { true, FT_SHORT, "Difficulty2" },
+            { true, FT_SHORT, "Difficulty3" },
+            { true, FT_SHORT, "Difficulty4" },
+            { true, FT_SHORT, "Difficulty5" },
+            { true, FT_SHORT, "Difficulty6" },
+            { true, FT_SHORT, "Difficulty7" },
+            { true, FT_SHORT, "Difficulty8" },
+            { true, FT_SHORT, "Difficulty9" },
+            { true, FT_SHORT, "Difficulty10" },
         };
         static DB2LoadInfo const loadInfo(&fields[0], std::extent<decltype(fields)>::value, QuestFactionRewardMeta::Instance(), HOTFIX_SEL_QUEST_FACTION_REWARD);
         return &loadInfo;

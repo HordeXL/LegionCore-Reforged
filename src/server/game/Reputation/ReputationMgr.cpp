@@ -225,15 +225,19 @@ void ReputationMgr::ModifyParagonReputation(FactionEntry const* factionEntry, in
     if (!sWorld->getBoolConfig(CONFIG_PARAGON_ENABLE))
         return;
 
-    if (!factionEntry || !factionEntry->ParagonFactionID)
+    // a loss never takes anything off the paragon bar
+    if (!factionEntry || !factionEntry->ParagonFactionID || standing <= 0)
         return;
 
     FactionState* factionParent = GetState(factionEntry->ReputationIndex);
     if (!factionParent)
         return;
 
-    if ((factionParent->Standing + GetBaseReputation(factionEntry)) < Reputation_Cap)
+    // only what goes past the start of exalted: a gain that crosses it gives its overflow, not all or nothing
+    int32 const current = factionParent->Standing + GetBaseReputation(factionEntry);
+    if (current + standing <= Reputation_Exalted)
         return;
+    standing = std::min(standing, current + standing - Reputation_Exalted);
 
     FactionEntry const* factionParagon = sFactionStore.LookupEntry(factionEntry->ParagonFactionID);
     ParagonReputationEntry const* paragonReputation = sDB2Manager.GetFactionParagon(factionEntry->ParagonFactionID);
@@ -241,8 +245,9 @@ void ReputationMgr::ModifyParagonReputation(FactionEntry const* factionEntry, in
     {
         if (auto faction = GetState(factionParagon->ReputationIndex))
         {
-            SetOneFactionReputation(factionParagon, standing, true, true);
+            // the flags first: they are not saved, and the rank counters must keep ignoring this hidden faction
             faction->Flags = FACTION_FLAG_RIVAL | FACTION_FLAG_HIDDEN;
+            SetOneFactionReputation(factionParagon, standing, true, true);
             if (faction->Standing >= paragonReputation->LevelThreshold && _player->GetQuestStatus(paragonReputation->QuestID) == QUEST_STATUS_NONE)
             {
                 faction->Standing -= paragonReputation->LevelThreshold;
@@ -405,6 +410,9 @@ void ReputationMgr::Initialize()
 
 bool ReputationMgr::SetReputation(FactionEntry const* factionEntry, int32 standing, bool incremental, bool noSpillover)
 {
+    if (!factionEntry)
+        return false;
+
     sScriptMgr->OnPlayerReputationChange(_player, factionEntry->ID, standing, incremental);
     bool res = false;
     if (!noSpillover)

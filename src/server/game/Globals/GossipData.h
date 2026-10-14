@@ -52,7 +52,10 @@ public:
     GossipMenusMapBoundsNonConst GetGossipMenusMapBoundsNonConst(uint32 uiMenuId);
     GossipMenuItemsMapBounds GetGossipMenuItemsMapBounds(uint32 uiMenuId) const;
     GossipMenuItemsMapBoundsNonConst GetGossipMenuItemsMapBoundsNonConst(uint32 uiMenuId);
+    // the friendship reputation a menu shows (gossip_menu_addon), 0 for none
+    int32 GetGossipMenuFriendshipFactionID(uint32 menuId) const;
 private:
+    std::unordered_map<uint32, int32> _gossipMenuFriendshipStore;
     GossipMenusContainer _gossipMenusStore;
     GossipMenuItemsContainer _gossipMenuItemsStore;
     GossipMenuItemsLocaleContainer _gossipMenuItemsLocaleStore;

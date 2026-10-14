@@ -538,10 +538,10 @@ static int32 GetRaidBossItemLevelOffset(uint32 creatureEntry)
     return 0;
 }
 
-// Return to Karazhan (map 1651): 9-boss mega-dungeon, Mythic only.
-// It does not follow the item level of a regular Mythic 0 (840) but its own split:
-// lower wing at 855, upper wing at 860, and Nightbane at 875. Attumen and Nightbane have
-// no static spawn (summoned by script), which is expected.
+// Return to Karazhan (map 1651): 9-boss mega-dungeon, Mythic only (Mythic+ splits it in two and keeps its own
+// levels). Reference: Nighthold's raid finder (845) + 5, like the other mythics (Emerald Nightmare 835 + 5); the
+// last boss and the hidden boss stay below the normal raid (875). Attumen and Nightbane have no static spawn
+// (summoned by script), which is expected.
 struct KarazhanBossItemLevel
 {
     uint32 CreatureEntry;
@@ -550,14 +550,17 @@ struct KarazhanBossItemLevel
 
 static KarazhanBossItemLevel const KarazhanBossTable[] =
 {
-    { 114262, 855 },    // Attumen the Huntsman     - lower wing
-    { 114312, 855 },    // Moroes                   - lower wing
-    { 113971, 855 },    // Maiden of Virtue         - lower wing
-    { 114247, 860 },    // The Curator              - upper wing
-    { 114350, 860 },    // Shade of Medivh          - upper wing
-    { 114252, 860 },    // Mana Devourer            - upper wing
-    { 114790, 860 },    // Viz'aduum the Watcher    - upper wing
-    { 114895, 875 },    // Nightbane                - bonus boss
+    { 114261, 850 },    // Opera: Toe Knee
+    { 114284, 850 },    // Opera: Elfyra
+    { 114328, 850 },    // Opera: Coggleston
+    { 113971, 850 },    // Maiden of Virtue
+    { 114262, 850 },    // Attumen the Huntsman
+    { 114312, 850 },    // Moroes
+    { 114247, 855 },    // The Curator
+    { 114350, 855 },    // Shade of Medivh
+    { 114252, 855 },    // Mana Devourer
+    { 114790, 870 },    // Viz'aduum the Watcher
+    { 114895, 870 },    // Nightbane (hidden boss)
 };
 
 // Original loot item level, per map and difficulty. Returns 0 when no value is set:

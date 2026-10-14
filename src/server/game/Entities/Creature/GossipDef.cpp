@@ -332,6 +332,7 @@ void PlayerMenu::SendGossipMenu(uint32 titleTextId, ObjectGuid objectGUID) const
     packet.GossipGUID = objectGUID;
     packet.TextID = titleTextId;
     packet.GossipID = _gossipMenu.GetMenuId();
+    packet.FriendshipFactionID = sGossipDataStore->GetGossipMenuFriendshipFactionID(_gossipMenu.GetMenuId());
 
     for (auto const& itr : _gossipMenu.GetMenuItems())
     {

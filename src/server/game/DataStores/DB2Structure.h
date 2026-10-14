@@ -4817,7 +4817,7 @@ struct PvpTalentUnlockEntry
 struct QuestFactionRewardEntry
 {
     int32       ID;
-    uint16      Difficulty[10];
+    int16       Difficulty[10];                             // the second row holds the penalties, negative
 };
 
 // FileOptions: Index, None

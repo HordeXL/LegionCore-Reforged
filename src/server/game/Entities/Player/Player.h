@@ -2252,7 +2252,7 @@ class TC_GAME_API Player : public Unit, public GridObject<Player>
         void AddTemporarySpell(uint32 spellId);
         void RemoveTemporarySpell(uint32 spellId);
         void SetReputation(uint32 factionentry, uint32 value);
-        uint32 GetReputation(uint32 factionentry);
+        int32 GetReputation(uint32 factionentry);
         std::string GetGuildName();
         Guild* GetGuild();
         void SendMountSpells();

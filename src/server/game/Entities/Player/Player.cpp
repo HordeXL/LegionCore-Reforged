@@ -8928,13 +8928,6 @@ int32 Player::CalculateReputationGain(uint32 creatureOrQuestLevel, int32 rep, in
 {
     float percent = 100.0f;
 
-    // Get the generic rate first
-    if (RepRewardRate const* repData = sObjectMgr->GetRepRewardRate(faction))
-    {
-        float repRate = quest ? repData->quest_rate : repData->creature_rate;
-        percent *= repRate;
-    }
-
     float rate = quest ? sWorld->getRate(RATE_REPUTATION_LOWLEVEL_QUEST) : sWorld->getRate(RATE_REPUTATION_LOWLEVEL_KILL);
 
     if (rate != 1.0f && creatureOrQuestLevel < Trinity::XP::GetGrayLevel(getLevel()))
@@ -8957,6 +8950,10 @@ int32 Player::CalculateReputationGain(uint32 creatureOrQuestLevel, int32 rep, in
         repMod += GetTotalAuraModifierByMiscValue(SPELL_AURA_MOD_FACTION_REPUTATION_GAIN, faction);
 
     percent += rep > 0 ? repMod : -repMod;
+
+    // the faction's own rate last, on the whole: a zero rate stays a zero, whatever the auras
+    if (RepRewardRate const* repData = sObjectMgr->GetRepRewardRate(faction))
+        percent *= quest ? repData->quest_rate : repData->creature_rate;
 
     if (percent <= 0.0f)
         return 0;
@@ -9022,7 +9019,7 @@ void Player::RewardReputation(Unit* victim, float rate, bool killer)
             int32 donerep = CalculateReputationGain(victim->GetLevelForTarget(this), Rep->RepValue, ChampioningFaction ? ChampioningFaction : Rep->RepFaction, nullptr);
             donerep = int32(donerep*(rate + favored_rep_mult));
 
-            if (recruitAFriend)
+            if (recruitAFriend && donerep > 0)
                 donerep = int32(donerep * (1 + RECRUIT_A_FRIEND_BONUS_RATE));
 
             FactionEntry const* factionEntry = sFactionStore.LookupEntry(ChampioningFaction ? ChampioningFaction : Rep->RepFaction);
@@ -9045,7 +9042,7 @@ void Player::RewardReputation(Unit* victim, float rate, bool killer)
             int32 donerep = CalculateReputationGain(victim->GetLevelForTarget(this), Rep->RepValue, ChampioningFaction, nullptr);
             donerep = int32(donerep*(rate + favored_rep_mult));
 
-            if (recruitAFriend)
+            if (recruitAFriend && donerep > 0)
                 donerep = int32(donerep * (1 + RECRUIT_A_FRIEND_BONUS_RATE));
 
             FactionEntry const* factionEntry = sFactionStore.LookupEntry(ChampioningFaction);
@@ -9080,6 +9077,8 @@ void Player::RewardReputation(Quest const* quest)
             continue;
 
         int32 rep = 0;
+        if (!quest->RewardFactionOverride[i] && std::abs(quest->RewardFactionValue[i]) > 9)
+            continue;                                   // past the ten entries of QuestFactionReward
         if (quest->RewardFactionOverride[i])
             rep = CalculateReputationGain(GetQuestLevel(quest), quest->RewardFactionOverride[i] / 100, quest->RewardFactionId[i], quest, true);
         else if (QuestFactionRewardEntry const* pRow = sQuestFactionRewardStore.LookupEntry(((quest->RewardFactionValue[i] < 0) ? 1 : 0) + 1))
@@ -9088,12 +9087,12 @@ void Player::RewardReputation(Quest const* quest)
         if (!rep)
             continue;
 
-        if (recruitAFriend)
+        if (recruitAFriend && rep > 0)
             rep = int32(rep * (1 + RECRUIT_A_FRIEND_BONUS_RATE));
 
         uint32 reputationRank = GetReputationMgr().GetRank(factionEntry);
 
-        if (!quest->RewardFactionCapIn[i] || quest->RewardFactionCapIn[i] == REP_EXALTED)
+        if (rep > 0 && (!quest->RewardFactionCapIn[i] || quest->RewardFactionCapIn[i] == REP_EXALTED))
             GetReputationMgr().ModifyParagonReputation(factionEntry, rep);
 
         // log Army of the Light and Argussian Reach reputation
@@ -18902,8 +18901,8 @@ void Player::AutoCompleteObjectives(Quest const* quest, bool onlyBugged)
                 if (onlyBugged)
                     break;
 
-                uint32 curRep = GetReputationMgr().GetReputation(obj.ObjectID);
-                if (curRep < uint32(obj.Amount))
+                int32 curRep = GetReputationMgr().GetReputation(obj.ObjectID);
+                if (curRep < obj.Amount)
                     if (FactionEntry const* factionEntry = sFactionStore.LookupEntry(obj.ObjectID))
                         GetReputationMgr().SetReputation(factionEntry, obj.Amount);
                 break;
@@ -18914,8 +18913,8 @@ void Player::AutoCompleteObjectives(Quest const* quest, bool onlyBugged)
                 if (onlyBugged)
                     break;
 
-                uint32 curRep = GetReputationMgr().GetReputation(obj.ObjectID);
-                if (curRep > uint32(obj.Amount))
+                int32 curRep = GetReputationMgr().GetReputation(obj.ObjectID);
+                if (curRep > obj.Amount)
                     if (FactionEntry const* factionEntry = sFactionStore.LookupEntry(obj.ObjectID))
                         GetReputationMgr().SetReputation(factionEntry, obj.Amount);
                 break;
@@ -34719,7 +34718,7 @@ void Player::SetReputation(uint32 factionentry, uint32 value)
     GetReputationMgr().SetReputation(sFactionStore.LookupEntry(factionentry), value);
 }
 
-uint32 Player::GetReputation(uint32 factionentry)
+int32 Player::GetReputation(uint32 factionentry)
 {
     return GetReputationMgr().GetReputation(sFactionStore.LookupEntry(factionentry));
 }

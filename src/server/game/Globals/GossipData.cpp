@@ -1,5 +1,6 @@
 #include "GossipData.h"
 #include "DatabaseEnv.h"
+#include "DB2Stores.h"
 #include "ObjectMgr.h"
 #include "GossipDef.h"
 #include "QuestData.h"
@@ -73,6 +74,24 @@ void GossipDataStoreMgr::LoadGossipMenu()
     } while (result->NextRow());
 
     TC_LOG_INFO("server.loading", ">> Loaded %u gossip_menu entries in %u ms", (uint32)_gossipMenusStore.size(), GetMSTimeDiffToNow(oldMSTime));
+
+    _gossipMenuFriendshipStore.clear();
+    if (auto addons = WorldDatabase.Query("SELECT MenuID, FriendshipFactionID FROM gossip_menu_addon WHERE FriendshipFactionID <> 0"))
+    {
+        do
+        {
+            auto fields = addons->Fetch();
+            uint32 const menuId = fields[0].GetUInt32();
+            int32 const factionId = fields[1].GetInt32();
+            FactionEntry const* faction = sFactionStore.LookupEntry(factionId);
+            if (!faction || !faction->FriendshipRepID)
+            {
+                TC_LOG_ERROR("sql.sql", "Table gossip_menu_addon: menu %u uses faction %i, which is not a friendship reputation", menuId, factionId);
+                continue;
+            }
+            _gossipMenuFriendshipStore[menuId] = factionId;
+        } while (addons->NextRow());
+    }
 }
 
 void GossipDataStoreMgr::LoadGossipMenuItems()
@@ -175,4 +194,10 @@ GossipMenuItemsMapBounds GossipDataStoreMgr::GetGossipMenuItemsMapBounds(uint32 
 GossipMenuItemsMapBoundsNonConst GossipDataStoreMgr::GetGossipMenuItemsMapBoundsNonConst(uint32 uiMenuId)
 {
     return _gossipMenuItemsStore.equal_range(uiMenuId);
+}
+
+int32 GossipDataStoreMgr::GetGossipMenuFriendshipFactionID(uint32 menuId) const
+{
+    auto itr = _gossipMenuFriendshipStore.find(menuId);
+    return itr != _gossipMenuFriendshipStore.end() ? itr->second : 0;
 }

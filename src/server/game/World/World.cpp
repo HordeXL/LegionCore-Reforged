@@ -1572,6 +1572,8 @@ void World::LoadConfigSettings(bool reload)
     }
     m_bool_configs[CONFIG_TIMEWALKING_ENABLE] = sConfigMgr->GetBoolDefault("Timewalking.Enable", true);
     m_int_configs[CONFIG_TIMEWALKING_INTERVAL] = sConfigMgr->GetIntDefault("Timewalking.Interval", 1);
+    m_int_configs[CONFIG_GNOMEREGAN_RUN_MONTHS] = std::min<uint32>(std::max<uint32>(sConfigMgr->GetIntDefault("Custom.GnomereganRun.Months", 12), 1), 12);
+    m_int_configs[CONFIG_GNOMEREGAN_RUN_DAYS] = std::min<uint32>(std::max<uint32>(sConfigMgr->GetIntDefault("Custom.GnomereganRun.Days", 1), 1), 28);
     m_int_configs[CONFIG_LEGIONFALL_CONTRIBUTIONS_REQUIRED] = sConfigMgr->GetIntDefault("Legionfall.ContributionsRequired", 200);
     m_bool_configs[CONFIG_LEGIONFALL_MAGE_TOWER_ALWAYS_BUILT] = sConfigMgr->GetBoolDefault("Legionfall.MageTower.AlwaysBuilt", false);
     m_bool_configs[CONFIG_LEGION_INVASIONS_ENABLE] = sConfigMgr->GetBoolDefault("Custom.LegionInvasions.Enable", false);
@@ -1647,23 +1649,24 @@ void World::LoadConfigSettings(bool reload)
     // -----------------------------------------------------------------------------------
     m_int_configs[CONFIG_ITEMLEVEL_DUNGEON_NORMAL] = sConfigMgr->GetIntDefault("ItemLevel.Dungeon.Normal", 805);
     m_int_configs[CONFIG_ITEMLEVEL_DUNGEON_HEROIC] = sConfigMgr->GetIntDefault("ItemLevel.Dungeon.Heroic", 825);
-    m_int_configs[CONFIG_ITEMLEVEL_DUNGEON_MYTHIC] = sConfigMgr->GetIntDefault("ItemLevel.Dungeon.Mythic", 840);
+    // the mythic takes one step with 7.2, then stays: the normal and heroic never move
+    m_int_configs[CONFIG_ITEMLEVEL_DUNGEON_MYTHIC] = sConfigMgr->GetIntDefault("ItemLevel.Dungeon.Mythic", m_int_configs[CONFIG_LEGION_ENABLED_PATCH] >= PATCH_7_2 ? 845 : 840);
     m_int_configs[CONFIG_ITEMLEVEL_MYTHICPLUS_BASE] = sConfigMgr->GetIntDefault("ItemLevel.MythicPlus.Base", 840);
 
     // Mythic+ caps, all drawn from one value so that a raid opening step needs one line in
     // worldserver.conf:
-    //   - end-of-run loot: the HEROIC raid of the open tier;
-    //   - weekly chest:    five more, ten below the MYTHIC raid;
+    //   - end-of-run loot: five below the HEROIC raid of the open tier;
+    //   - weekly chest:    five more, the heroic raid, never above it: the mythic raid stays ahead;
     //   - loot key:        the one reaching the cap; as on retail, keys can go higher with no
     //                      practical limit (255, what a key level can hold), harder for the same loot.
     {
-        uint32 mythicPlusCap = 865;   // Emerald Nightmare heroic
+        uint32 mythicPlusCap = 860;   // Emerald Nightmare heroic 865
         switch (m_int_configs[CONFIG_LEGION_ENABLED_PATCH])
         {
-            case PATCH_7_1:   mythicPlusCap = 875; break;   // Trial of Valor
-            case PATCH_7_1_5: mythicPlusCap = 890; break;   // The Nighthold
-            case PATCH_7_2:   mythicPlusCap = 915; break;   // Tomb of Sargeras
-            case PATCH_7_3:   mythicPlusCap = 945; break;   // Antorus
+            case PATCH_7_1:   mythicPlusCap = 870; break;   // Trial of Valor heroic 875
+            case PATCH_7_1_5: mythicPlusCap = 885; break;   // The Nighthold heroic 890
+            case PATCH_7_2:   mythicPlusCap = 910; break;   // Tomb of Sargeras heroic 915
+            case PATCH_7_3:   mythicPlusCap = 940; break;   // Antorus heroic 945
             default: break;
         }
         mythicPlusCap = sConfigMgr->GetIntDefault("ItemLevel.MythicPlus.Cap", mythicPlusCap);
@@ -1835,6 +1838,7 @@ void World::SetInitialWorldSettings()
     // written afterwards would only be seen at the next startup.
     TC_LOG_INFO("server.loading", "Publishing calendar announcements...");
     Timewalking::PrepareCalendar();
+    GreatGnomereganRun::PrepareCalendar();
     CalendarAnnouncements::Publish();
 
     TC_LOG_INFO("server.loading", "Loading db2 info...");
