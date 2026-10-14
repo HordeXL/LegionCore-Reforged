@@ -92,21 +92,23 @@ namespace LuaGlobalFunctions
      *
      * @return int32 mapId
      */
-    int GetStateMapId(Eluna* /*E*/)
-{
-    return 1;
-}
+    int GetStateMapId(Eluna* E)
+    {
+        E->Push(E->GetBoundMapId());
+        return 1;
 
+    }
     /**
      * Returns the instance ID of the Lua state. Returns 0 for continent maps and the world state.
      *
      * @return uint32 instanceId
      */
-    int GetStateInstanceId(Eluna* /*E*/)
-{
-    return 1;
-}
+    int GetStateInstanceId(Eluna* E)
+    {
+        E->Push(E->GetBoundInstanceId());
+        return 1;
 
+    }
     /**
      * Returns [Quest] template
      *
