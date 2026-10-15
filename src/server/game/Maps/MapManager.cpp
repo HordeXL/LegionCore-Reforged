@@ -258,10 +258,11 @@ bool MapManager::CanPlayerEnter(uint32 mapid, Player* player, bool loginCheck)
 
             if (entry->ExpansionID < EXPANSION_LEGION && !boundInstance.save->SaveIsOld())
             {
-                if (InstancePlayerBind* tempBind = player->GetBoundInstance(mapid, targetDifficulty))
+                InstancePlayerBind const tempBind = player->GetBoundInstanceCopy(mapid, targetDifficulty);
+                if (tempBind.save)
                 {
-                    uint32 allMask = boundInstance.save->GetCompletedEncounterMask() & tempBind->save->GetCompletedEncounterMask();
-                    if (allMask != tempBind->save->GetCompletedEncounterMask() && !tempBind->save->SaveIsOld())
+                    uint32 allMask = boundInstance.save->GetCompletedEncounterMask() & tempBind.save->GetCompletedEncounterMask();
+                    if (allMask != tempBind.save->GetCompletedEncounterMask() && !tempBind.save->SaveIsOld())
                     {
                         player->SendTransferAborted(mapid, TRANSFER_ABORT_LOCKED_TO_DIFFERENT_INSTANCE, targetDifficulty);
                         return false;
@@ -272,9 +273,9 @@ bool MapManager::CanPlayerEnter(uint32 mapid, Player* player, bool loginCheck)
     }
     else
     {
-        InstancePlayerBind* boundInstance = player->GetBoundInstance(mapid, targetDifficulty);
-        if (boundInstance && boundInstance->save)
-            if (Map* boundMap = sMapMgr->FindMap(mapid, boundInstance->save->GetInstanceId()))
+        InstancePlayerBind const boundInstance = player->GetBoundInstanceCopy(mapid, targetDifficulty);
+        if (boundInstance.save)
+            if (Map* boundMap = sMapMgr->FindMap(mapid, boundInstance.save->GetInstanceId()))
                 if (!loginCheck && !boundMap->CanEnter(player))
                     return false;
     }
@@ -288,9 +289,8 @@ bool MapManager::CanPlayerEnter(uint32 mapid, Player* player, bool loginCheck)
             if (InstanceSave* save = group->GetBoundInstanceCopy(entry).save)
                 instanceId = save->GetInstanceId();
         }
-        else if (InstancePlayerBind* bind = player->GetBoundInstance(mapid, targetDifficulty))
-            if (bind->save)
-                instanceId = bind->save->GetInstanceId();
+        else if (InstanceSave* save = player->GetBoundInstanceCopy(mapid, targetDifficulty).save)
+            instanceId = save->GetInstanceId();
 
         if (!CanEnterInstanceThisHour(player->GetSession()->GetAccountId(), instanceId))
         {

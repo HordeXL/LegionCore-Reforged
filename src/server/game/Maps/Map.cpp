@@ -3513,8 +3513,8 @@ bool InstanceMap::AddPlayerToMap(Player* player, bool initPlayer /*= true*/)
         }
 
         // check for existing instance binds
-        InstancePlayerBind* playerBind = player->GetBoundInstance(GetId(), GetDifficultyID());
-        if (playerBind && playerBind->perm && GetEntry()->ExpansionID < EXPANSION_WARLORDS_OF_DRAENOR)
+        InstancePlayerBind const playerBind = player->GetBoundInstanceCopy(GetId(), GetDifficultyID());
+        if (playerBind.save && playerBind.perm && GetEntry()->ExpansionID < EXPANSION_WARLORDS_OF_DRAENOR)
         {
             if (IsGarrison())
                 player->BindToInstance(mapSave, false);
@@ -3528,15 +3528,15 @@ bool InstanceMap::AddPlayerToMap(Player* player, bool initPlayer /*= true*/)
                 player->SendDirectMessage(lock.Write());
                 player->SetPendingBind(mapSave->GetInstanceId(), 60000);
             }
-            else if (playerBind->save && playerBind->save->SaveIsOld() && !playerBind->save->GetExtended())
+            else if (playerBind.save && playerBind.save->SaveIsOld() && !playerBind.save->GetExtended())
             {
                 player->UnbindInstance(GetId(), GetDifficultyID());
                 player->BindToInstance(mapSave, false);
             }
-            else if (playerBind->save != mapSave) // cannot enter other instances if bound permanently
+            else if (playerBind.save != mapSave) // cannot enter other instances if bound permanently
             {
-                if (mapSave && playerBind->save)
-                    TC_LOG_ERROR("maps", "InstanceMap::Add: player %s(%d) is permanently bound to instance %d, %d, %d, %d, %d, %d but he is being put into instance %d, %d, %d, %d, %d, %d", player->GetName(), player->GetGUIDLow(), playerBind->save->GetMapId(), playerBind->save->GetInstanceId(), playerBind->save->GetDifficultyID(), playerBind->save->GetPlayerCount(), playerBind->save->GetGroupCount(), playerBind->save->CanReset(), mapSave->GetMapId(), mapSave->GetInstanceId(), mapSave->GetDifficultyID(), mapSave->GetPlayerCount(), mapSave->GetGroupCount(), mapSave->CanReset());
+                if (mapSave && playerBind.save)
+                    TC_LOG_ERROR("maps", "InstanceMap::Add: player %s(%d) is permanently bound to instance %d, %d, %d, %d, %d, %d but he is being put into instance %d, %d, %d, %d, %d, %d", player->GetName(), player->GetGUIDLow(), playerBind.save->GetMapId(), playerBind.save->GetInstanceId(), playerBind.save->GetDifficultyID(), playerBind.save->GetPlayerCount(), playerBind.save->GetGroupCount(), playerBind.save->CanReset(), mapSave->GetMapId(), mapSave->GetInstanceId(), mapSave->GetDifficultyID(), mapSave->GetPlayerCount(), mapSave->GetGroupCount(), mapSave->CanReset());
                 return false;
             }
         }
@@ -3546,9 +3546,9 @@ bool InstanceMap::AddPlayerToMap(Player* player, bool initPlayer /*= true*/)
             {
                 // solo saves should be reset when entering a group
                 InstanceGroupBind groupBind = group->GetBoundInstanceCopy(this);
-                if (playerBind && playerBind->save != mapSave && GetEntry()->ExpansionID <= EXPANSION_WARLORDS_OF_DRAENOR)
+                if (playerBind.save && playerBind.save != mapSave && GetEntry()->ExpansionID <= EXPANSION_WARLORDS_OF_DRAENOR)
                 {
-                    TC_LOG_ERROR("maps", "InstanceMap::Add: player %s(%d) is being put into instance %d, %d, %d, %d, %d, %d but he is in group %d and is bound to instance %d, %d, %d, %d, %d, %d!", player->GetName(), player->GetGUIDLow(), mapSave->GetMapId(), mapSave->GetInstanceId(), mapSave->GetDifficultyID(), mapSave->GetPlayerCount(), mapSave->GetGroupCount(), mapSave->CanReset(), group->GetLeaderGUID().GetGUIDLow(), playerBind->save->GetMapId(), playerBind->save->GetInstanceId(), playerBind->save->GetDifficultyID(), playerBind->save->GetPlayerCount(), playerBind->save->GetGroupCount(), playerBind->save->CanReset());
+                    TC_LOG_ERROR("maps", "InstanceMap::Add: player %s(%d) is being put into instance %d, %d, %d, %d, %d, %d but he is in group %d and is bound to instance %d, %d, %d, %d, %d, %d!", player->GetName(), player->GetGUIDLow(), mapSave->GetMapId(), mapSave->GetInstanceId(), mapSave->GetDifficultyID(), mapSave->GetPlayerCount(), mapSave->GetGroupCount(), mapSave->CanReset(), group->GetLeaderGUID().GetGUIDLow(), playerBind.save->GetMapId(), playerBind.save->GetInstanceId(), playerBind.save->GetDifficultyID(), playerBind.save->GetPlayerCount(), playerBind.save->GetGroupCount(), playerBind.save->CanReset());
                     if (groupBind.save)
                         TC_LOG_ERROR("maps", "InstanceMap::Add: the group is bound to the instance %d, %d, %d, %d, %d, %d", groupBind.save->GetMapId(), groupBind.save->GetInstanceId(), groupBind.save->GetDifficultyID(), groupBind.save->GetPlayerCount(), groupBind.save->GetGroupCount(), groupBind.save->CanReset());
                     //ASSERT(false);
@@ -3592,12 +3592,12 @@ bool InstanceMap::AddPlayerToMap(Player* player, bool initPlayer /*= true*/)
             else
             {
                 // set up a solo bind or continue using it
-                if (!playerBind || IsGarrison())
+                if (!playerBind.save || IsGarrison())
                 {
                     if (!IsScenario())
                         player->BindToInstance(mapSave, false);
                 }
-                else if (playerBind->save && playerBind->save->SaveIsOld() && !playerBind->save->GetExtended())
+                else if (playerBind.save && playerBind.save->SaveIsOld() && !playerBind.save->GetExtended())
                 {
                     player->UnbindInstance(GetId(), GetDifficultyID());
                     player->BindToInstance(mapSave, false);
@@ -3612,12 +3612,12 @@ bool InstanceMap::AddPlayerToMap(Player* player, bool initPlayer /*= true*/)
                     player->SendDirectMessage(lock.Write());
                     player->SetPendingBind(mapSave->GetInstanceId(), 60000);
                 }
-                else if(playerBind->save != mapSave && GetEntry()->ExpansionID <= EXPANSION_WARLORDS_OF_DRAENOR)
+                else if(playerBind.save != mapSave && GetEntry()->ExpansionID <= EXPANSION_WARLORDS_OF_DRAENOR)
                 {
                     // cannot jump to a different instance without resetting it
-                    //ASSERT(playerBind->save == mapSave);
-                    if (mapSave && playerBind->save)
-                        TC_LOG_ERROR("maps", "InstanceMap::Add: player %s(%d) is permanently bound to instance %d, %d, %d, %d, %d, %d but he is being put into instance %d, %d, %d, %d, %d, %d", player->GetName(), player->GetGUIDLow(), playerBind->save->GetMapId(), playerBind->save->GetInstanceId(), playerBind->save->GetDifficultyID(), playerBind->save->GetPlayerCount(), playerBind->save->GetGroupCount(), playerBind->save->CanReset(), mapSave->GetMapId(), mapSave->GetInstanceId(), mapSave->GetDifficultyID(), mapSave->GetPlayerCount(), mapSave->GetGroupCount(), mapSave->CanReset());
+                    //ASSERT(playerBind.save == mapSave);
+                    if (mapSave && playerBind.save)
+                        TC_LOG_ERROR("maps", "InstanceMap::Add: player %s(%d) is permanently bound to instance %d, %d, %d, %d, %d, %d but he is being put into instance %d, %d, %d, %d, %d, %d", player->GetName(), player->GetGUIDLow(), playerBind.save->GetMapId(), playerBind.save->GetInstanceId(), playerBind.save->GetDifficultyID(), playerBind.save->GetPlayerCount(), playerBind.save->GetGroupCount(), playerBind.save->CanReset(), mapSave->GetMapId(), mapSave->GetInstanceId(), mapSave->GetDifficultyID(), mapSave->GetPlayerCount(), mapSave->GetGroupCount(), mapSave->CanReset());
                     return false;
                 }
             }
@@ -3807,8 +3807,8 @@ void InstanceMap::PermBindAllPlayers(Player* source)
         Player* player = itr.getSource();
         // players inside an instance cannot be bound to other instances
         // some players may already be permanently bound, in this case nothing happens
-        InstancePlayerBind* bind = player->GetBoundInstance(save->GetMapId(), save->GetDifficultyID());
-        if (!bind || !bind->perm)
+        InstancePlayerBind const bind = player->GetBoundInstanceCopy(save->GetMapId(), save->GetDifficultyID());
+        if (!bind.save || !bind.perm)
         {
             player->BindToInstance(save, true);
             player->SendDirectMessage(WorldPackets::Instance::InstanceSaveCreated(false).Write());

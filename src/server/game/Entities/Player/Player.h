@@ -3043,12 +3043,18 @@ class TC_GAME_API Player : public Unit, public GridObject<Player>
         bool m_InstanceValid;
         // permanent binds and solo binds by difficulty
         BoundInstancesMap m_boundInstances[MAX_BOUND];
+        // leaf lock, nothing is called out under it: m_boundInstances
+        mutable std::recursive_mutex m_boundInstancesLock;
+        // Pointer and reference into m_boundInstances: erased by an unbind from another thread. Kept until the callers move to the copies.
         InstancePlayerBind* GetBoundInstance(uint32 mapid, Difficulty difficulty);
         BoundInstancesMap& GetBoundInstances(Difficulty difficulty);
+        // Copies taken under m_boundInstancesLock (save == nullptr: not bound). Use these from threads other than the player's map.
+        InstancePlayerBind GetBoundInstanceCopy(uint32 mapid, Difficulty difficulty);
+        BoundInstancesMap GetBoundInstancesCopy(Difficulty difficulty);
         InstanceSave* GetInstanceSave(uint32 mapid);
         void UnbindInstance(uint32 mapid, Difficulty difficulty, bool unload = false);
         void UnbindInstance(BoundInstancesMap::iterator &itr, Difficulty difficulty, bool unload = false);
-        InstancePlayerBind* BindToInstance(InstanceSave* save, bool permanent, bool load = false);
+        InstancePlayerBind BindToInstance(InstanceSave* save, bool permanent, bool load = false);
         void BindToInstance();
         void SetPendingBind(uint32 instanceId, uint32 bindTimer) { _pendingBindId = instanceId; _pendingBindTimer = bindTimer; }
         bool HasPendingBind() const { return _pendingBindId > 0; }
@@ -3384,6 +3390,8 @@ class TC_GAME_API Player : public Unit, public GridObject<Player>
         void _LoadAuras(PreparedQueryResult result, PreparedQueryResult resultEffect, uint32 timediff);
         void _LoadGlyphAuras();
         void _LoadBoundInstances(PreparedQueryResult result);
+        // database, calendar and save side of an unbind, run once the bind is out of m_boundInstances (and the lock released)
+        void _FinishUnbind(InstanceSave* save, bool perm, bool unload);
         void _LoadInventory(PreparedQueryResult result, PreparedQueryResult artifactsResult, uint32 timeDiff);
         void _LoadNotInventory(PreparedQueryResult result, uint32 timeDiff);
         void _LoadVoidStorage(PreparedQueryResult result, PreparedQueryResult resultItem);

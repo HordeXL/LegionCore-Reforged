@@ -501,8 +501,11 @@ Player::~Player()
     m_clientGUIDs.clear();
     m_extraLookList.clear();
     m_DFQuests.clear();
-    for (uint8 i = 0; i < MAX_BOUND; ++i)
-        m_boundInstances[i].clear();
+    {
+        std::lock_guard<std::recursive_mutex> _lock(m_boundInstancesLock);
+        for (uint8 i = 0; i < MAX_BOUND; ++i)
+            m_boundInstances[i].clear();
+    }
     WhisperList.clear();
     m_sceneInstanceID.clear();
     m_timedquests.clear();
@@ -580,9 +583,16 @@ void Player::CleanupsBeforeDelete(bool finalCleanup)
     Unit::CleanupsBeforeDelete(finalCleanup);
 
     // clean up player-instance binds, may unload some instance saves
-    for (uint8 i = 0; i < MAX_BOUND; ++i)
-        for (BoundInstancesMap::iterator itr = m_boundInstances[i].begin(); itr != m_boundInstances[i].end(); ++itr)
-            itr->second.save->RemovePlayer(this);
+    std::vector<InstanceSave*> saves;
+    {
+        std::lock_guard<std::recursive_mutex> _lock(m_boundInstancesLock);
+        for (uint8 i = 0; i < MAX_BOUND; ++i)
+            for (auto const& bind : m_boundInstances[i])
+                saves.push_back(bind.second.save);
+    }
+
+    for (InstanceSave* save : saves)
+        save->RemovePlayer(this);
 }
 
 bool Player::Create(ObjectGuid::LowType guidlow, WorldPackets::Character::CharacterCreateInfo* createInfo)
@@ -24569,8 +24579,11 @@ bool Player::IsLfgCooldown(uint32 dungeonId)
 
 void Player::_LoadBoundInstances(PreparedQueryResult result)
 {
-    for (uint8 i = 0; i < MAX_BOUND; ++i)
-        m_boundInstances[i].clear();
+    {
+        std::lock_guard<std::recursive_mutex> _lock(m_boundInstancesLock);
+        for (uint8 i = 0; i < MAX_BOUND; ++i)
+            m_boundInstances[i].clear();
+    }
 
     Group* group = GetGroup();
 
@@ -24649,15 +24662,29 @@ InstancePlayerBind* Player::GetBoundInstance(uint32 mapid, Difficulty difficulty
     if (!mapDiff)
         return nullptr;
 
+    std::lock_guard<std::recursive_mutex> _lock(m_boundInstancesLock);
     return Trinity::Containers::MapGetValuePtr(m_boundInstances[sObjectMgr->GetboundTypeFromDifficulty(difficulty)], mapid);
+}
+
+InstancePlayerBind Player::GetBoundInstanceCopy(uint32 mapid, Difficulty difficulty)
+{
+    auto mapDiff = sDB2Manager.GetDownscaledMapDifficultyData(mapid, difficulty);
+    if (!mapDiff)
+        return InstancePlayerBind();
+
+    std::lock_guard<std::recursive_mutex> _lock(m_boundInstancesLock);
+    auto itr = m_boundInstances[sObjectMgr->GetboundTypeFromDifficulty(difficulty)].find(mapid);
+    if (itr != m_boundInstances[sObjectMgr->GetboundTypeFromDifficulty(difficulty)].end())
+        return itr->second;
+    return InstancePlayerBind();
 }
 
 InstanceSave* Player::GetInstanceSave(uint32 mapid)
 {
     MapEntry const* mapEntry = sMapStore.LookupEntry(mapid);
-    InstancePlayerBind* pBind = GetBoundInstance(mapid, GetDifficultyID(mapEntry));
-    InstanceSave* pSave = pBind ? pBind->save : NULL;
-    if (!pBind || !pBind->perm)
+    InstancePlayerBind const pBind = GetBoundInstanceCopy(mapid, GetDifficultyID(mapEntry));
+    InstanceSave* pSave = pBind.save;
+    if (!pBind.save || !pBind.perm)
         if (Group* group = GetGroup())
         {
             InstanceGroupBind groupBind = group->GetBoundInstanceCopy(this);
@@ -24671,78 +24698,120 @@ InstanceSave* Player::GetInstanceSave(uint32 mapid)
 void Player::UnbindInstance(uint32 mapid, Difficulty difficulty, bool unload)
 {
     uint8 boundType = sObjectMgr->GetboundTypeFromDifficulty(difficulty);
-    BoundInstancesMap::iterator itr = m_boundInstances[boundType].find(mapid);
-    UnbindInstance(itr, difficulty, unload);
+    InstanceSave* save = nullptr;
+    bool perm = false;
+    {
+        std::lock_guard<std::recursive_mutex> _lock(m_boundInstancesLock);
+        auto itr = m_boundInstances[boundType].find(mapid);
+        if (itr == m_boundInstances[boundType].end())
+            return;
+
+        save = itr->second.save;
+        perm = itr->second.perm;
+        m_boundInstances[boundType].erase(itr);
+    }
+
+    _FinishUnbind(save, perm, unload);
 }
 
 void Player::UnbindInstance(BoundInstancesMap::iterator &itr, Difficulty difficulty, bool unload)
 {
     uint8 boundType = sObjectMgr->GetboundTypeFromDifficulty(difficulty);
-    if (itr != m_boundInstances[boundType].end())
+    InstanceSave* save = nullptr;
+    bool perm = false;
     {
-        if (!unload)
-        {
-            CharacterDatabasePreparedStatement* stmt = CharacterDatabase.GetPreparedStatement(CHAR_DEL_CHAR_INSTANCE_BY_INSTANCE_GUID);
+        std::lock_guard<std::recursive_mutex> _lock(m_boundInstancesLock);
+        if (itr == m_boundInstances[boundType].end())
+            return;
 
-            stmt->setUInt64(0, GetGUIDLow());
-            stmt->setUInt32(1, itr->second.save->GetInstanceId());
-
-            CharacterDatabase.Execute(stmt);
-        }
-
-        if (itr->second.perm)
-            SendCalendarRaidLockout(itr->second.save, false);
-
-        itr->second.save->RemovePlayer(this);               // save can become invalid
+        save = itr->second.save;
+        perm = itr->second.perm;
         m_boundInstances[boundType].erase(itr++);
     }
+
+    _FinishUnbind(save, perm, unload);
 }
 
-InstancePlayerBind* Player::BindToInstance(InstanceSave* save, bool permanent, bool load)
+void Player::_FinishUnbind(InstanceSave* save, bool perm, bool unload)
 {
-    if (save)
+    if (!unload)
     {
-        uint8 boundType = sObjectMgr->GetboundTypeFromDifficulty(save->GetDifficultyID());
-        InstancePlayerBind& bind = m_boundInstances[boundType][save->GetMapId()];
+        CharacterDatabasePreparedStatement* stmt = CharacterDatabase.GetPreparedStatement(CHAR_DEL_CHAR_INSTANCE_BY_INSTANCE_GUID);
 
-        if(save->CanBeSave())
+        stmt->setUInt64(0, GetGUIDLow());
+        stmt->setUInt32(1, save->GetInstanceId());
+
+        CharacterDatabase.Execute(stmt);
+    }
+
+    if (perm)
+        SendCalendarRaidLockout(save, false);
+
+    save->RemovePlayer(this);               // save can become invalid
+}
+
+InstancePlayerBind Player::BindToInstance(InstanceSave* save, bool permanent, bool load)
+{
+    if (!save)
+        return InstancePlayerBind();
+
+    uint8 boundType = sObjectMgr->GetboundTypeFromDifficulty(save->GetDifficultyID());
+
+    InstanceSave* previousSave = nullptr;
+    bool previousPerm = false;
+    {
+        std::lock_guard<std::recursive_mutex> _lock(m_boundInstancesLock);
+        auto itr = m_boundInstances[boundType].find(save->GetMapId());
+        if (itr != m_boundInstances[boundType].end())
         {
-            bool needSave = false;
-            if (bind.save)
-            {
-                // update the save when the group kills a boss
-                if (permanent != bind.perm || save != bind.save)
-                    if (!load)
-                        needSave = true;
-            }
-            else if (!load)
+            previousSave = itr->second.save;
+            previousPerm = itr->second.perm;
+        }
+    }
+
+    if (save->CanBeSave())
+    {
+        bool needSave = false;
+        if (previousSave)
+        {
+            // update the save when the group kills a boss
+            if (permanent != previousPerm || save != previousSave)
+                if (!load)
                     needSave = true;
-
-            save->SetPerm(permanent);
-            if (needSave)
-                UpdateInstance(save);
         }
-        else
-            permanent = false;
+        else if (!load)
+                needSave = true;
 
-        if (bind.save != save)
-        {
-            if (bind.save)
-                bind.save->RemovePlayer(this);
-            save->AddPlayer(this);
-        }
+        save->SetPerm(permanent);
+        if (needSave)
+            UpdateInstance(save);
+    }
+    else
+        permanent = false;
 
-        if (permanent)
-            save->SetCanReset(false);
+    // the save learns about the player before the bind is visible, so that it is never unloaded under a bind
+    if (previousSave != save)
+        save->AddPlayer(this);
 
+    InstancePlayerBind result;
+    {
+        std::lock_guard<std::recursive_mutex> _lock(m_boundInstancesLock);
+        InstancePlayerBind& bind = m_boundInstances[boundType][save->GetMapId()];
         bind.save = save;
         bind.perm = permanent;
-        if (!load)
-            TC_LOG_DEBUG("maps", "Player::BindToInstance: %s(%d) is now bound to map %d, instance %d, difficulty %d", GetName(), GetGUIDLow(), save->GetMapId(), save->GetInstanceId(), save->GetDifficultyID());
-        sScriptMgr->OnPlayerBindToInstance(this, save->GetDifficultyID(), save->GetMapId(), permanent);
-        return &bind;
+        result = bind;
     }
-    return NULL;
+
+    if (previousSave && previousSave != save)
+        previousSave->RemovePlayer(this);
+
+    if (permanent)
+        save->SetCanReset(false);
+
+    if (!load)
+        TC_LOG_DEBUG("maps", "Player::BindToInstance: %s(%d) is now bound to map %d, instance %d, difficulty %d", GetName(), GetGUIDLow(), save->GetMapId(), save->GetInstanceId(), save->GetDifficultyID());
+    sScriptMgr->OnPlayerBindToInstance(this, save->GetDifficultyID(), save->GetMapId(), permanent);
+    return result;
 }
 
 void Player::BindToInstance()
@@ -24768,9 +24837,16 @@ void Player::SendRaidInfo()
     time_t now = GameTime::GetGameTime();
     WorldPackets::Instance::InstanceInfo instanceInfo;
 
+    BoundInstancesMap binds[MAX_BOUND];
+    {
+        std::lock_guard<std::recursive_mutex> _lock(m_boundInstancesLock);
+        for (uint8 i = 0; i < MAX_BOUND; ++i)
+            binds[i] = m_boundInstances[i];
+    }
+
     for (uint8 i = 0; i < MAX_BOUND; ++i)
     {
-        for (BoundInstancesMap::iterator itr = m_boundInstances[i].begin(); itr != m_boundInstances[i].end(); ++itr)
+        for (BoundInstancesMap::iterator itr = binds[i].begin(); itr != binds[i].end(); ++itr)
         {
             if (itr->second.perm)
             {
@@ -24802,32 +24878,23 @@ void Player::SendRaidInfo()
 */
 void Player::SendSavedInstances()
 {
-    bool hasBeenSaved = false;
-    for (uint8 i = 0; i < MAX_BOUND; ++i)
+    std::vector<uint32> permMapIds;
     {
-        for (BoundInstancesMap::iterator itr = m_boundInstances[i].begin(); itr != m_boundInstances[i].end(); ++itr)
-        {
-            if (itr->second.perm)                               // only permanent binds are sent
-            {
-                hasBeenSaved = true;
-                break;
-            }
-        }
+        std::lock_guard<std::recursive_mutex> _lock(m_boundInstancesLock);
+        for (uint8 i = 0; i < MAX_BOUND; ++i)
+            for (auto const& bind : m_boundInstances[i])
+                if (bind.second.perm)                           // only permanent binds are sent
+                    permMapIds.push_back(bind.second.save->GetMapId());
     }
+
+    bool hasBeenSaved = !permMapIds.empty();
 
     WorldPackets::Instance::UpdateInstanceOwnership instanceOwnerShip;
     instanceOwnerShip.IOwnInstance = hasBeenSaved;
     SendDirectMessage(instanceOwnerShip.Write());
 
-    if (!hasBeenSaved)
-        return;
-
-    for (uint8 i = 0; i < MAX_BOUND; ++i)
-    {
-        for (BoundInstancesMap::iterator itr = m_boundInstances[i].begin(); itr != m_boundInstances[i].end(); ++itr)
-            if (itr->second.perm)
-                SendDirectMessage(WorldPackets::Instance::UpdateLastInstance(itr->second.save->GetMapId()).Write());
-    }
+    for (uint32 mapId : permMapIds)
+        SendDirectMessage(WorldPackets::Instance::UpdateLastInstance(mapId).Write());
 }
 
 /// convert the player's binds to the group
@@ -24836,20 +24903,21 @@ void Player::ConvertInstancesToGroup(Player* player, Group* group, bool switchLe
     // copy all binds to the group, when changing leader it's assumed the character
     // will not have any solo binds
 
-    for (uint8 i = 0; i < MAX_BOUND; ++i)
+    // group binds take the group's lock: the player's binds are copied first
+    std::vector<InstancePlayerBind> binds;
     {
-        for (BoundInstancesMap::iterator itr = player->m_boundInstances[i].begin(); itr != player->m_boundInstances[i].end();)
-        {
-            group->BindToInstance(itr->second.save, itr->second.perm, false);
-            // permanent binds are not removed
-            if (switchLeader && !itr->second.perm)
-            {
-                // increments itr in call
-                player->UnbindInstance(itr, itr->second.save->GetDifficultyID(), false);
-            }
-            else
-                ++itr;
-        }
+        std::lock_guard<std::recursive_mutex> _lock(player->m_boundInstancesLock);
+        for (uint8 i = 0; i < MAX_BOUND; ++i)
+            for (auto const& bind : player->m_boundInstances[i])
+                binds.push_back(bind.second);
+    }
+
+    for (InstancePlayerBind const& bind : binds)
+    {
+        group->BindToInstance(bind.save, bind.perm, false);
+        // permanent binds are not removed
+        if (switchLeader && !bind.perm)
+            player->UnbindInstance(bind.save->GetMapId(), bind.save->GetDifficultyID(), false);
     }
 }
 
@@ -24857,6 +24925,12 @@ Player::BoundInstancesMap& Player::GetBoundInstances(Difficulty difficulty)
 {
     uint8 boundType = sObjectMgr->GetboundTypeFromDifficulty(difficulty);
     return m_boundInstances[boundType];
+}
+
+Player::BoundInstancesMap Player::GetBoundInstancesCopy(Difficulty difficulty)
+{
+    std::lock_guard<std::recursive_mutex> _lock(m_boundInstancesLock);
+    return m_boundInstances[sObjectMgr->GetboundTypeFromDifficulty(difficulty)];
 }
 
 bool Player::Satisfy(AccessRequirement const* ar, uint32 target_map, bool report)
@@ -26511,25 +26585,22 @@ void Player::ResetInstances(uint8 method, bool isRaid, bool isLegacy)
     // after the raid switch: it was taken from the dungeon difficulty, so raid resets searched the wrong bucket
     uint8 boundType = sObjectMgr->GetboundTypeFromDifficulty(diff);
 
-    for (BoundInstancesMap::iterator itr = m_boundInstances[boundType].begin(); itr != m_boundInstances[boundType].end();)
+    // walked on a copy: the map reset below asks another map's lock and nothing is called out under the bind lock
+    BoundInstancesMap binds = GetBoundInstancesCopy(diff);
+
+    for (auto const& bind : binds)
     {
-        InstanceSave* p = itr->second.save;
-        const MapEntry* entry = sMapStore.LookupEntry(itr->first);
+        InstanceSave* p = bind.second.save;
+        const MapEntry* entry = sMapStore.LookupEntry(bind.first);
         if (!entry || entry->IsRaid() != isRaid || !p->CanReset())
-        {
-            ++itr;
             continue;
-        }
 
         if (method == INSTANCE_RESET_ALL)
         {
             // "reset all instances" leaves raids and mythic dungeons alone: since Legion only those keep a lockout,
             // normal and heroic dungeons reset freely (heroic was a daily lockout up to Wrath)
             if (entry->IsRaid() || diff == DIFFICULTY_MYTHIC_DUNGEON || diff == DIFFICULTY_MYTHIC_KEYSTONE)
-            {
-                ++itr;
                 continue;
-            }
         }
 
         // if the map is loaded, reset it: it belongs to another thread, the reset is applied there at its next update,
@@ -26540,7 +26611,6 @@ void Player::ResetInstances(uint8 method, bool isRaid, bool isLegacy)
             // as Group::ResetInstances; those inside are told by the map itself
             if ((method == INSTANCE_RESET_ALL || method == INSTANCE_RESET_CHANGE_DIFFICULTY) && GetInstanceId() != p->GetInstanceId())
                 SendResetInstanceFailed(ResetFailedReason::FAILED, p->GetMapId());
-            ++itr;
             continue;
         }
 
@@ -26549,7 +26619,13 @@ void Player::ResetInstances(uint8 method, bool isRaid, bool isLegacy)
             SendResetInstanceSuccess(p->GetMapId());
 
         p->DeleteFromDB();
-        m_boundInstances[boundType].erase(itr++);
+        {
+            // the bind is dropped only if it still names this save
+            std::lock_guard<std::recursive_mutex> _lock(m_boundInstancesLock);
+            auto itr = m_boundInstances[boundType].find(bind.first);
+            if (itr != m_boundInstances[boundType].end() && itr->second.save == p)
+                m_boundInstances[boundType].erase(itr);
+        }
 
         // the following should remove the instance save from the manager and delete it as well
         p->RemovePlayer(this);
@@ -30456,12 +30532,12 @@ void Player::SendInstanceResetWarning(uint32 mapid, Difficulty difficulty, uint3
     message.MapID = mapid;
     message.DifficultyID = difficulty;
     message.Extended = false;
-    if (InstancePlayerBind const* bind = GetBoundInstance(mapid, difficulty))
+    InstancePlayerBind const bind = GetBoundInstanceCopy(mapid, difficulty);
+    if (bind.save)
     {
-        if (InstanceSave* pSave = bind->save)
-            message.Extended = pSave->GetExtended();
+        message.Extended = bind.save->GetExtended();
         if (!message.Extended)
-            message.Locked = bind->perm;
+            message.Locked = bind.perm;
     }
     SendDirectMessage(message.Write());
 }
@@ -38575,8 +38651,11 @@ void Player::Clear()
     m_clientGUIDs.clear();
     m_extraLookList.clear();
     m_DFQuests.clear();
-    for (uint8 i = 0; i < MAX_BOUND; ++i)
-        m_boundInstances[i].clear();
+    {
+        std::lock_guard<std::recursive_mutex> _lock(m_boundInstancesLock);
+        for (uint8 i = 0; i < MAX_BOUND; ++i)
+            m_boundInstances[i].clear();
+    }
     WhisperList.clear();
     m_sceneInstanceID.clear();
     m_timedquests.clear();
@@ -38670,8 +38749,11 @@ void Player::PrintPlayerSize()
     size += m_extraLookList.size() * sizeof(GuidSet);
     size += m_DFQuests.size() * sizeof(DFQuestsDoneList);
 
-    for (uint8 i = 0; i < MAX_BOUND; ++i)
-        size += m_boundInstances[i].size() * sizeof(BoundInstancesMap);
+    {
+        std::lock_guard<std::recursive_mutex> _lock(m_boundInstancesLock);
+        for (uint8 i = 0; i < MAX_BOUND; ++i)
+            size += m_boundInstances[i].size() * sizeof(BoundInstancesMap);
+    }
 
     size += WhisperList.size() * sizeof(GuidList);
     size += m_sceneInstanceID.size() * sizeof(std::unordered_map<uint32, uint32>);

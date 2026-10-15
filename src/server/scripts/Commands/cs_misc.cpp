@@ -756,8 +756,8 @@ public:
 
                 // if the player or the player's group is bound to another instance
                 // the player will not be bound to another one
-                InstancePlayerBind* bind = _player->GetBoundInstance(target->GetMapId(), target->GetDifficultyID(map->GetEntry()));
-                if (!bind)
+                InstancePlayerBind const bind = _player->GetBoundInstanceCopy(target->GetMapId(), target->GetDifficultyID(map->GetEntry()));
+                if (!bind.save)
                 {
                     Group* group = _player->GetGroup();
                     // if no bind exists, create a solo bind

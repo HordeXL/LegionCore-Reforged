@@ -554,9 +554,8 @@ void InstanceSaveManager::_ResetSave(uint32 instanceId)
             player->AddDelayedEvent(0, [player, save, mapId, difficulty, instanceId]() -> void
             {
                 // the bind may already point to another instance; the save is alive while this player still lists it
-                Player::BoundInstancesMap& binds = player->GetBoundInstances(difficulty);
-                auto itr = binds.find(mapId);
-                if (itr != binds.end() && itr->second.save == save && save->GetInstanceId() == instanceId)
+                InstancePlayerBind const bind = player->GetBoundInstanceCopy(mapId, difficulty);
+                if (bind.save == save && save->GetInstanceId() == instanceId)
                     player->UnbindInstance(mapId, difficulty, true);
             });
         }

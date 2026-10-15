@@ -2294,14 +2294,14 @@ LfgLockMap LFGMgr::GetLockedDungeons(ObjectGuid guid)
         if (!dungeon)
             continue;
 
-        InstancePlayerBind const* pBind = player->GetBoundInstance(dungeon->map, Difficulty(dungeon->difficulty));
-        InstanceSave* pSave = pBind ? pBind->save : nullptr;
+        InstancePlayerBind const pBind = player->GetBoundInstanceCopy(dungeon->map, Difficulty(dungeon->difficulty));
+        InstanceSave* pSave = pBind.save;
         uint32 avgItemLevel = player->GetAverageItemLevelTotal(false);
 
         LockData lockData;
         if (dungeon->expansion > expansion)
             lockData.status = LFG_LOCKSTATUS_INSUFFICIENT_EXPANSION;
-        else if (dungeon->difficulty > DIFFICULTY_NORMAL && pBind && pBind->perm && pSave && pSave->GetResetTime() > GameTime::GetGameTime() && !dungeon->dbc->IsScenario() && !dungeon->dbc->IsRaidFinder())
+        else if (dungeon->difficulty > DIFFICULTY_NORMAL && pBind.save && pBind.perm && pSave && pSave->GetResetTime() > GameTime::GetGameTime() && !dungeon->dbc->IsScenario() && !dungeon->dbc->IsRaidFinder())
             lockData.status = LFG_LOCKSTATUS_RAID_LOCKED;
         else if (DisableMgr::IsDisabledFor(DISABLE_TYPE_LFG, dungeon->id, player) || DisableMgr::IsMapDisabledFor(dungeon->map, Difficulty(dungeon->difficulty)))
             lockData.status = LFG_LOCKSTATUS_TEMPORARILY_DISABLED;

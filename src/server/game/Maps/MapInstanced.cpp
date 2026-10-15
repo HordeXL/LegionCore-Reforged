@@ -17,6 +17,7 @@
  */
 
 #include "Battleground.h"
+#include "DatabaseEnv.h"
 #include "GarrisonMap.h"
 #include "Group.h"
 #include "LFGMgr.h"
@@ -24,6 +25,7 @@
 #include "MapInstanced.h"
 #include "MapManager.h"
 #include "MMapFactory.h"
+#include "ObjectAccessor.h"
 #include "ObjectMgr.h"
 #include "VMapFactory.h"
 #include "World.h"
@@ -328,52 +330,82 @@ Map* MapInstanced::CreateInstanceForPlayer(const uint32 mapId, Player* player)
     {
         Group* group = player->GetGroup();
         Difficulty diff = DIFFICULTY_NORMAL;
-        InstancePlayerBind* pBind = nullptr;
+        InstancePlayerBind pBind;                   // a copy: save == nullptr means no bind
 
         if (group)
         {
             diff = group->GetDifficultyID(GetEntry());
             if (group->GetLeaderGUID() == player->GetGUID())
-                pBind = player->GetBoundInstance(GetId(), diff);
-            else if (Player* leader = ObjectAccessor::FindPlayer(group->GetLeaderGUID()))
+                pBind = player->GetBoundInstanceCopy(GetId(), diff);
+            else
             {
-                pBind = leader->GetBoundInstance(GetId(), diff);
-
-                if (GetEntry()->ExpansionID < EXPANSION_LEGION)
+                // the leader's binds belong to his map's thread: they are read there only when it is ours, else from the database
+                bool leaderOnline = false;
+                bool leaderInMap = false;
+                InstancePlayerBind leaderBind;
+                ObjectAccessor::WithPlayer(group->GetLeaderGUID(), [&](Player* leader)
                 {
-                    InstancePlayerBind* tempBind = player->GetBoundInstance(GetId(), diff);
-                    if (pBind && tempBind && pBind->save != tempBind->save)
-                    {
-                        uint32 allMask = pBind->save->GetCompletedEncounterMask() & tempBind->save->GetCompletedEncounterMask();
-                        if (allMask == tempBind->save->GetCompletedEncounterMask())
+                    leaderOnline = true;
+                    if (Map* leaderMap = leader->FindMap())
+                        if (leaderMap == player->FindMap())
                         {
-                            player->UnbindInstance(GetId(), diff);
-                            player->BindToInstance(pBind->save, pBind->perm);
+                            leaderInMap = true;
+                            leaderBind = leader->GetBoundInstanceCopy(GetId(), diff);
+                        }
+                });
+
+                if (leaderOnline && !leaderInMap)
+                {
+                    // a leader on another map: his bind as saved, the instance he went to stays the group's one
+                    if (QueryResult result = CharacterDatabase.PQuery("SELECT instance, permanent FROM character_instance WHERE guid = %u AND map = %u AND difficulty = %u",
+                        group->GetLeaderGUID().GetCounter(), GetId(), uint32(diff)))
+                        if (InstanceSave* save = sInstanceSaveMgr->GetInstanceSave((*result)[0].GetUInt32()))
+                        {
+                            leaderBind.save = save;
+                            leaderBind.perm = (*result)[1].GetBool();
+                        }
+                }
+
+                if (leaderOnline)
+                {
+                    pBind = leaderBind;
+
+                    if (GetEntry()->ExpansionID < EXPANSION_LEGION)
+                    {
+                        InstancePlayerBind const tempBind = player->GetBoundInstanceCopy(GetId(), diff);
+                        if (pBind.save && tempBind.save && pBind.save != tempBind.save)
+                        {
+                            uint32 allMask = pBind.save->GetCompletedEncounterMask() & tempBind.save->GetCompletedEncounterMask();
+                            if (allMask == tempBind.save->GetCompletedEncounterMask())
+                            {
+                                player->UnbindInstance(GetId(), diff);
+                                player->BindToInstance(pBind.save, pBind.perm);
+                            }
                         }
                     }
                 }
+                else
+                    pBind = player->GetBoundInstanceCopy(GetId(), diff);
             }
-            else
-                pBind = player->GetBoundInstance(GetId(), diff);
         }
         else
         {
             diff = player->GetDifficultyID(GetEntry());
-            pBind = player->GetBoundInstance(GetId(), diff);
+            pBind = player->GetBoundInstanceCopy(GetId(), diff);
         }
 
-        InstanceSave* pSave = pBind ? pBind->save : nullptr;
+        InstanceSave* pSave = pBind.save;
 
         if (pSave && pSave->SaveIsOld() && !pSave->GetExtended())
         {
             player->UnbindInstance(GetId(), diff);
             pSave = nullptr;
-            pBind = nullptr;
+            pBind = InstancePlayerBind();
         }
 
         // the player's permanent player bind is taken into consideration first
         // then the player's group bind and finally the solo bind.
-        if (!pBind || !pBind->perm || GetEntry()->ExpansionID >= EXPANSION_WARLORDS_OF_DRAENOR)
+        if (!pBind.save || !pBind.perm || GetEntry()->ExpansionID >= EXPANSION_WARLORDS_OF_DRAENOR)
         {
             InstanceGroupBind groupBind;
             // use the player's difficulty setting (it may not be the same as the group's)
