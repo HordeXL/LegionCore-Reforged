@@ -23520,7 +23520,7 @@ void Player::_LoadVoidStorage(PreparedQueryResult result, PreparedQueryResult re
                 continue;
             }
 
-            if (!sObjectMgr->GetPlayerByLowGUID(creatorGuid.GetCounter()))
+            if (!ObjectAccessor::IsPlayerOnline(creatorGuid))
             {
                 TC_LOG_ERROR("entities.player", "Player::_LoadVoidStorage - Player (GUID: %u, name: %s) has an item with an invalid creator guid, set to 0 (item id: %lu, entry: %u, creatorGuid: %lu).", GetGUIDLow(), GetName(), itemId.GetCounter(), itemEntry, creatorGuid.GetCounter());
                 creatorGuid.Clear();

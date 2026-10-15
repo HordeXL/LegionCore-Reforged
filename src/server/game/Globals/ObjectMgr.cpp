@@ -2838,11 +2838,6 @@ void ObjectMgr::RemoveGameobjectFromGrid(ObjectGuid::LowType const& guid, GameOb
     }
 }
 
-Player* ObjectMgr::GetPlayerByLowGUID(ObjectGuid::LowType const& lowguid) const
-{
-    return ObjectAccessor::FindPlayer(ObjectGuid::Create<HighGuid::Player>(lowguid));
-}
-
 // name must be checked to correctness (if received) before call this function
 ObjectGuid ObjectMgr::GetPlayerGUIDByName(std::string name)
 {

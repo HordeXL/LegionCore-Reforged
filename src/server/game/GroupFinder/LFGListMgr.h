@@ -56,7 +56,19 @@ private:
     bool _Remove(ObjectGuid::LowType lowGuid, Player* requester, bool disband, LFGListOutbox& outbox);
     void _ChangeApplicantStatus(LFGListEntry* listEntry, uint32 applicationId, LFGListApplicationStatus status, bool notify, LFGListOutbox& outbox, bool autoInvite = true);
     void _AutoInviteApplicantsIfPossible(LFGListEntry* entry, LFGListOutbox& outbox);
+    // what _CanQueueFor reads of an applicant, copied so that no Group call is made under the accessor lock
+    struct ApplicantInfo
+    {
+        ObjectGuid::LowType LowGuid;
+        uint32 Team;
+        uint32 Level;
+        float ItemLevel;
+    };
+    // the player must be the caller's own
     LFGListStatus _CanQueueFor(LFGListEntry* entry, Player* requestingPlayer, bool apply = true);
+    // the applicant may stand on any map; nobody found means no objection, as before
+    LFGListStatus _CanQueueFor(LFGListEntry* entry, ObjectGuid const& playerGuid);
+    LFGListStatus _CanQueueFor(LFGListEntry* entry, ApplicantInfo const& applicant, bool apply);
     uint8 _GetMemeberCountInGroupIncludingInvite(LFGListEntry* entry);
     uint8 _CountEntryApplicationsWithStatus(LFGListEntry* entry, LFGListApplicationStatus status);
     LFGListEntry* _GetEntry(ObjectGuid::LowType lowGuid);
