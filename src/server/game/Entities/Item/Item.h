@@ -423,6 +423,8 @@ class TC_GAME_API Item : public Object
         ObjectGuid GetOwnerGUID() const;
 
         void SetOwnerGUID(ObjectGuid guid);
+        // The owner's pointer is only safe in the owner's own map thread (the item's callers run there); another
+        // thread reads the owner through ObjectAccessor::WithPlayer(GetOwnerGUID(), ...)
         Player* GetOwner()const;
 
         ItemBondingType GetBonding() const;

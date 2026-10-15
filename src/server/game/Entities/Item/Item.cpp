@@ -2609,9 +2609,25 @@ uint32 Item::GetItemLevel(uint8 ownerLevel, bool isPvP) const
     if (!stats)
         return MIN_ITEM_LEVEL;
 
-    Player* owner = GetOwner();
-    if (owner)
-        ownerLevel = owner->GetEffectiveLevel();
+    // May be asked about an item whose owner stands on another map: the owner's fields are read once, under the
+    // accessor lock
+    struct OwnerState
+    {
+        bool found = false;
+        bool tournamentRules = false;
+        uint32 maxItemLevel = 0;
+        uint32 minItemLevel = 0;
+        uint32 minItemLevelCutoff = 0;
+    } owner;
+    ObjectAccessor::WithPlayer(GetOwnerGUID(), [&owner, &ownerLevel](Player* player)
+    {
+        owner.found = true;
+        ownerLevel = player->GetEffectiveLevel();
+        owner.tournamentRules = player->HasTournamentRules();
+        owner.maxItemLevel = player->GetUInt32Value(UNIT_FIELD_MAX_ITEM_LEVEL);
+        owner.minItemLevel = player->GetUInt32Value(UNIT_FIELD_MIN_ITEM_LEVEL);
+        owner.minItemLevelCutoff = player->GetUInt32Value(UNIT_FIELD_MIN_ITEM_LEVEL_CUTOFF);
+    }, ObjectAccessor::PlayerScope::InOrOutOfWorld);
 
     uint32 itemLevel = stats->GetBaseItemLevel();
     itemLevel += GetScaleIlvl(); // can return 0!
@@ -2644,18 +2660,18 @@ uint32 Item::GetItemLevel(uint8 ownerLevel, bool isPvP) const
         for (auto gemItemLevelBonus : _bonusData.GemItemLevelBonus)
             itemLevel += gemItemLevelBonus;
 
-    if (owner)
+    if (owner.found)
     {
-        if (owner->HasTournamentRules())
+        if (owner.tournamentRules)
             if (stats->GetFlags3() & ITEM_FLAG3_PVP_TOURNAMENT_GEAR)
                 itemLevel = MIN_ITEM_LEVEL;
 
-        if (uint32 maxItemLevel = owner->GetUInt32Value(UNIT_FIELD_MAX_ITEM_LEVEL))
-            itemLevel = std::min(itemLevel, maxItemLevel);
+        if (owner.maxItemLevel)
+            itemLevel = std::min(itemLevel, owner.maxItemLevel);
 
-        if (uint32 minItemLevel = owner->GetUInt32Value(UNIT_FIELD_MIN_ITEM_LEVEL))
-            if (itemLevel >= owner->GetUInt32Value(UNIT_FIELD_MIN_ITEM_LEVEL_CUTOFF))
-                itemLevel = std::max(itemLevel, minItemLevel);
+        if (owner.minItemLevel)
+            if (itemLevel >= owner.minItemLevelCutoff)
+                itemLevel = std::max(itemLevel, owner.minItemLevel);
     }
 
     return std::min(std::max(itemLevel, uint32(MIN_ITEM_LEVEL)), uint32(MAX_ITEM_LEVEL));
