@@ -12,6 +12,7 @@
 #include "ScriptedCreature.h"
 #include "ScriptedFollowerAI.h"
 #include "Group.h"
+#include "ObjectAccessor.h"
 
 const float MAX_PLAYER_DISTANCE = 100.0f;
 
@@ -119,13 +120,20 @@ void FollowerAI::JustDied(Unit* /*pKiller*/)
     {
         if (Group* group = player->GetGroup())
         {
-            for (GroupReference* groupRef = group->GetFirstMember(); groupRef != nullptr; groupRef = groupRef->next())
+            uint32 const questId = m_pQuestForFollow->GetQuestId();
+            auto failQuest = [questId](Player* member)
             {
-                if (Player* member = groupRef->getSource())
-                {
-                    if (member->GetQuestStatus(m_pQuestForFollow->GetQuestId()) == QUEST_STATUS_INCOMPLETE)
-                        member->FailQuest(m_pQuestForFollow->GetQuestId());
-                }
+                if (member->GetQuestStatus(questId) == QUEST_STATUS_INCOMPLETE)
+                    member->FailQuest(questId);
+            };
+
+            // members on other maps belong to other threads
+            for (Group::MemberSlot const& slot : group->GetMemberSlots())
+            {
+                if (Player* member = ObjectAccessor::GetPlayer(*me, slot.Guid))
+                    failQuest(member);
+                else
+                    ObjectAccessor::PostToPlayer(slot.Guid, failQuest);
             }
         }
         else
@@ -205,16 +213,11 @@ void FollowerAI::UpdateAI(uint32 uiDiff)
 
                 if (Group* group = player->GetGroup())
                 {
-                    for (GroupReference* groupRef = group->GetFirstMember(); groupRef != nullptr; groupRef = groupRef->next())
+                    group->ForEachMemberInMap(me->GetMap(), [this, &bIsMaxRangeExceeded](Player* member)
                     {
-                        Player* member = groupRef->getSource();
-
-                        if (member && me->IsWithinDistInMap(member, MAX_PLAYER_DISTANCE))
-                        {
+                        if (me->IsWithinDistInMap(member, MAX_PLAYER_DISTANCE))
                             bIsMaxRangeExceeded = false;
-                            break;
-                        }
-                    }
+                    });
                 }
                 else
                 {
@@ -310,16 +313,18 @@ Player* FollowerAI::GetLeaderForFollower()
             return player;
         if (Group* group = player->GetGroup())
         {
-            for (GroupReference* groupRef = group->GetFirstMember(); groupRef != nullptr; groupRef = groupRef->next())
+            Player* newLeader = nullptr;
+            group->ForEachMemberInMap(me->GetMap(), [this, &newLeader](Player* member)
             {
-                Player* member = groupRef->getSource();
+                if (!newLeader && member->IsAlive() && me->IsWithinDistInMap(member, MAX_PLAYER_DISTANCE))
+                    newLeader = member;
+            });
 
-                if (member && member->IsAlive() && me->IsWithinDistInMap(member, MAX_PLAYER_DISTANCE))
-                {
-                    TC_LOG_DEBUG("scripts", "FollowerAI GetLeader changed and returned new leader.");
-                    m_uiLeaderGUID = member->GetGUID();
-                    return member;
-                }
+            if (newLeader)
+            {
+                TC_LOG_DEBUG("scripts", "FollowerAI GetLeader changed and returned new leader.");
+                m_uiLeaderGUID = newLeader->GetGUID();
+                return newLeader;
             }
         }
     }

@@ -586,17 +586,16 @@ class spell_cry_of_terror : public SpellScriptLoader
                     }
                 }
                
-                for (GroupReference* itr = group->GetFirstMember(); itr != NULL; itr = itr->next())
+                group->ForEachMemberInMap(player->GetMap(), [&](Player* p)
                 {
-                    auto p = itr->getSource();
-                    if (!p || p->GetGUID() == target->GetGUID())
-                        continue;
+                    if (p->GetGUID() == target->GetGUID())
+                        return;
 
                     if (p->IsInRange(target, 0.0f, 150.0f))
                         targetsList.push_back(p);
                     else
                         unitsToRemove.push_back(p);
-                }
+                });
 
                 for (auto& t : unitsToRemove)
                     targetsList.remove(t);

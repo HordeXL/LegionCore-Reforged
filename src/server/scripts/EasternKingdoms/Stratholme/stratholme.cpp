@@ -56,17 +56,12 @@ public:
 
         if (Group* group = player->GetGroup())
         {
-            for (GroupReference* itr = group->GetFirstMember(); itr != NULL; itr = itr->next())
+            group->ForEachMemberInMap(go->GetMap(), [](Player* pGroupie)
             {
-                Player* pGroupie = itr->getSource();
-                if (!pGroupie)
-                    continue;
-
                 if (pGroupie->GetQuestStatus(QUEST_DEAD_MAN_PLEA) == QUEST_STATUS_INCOMPLETE &&
-                    !pGroupie->HasAura(SPELL_BARON_ULTIMATUM) &&
-                    pGroupie->GetMap() == go->GetMap())
+                    !pGroupie->HasAura(SPELL_BARON_ULTIMATUM))
                     pGroupie->CastSpell(pGroupie, SPELL_BARON_ULTIMATUM, true);
-            }
+            });
         }
         else if (player->GetQuestStatus(QUEST_DEAD_MAN_PLEA) == QUEST_STATUS_INCOMPLETE &&
                     !player->HasAura(SPELL_BARON_ULTIMATUM) &&

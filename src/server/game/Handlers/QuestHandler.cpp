@@ -37,6 +37,15 @@
 #include "QuestData.h"
 #include "GameEventMgr.h"
 
+// The receiver may be on another map: the packet goes through the accessor, which only needs the guid
+static bool SendQuestPushResult(ObjectGuid receiver, ObjectGuid sender, uint8 result)
+{
+    WorldPackets::Quest::QuestPushResultResponse data;
+    data.SenderGUID = sender;
+    data.Result = result;
+    return ObjectAccessor::SendToPlayer(receiver, data.Write());
+}
+
 void WorldSession::HandleQuestGiverStatusQuery(WorldPackets::Quest::QuestGiverStatusQuery& packet)
 {
     QuestGiverStatus questStatus = QuestGiverStatus::None;
@@ -107,7 +116,7 @@ void WorldSession::HandleQuestGiverAcceptQuest(WorldPackets::Quest::QuestGiverAc
     if (!packet.QuestGiverGUID.IsPlayer())
         object = ObjectAccessor::GetObjectByTypeMask(*_player, packet.QuestGiverGUID, TYPEMASK_UNIT | TYPEMASK_GAMEOBJECT | TYPEMASK_ITEM);
     else
-        object = ObjectAccessor::FindPlayer(packet.QuestGiverGUID);
+        object = ObjectAccessor::GetPlayer(*_player, packet.QuestGiverGUID);
 
 #define CLOSE_GOSSIP_CLEAR_SHARING_INFO() \
     do { \
@@ -181,12 +190,8 @@ void WorldSession::HandleQuestGiverAcceptQuest(WorldPackets::Quest::QuestGiverAc
 
         if (!_player->GetPlayerSharingQuest().IsEmpty())
         {
-            Player* player = ObjectAccessor::FindPlayer(_player->GetPlayerSharingQuest());
-            if (player)
-            {
-                player->SendPushToPartyResponse(_player, QUEST_PARTY_MSG_ACCEPT_QUEST);
+            if (SendQuestPushResult(_player->GetPlayerSharingQuest(), _player->GetGUID(), QUEST_PARTY_MSG_ACCEPT_QUEST))
                 _player->ClearQuestSharingInfo();
-            }
         }
 
         if (_player->CanAddQuest(quest, true))
@@ -197,15 +202,10 @@ void WorldSession::HandleQuestGiverAcceptQuest(WorldPackets::Quest::QuestGiverAc
             {
                 if (Group* group = _player->GetGroup())
                 {
-                    for (GroupReference* itr = group->GetFirstMember(); itr != nullptr; itr = itr->next())
+                    group->ForEachMemberInMap(_player->GetMap(), [&](Player* player)
                     {
-                        Player* player = itr->getSource();
-
-                        if (!player || player == _player || !player->CanContact())     // not self
-                            continue;
-
-                        if (!player->IsInMap(_player))
-                            continue;
+                        if (player == _player || !player->CanContact())     // not self
+                            return;
 
                         if (player->CanTakeQuest(quest, true))
                         {
@@ -216,7 +216,7 @@ void WorldSession::HandleQuestGiverAcceptQuest(WorldPackets::Quest::QuestGiverAc
 
                             _player->SendQuestConfirmAccept(quest, player);
                         }
-                    }
+                    });
                 }
             }
 
@@ -616,12 +616,15 @@ void WorldSession::HandleQuestConfirmAccept(WorldPackets::Quest::QuestConfirmAcc
     if (_player->GetSharedQuestID() != uint32(packet.QuestID))
         return;
 
+    // Read before the clear below: with an empty guid the sharer was never found
+    ObjectGuid const sharerGuid = _player->GetPlayerSharingQuest();
     _player->ClearQuestSharingInfo();
     Quest const* quest = sQuestDataStore->GetQuestTemplate(packet.QuestID);
     if (!quest)
       return;
 
-    Player* originalPlayer = ObjectAccessor::FindPlayer(_player->GetPlayerSharingQuest());
+    // Reads the sharer's quest log, so only a sharer on the same map thread is reachable
+    Player* originalPlayer = ObjectAccessor::GetPlayer(*_player, sharerGuid);
     if (!originalPlayer)
         return;
 
@@ -735,44 +738,40 @@ void WorldSession::HandlePushQuestToParty(WorldPackets::Quest::PushQuestToParty&
     if (!group)
         return;
 
-    for (GroupReference* itr = group->GetFirstMember(); itr != nullptr; itr = itr->next())
+    // Members on another map are updated by another map thread: never touch them from here
+    group->ForEachMemberInMap(_player->GetMap(), [&](Player* player)
     {
-        Player* player = itr->getSource();
-        if (!player || player == _player || !player->CanContact())
-            continue;
-
-        // Members on another map are updated by another map thread: never write into them from here
-        if (!player->IsInMap(_player))
-            continue;
+        if (player == _player || !player->CanContact())
+            return;
 
         if (!player->SatisfyQuestStatus(quest, false))
         {
             _player->SendPushToPartyResponse(player, QUEST_PARTY_MSG_HAVE_QUEST);
-            continue;
+            return;
         }
 
         if (player->GetQuestStatus(packet.QuestID) == QUEST_STATUS_COMPLETE)
         {
             _player->SendPushToPartyResponse(player, QUEST_PARTY_MSG_FINISH_QUEST);
-            continue;
+            return;
         }
 
         if (!player->CanTakeQuest(quest, false))
         {
             _player->SendPushToPartyResponse(player, QUEST_PARTY_MSG_CANT_TAKE_QUEST);
-            continue;
+            return;
         }
 
         if (!player->SatisfyQuestLog(false))
         {
             _player->SendPushToPartyResponse(player, QUEST_PARTY_MSG_LOG_FULL);
-            continue;
+            return;
         }
 
         if (!player->GetPlayerSharingQuest().IsEmpty())
         {
             _player->SendPushToPartyResponse(player, QUEST_PARTY_MSG_BUSY);
-            continue;
+            return;
         }
 
         _player->SendPushToPartyResponse(player, QUEST_PARTY_MSG_SHARING_QUEST);
@@ -788,7 +787,7 @@ void WorldSession::HandlePushQuestToParty(WorldPackets::Quest::PushQuestToParty&
             player->SetQuestSharingInfo(_player->GetGUID(), quest->GetQuestId());
             player->PlayerTalkClass->SendQuestGiverQuestDetails(quest, player->GetGUID(), true, false);
         }
-    }
+    });
 }
 
 void WorldSession::HandleQuestPushResult(WorldPackets::Quest::QuestPushResult& packet)
@@ -796,8 +795,7 @@ void WorldSession::HandleQuestPushResult(WorldPackets::Quest::QuestPushResult& p
     if (!_player->GetPlayerSharingQuest().IsEmpty())
     {
         if (_player->GetPlayerSharingQuest() == packet.SenderGUID)
-            if (Player* player = ObjectAccessor::FindPlayer(_player->GetPlayerSharingQuest()))
-                player->SendPushToPartyResponse(_player, static_cast<QuestShareMessages>(packet.Result));
+            SendQuestPushResult(_player->GetPlayerSharingQuest(), _player->GetGUID(), static_cast<QuestShareMessages>(packet.Result));
 
         _player->ClearQuestSharingInfo();
     }

@@ -3469,6 +3469,13 @@ void Group::ForEachLinkedMember(std::function<void(Player*)> const& fn) const
         ObjectAccessor::WithPlayer(ref.Guid, fn);
 }
 
+void Group::ForEachMemberInMap(Map* map, std::function<void(Player*)> const& fn) const
+{
+    for (MemberRef const& ref : GetMemberRefs())
+        if (Player* player = ObjectAccessor::FindPlayer(map, ref.Guid))
+            fn(player);
+}
+
 GroupReference* Group::GetFirstMember()
 {
     return m_memberMgr.getFirst();

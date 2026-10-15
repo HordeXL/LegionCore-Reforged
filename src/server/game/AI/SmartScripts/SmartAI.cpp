@@ -25,6 +25,7 @@
 #include "GridNotifiersImpl.h"
 #include "Group.h"
 #include "InstanceScript.h"
+#include "ObjectAccessor.h"
 #include "ObjectDefines.h"
 #include "ObjectMgr.h"
 #include "ScriptMgr.h"
@@ -267,14 +268,25 @@ void SmartAI::EndPath(bool fail)
 
             if (Group* group = player->GetGroup())
             {
-                for (GroupReference* groupRef = group->GetFirstMember(); groupRef != nullptr; groupRef = groupRef->next())
+                uint32 const questId = mEscortQuestID;
+                for (Group::MemberSlot const& slot : group->GetMemberSlots())
                 {
-                    Player* groupGuy = groupRef->getSource();
-
-                    if (!fail && groupGuy->IsAtGroupRewardDistance(me) && !groupGuy->GetCorpse())
-                        groupGuy->AreaExploredOrEventHappens(mEscortQuestID);
-                    if (fail && groupGuy->GetQuestStatus(mEscortQuestID) == QUEST_STATUS_INCOMPLETE)
-                        groupGuy->FailQuest(mEscortQuestID);
+                    if (Player* groupGuy = ObjectAccessor::GetPlayer(*me, slot.Guid))
+                    {
+                        if (!fail && groupGuy->IsAtGroupRewardDistance(me) && !groupGuy->GetCorpse())
+                            groupGuy->AreaExploredOrEventHappens(questId);
+                        if (fail && groupGuy->GetQuestStatus(questId) == QUEST_STATUS_INCOMPLETE)
+                            groupGuy->FailQuest(questId);
+                    }
+                    // a member on another map is never at reward distance but still loses the quest, in his own thread
+                    else if (fail)
+                    {
+                        ObjectAccessor::PostToPlayer(slot.Guid, [questId](Player* groupGuy)
+                        {
+                            if (groupGuy->GetQuestStatus(questId) == QUEST_STATUS_INCOMPLETE)
+                                groupGuy->FailQuest(questId);
+                        });
+                    }
                 }
             }
         }
@@ -437,13 +449,14 @@ bool SmartAI::IsEscortInvokerInRange()
 
             if (Group* group = player->GetGroup())
             {
-                for (GroupReference* groupRef = group->GetFirstMember(); groupRef != nullptr; groupRef = groupRef->next())
+                bool inRange = false;
+                group->ForEachMemberInMap(me->GetMap(), [this, &inRange](Player* groupGuy)
                 {
-                    Player* groupGuy = groupRef->getSource();
-
                     if (me->GetDistance(groupGuy) <= SMART_ESCORT_MAX_PLAYER_DIST)
-                        return true;
-                }
+                        inRange = true;
+                });
+                if (inRange)
+                    return true;
             }
         }
         else

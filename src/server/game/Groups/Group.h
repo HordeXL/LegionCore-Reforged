@@ -330,6 +330,8 @@ class TC_GAME_API Group
         }
 
         void ForEachLinkedMember(std::function<void(Player*)> const& fn) const;
+        // only the members standing on `map`: for code running in that map's thread, which may use their Player freely
+        void ForEachMemberInMap(Map* map, std::function<void(Player*)> const& fn) const;
 
         bool IsMember(ObjectGuid guid) const;
         bool IsLeader(ObjectGuid guid) const;

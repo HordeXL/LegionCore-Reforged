@@ -98,18 +98,16 @@ public:
                 {
                     if (Group* group = CAST_PLR(done_by)->GetGroup())
                     {
-                        for (GroupReference* itr = group->GetFirstMember(); itr != NULL; itr = itr->next())
+                        group->ForEachMemberInMap(me->GetMap(), [this](Player* groupie)
                         {
-                            Player* groupie = itr->getSource();
-                            if (groupie &&
-                                groupie->GetQuestStatus(QUEST_DONTKILLTHEFATONE) == QUEST_STATUS_INCOMPLETE &&
+                            if (groupie->GetQuestStatus(QUEST_DONTKILLTHEFATONE) == QUEST_STATUS_INCOMPLETE &&
                                 groupie->GetReqKillOrCastCurrentCount(QUEST_DONTKILLTHEFATONE, 18260) == 10)
                             {
                                 groupie->AreaExploredOrEventHappens(QUEST_DONTKILLTHEFATONE);
                                 if (!CanDoQuest)
                                     CanDoQuest = true;
                             }
-                        }
+                        });
                     }
                     else if (CAST_PLR(done_by)->GetQuestStatus(QUEST_DONTKILLTHEFATONE) == QUEST_STATUS_INCOMPLETE && CAST_PLR(done_by)->GetReqKillOrCastCurrentCount(QUEST_DONTKILLTHEFATONE, 18260) == 10)
                     {
