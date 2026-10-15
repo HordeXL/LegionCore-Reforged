@@ -3377,6 +3377,41 @@ void InstanceMap::InitVisibilityDistance()
     m_VisibilityNotifyPeriod = World::GetVisibilityNotifyPeriodInInstances();
 }
 
+// The entering player runs in the thread of the map he leaves, while the players of this instance belong to
+// another thread: they are read through the accessor, never by walking the map's own player list
+struct InstanceOccupancy
+{
+    uint32 total = 0;                   // every player, GMs included
+    uint32 nonGM = 0;
+    bool hasNonGM = false;
+    Group const* nonGMGroup = nullptr;  // group of one of the non-GM players
+};
+
+static InstanceOccupancy GetInstanceOccupancy(Map const* map)
+{
+    InstanceOccupancy occupancy;
+    for (ObjectGuid const& guid : ObjectAccessor::GetOnlinePlayerGuids())
+    {
+        ObjectAccessor::WithPlayer(guid, [map, &occupancy](Player* inside)
+        {
+            if (inside->FindMap() != map)
+                return;
+
+            ++occupancy.total;
+            if (inside->isGameMaster())
+                return;
+
+            ++occupancy.nonGM;
+            if (!occupancy.hasNonGM)
+            {
+                occupancy.hasNonGM = true;
+                occupancy.nonGMGroup = inside->GetGroup();
+            }
+        });
+    }
+    return occupancy;
+}
+
 /*
     Do map specific checks to see if the player can enter
 */
@@ -3393,9 +3428,11 @@ bool InstanceMap::CanEnter(Player* player)
     if (player->isGameMaster())
         return Map::CanEnter(player);
 
+    InstanceOccupancy const occupancy = GetInstanceOccupancy(this);
+
     // cannot enter if the instance is full (player cap), GMs don't count
     uint32 maxPlayers = GetMaxPlayers();
-    if (GetPlayersCountExceptGMs() >= maxPlayers && GetId() != 1191)
+    if (occupancy.nonGM >= maxPlayers && GetId() != 1191)
     {
         TC_LOG_INFO("maps", "MAP: Instance '%u' of map '%s' cannot have more than '%u' players. Player '%s' rejected", GetInstanceId(), GetMapName(), maxPlayers, player->GetName());
         player->SendTransferAborted(GetId(), TRANSFER_ABORT_MAX_PLAYERS);
@@ -3424,8 +3461,7 @@ bool InstanceMap::CanEnter(Player* player)
     // cannot enter if instance is in use by another party/soloer that have a
     // permanent save in the same instance id
 
-    PlayerList const &playerList = GetPlayers();
-    if (!playerList.isEmpty())
+    if (occupancy.total)
     {
         if (!player->GetGroup() && GetId() != 1191) // player has not group and there is someone inside, deny entry & except ashran - replace this retarded check a bit later ^^
         {
@@ -3433,25 +3469,19 @@ bool InstanceMap::CanEnter(Player* player)
             return false;
         }
 
-        for (const auto& i : playerList)
+        // GMs are bypassed
+        if (occupancy.hasNonGM)
         {
-            if (Player* iPlayer = i.getSource())
+            if (!occupancy.nonGMGroup && GetId() != 1191) // player has not group and there is someone inside, deny entry
             {
-                if (iPlayer->isGameMaster()) // bypass GMs
-                    continue;
-
-                if (!iPlayer->GetGroup() && GetId() != 1191) // player has not group and there is someone inside, deny entry
-                {
-                    player->SendTransferAborted(GetId(), TRANSFER_ABORT_MAX_PLAYERS);
-                    return false;
-                }
-                // player inside instance has no group or his groups is different to entering player's one, deny entry
-                if (iPlayer->GetGroup() != player->GetGroup() && GetId() != 1191)
-                {
-                    player->SendTransferAborted(GetId(), TRANSFER_ABORT_MAX_PLAYERS);
-                    return false;
-                }
-                break;
+                player->SendTransferAborted(GetId(), TRANSFER_ABORT_MAX_PLAYERS);
+                return false;
+            }
+            // player inside instance has no group or his groups is different to entering player's one, deny entry
+            if (occupancy.nonGMGroup != player->GetGroup() && GetId() != 1191)
+            {
+                player->SendTransferAborted(GetId(), TRANSFER_ABORT_MAX_PLAYERS);
+                return false;
             }
         }
     }
