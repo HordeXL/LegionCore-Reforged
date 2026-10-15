@@ -189,28 +189,6 @@ World::~World()
     //TODO free addSessQueue
 }
 
-/// Find a player in a specified zone
-Player* World::FindPlayerInZone(uint32 zone)
-{
-    std::shared_lock<sf::contention_free_shared_mutex< >> sessionsGuard(m_sessionsLock);
-    for (SessionMap::const_iterator itr = m_sessions.begin(); itr != m_sessions.end(); ++itr)
-    {
-        if (!itr->second)
-            continue;
-
-        Player* player = itr->second->GetPlayer();
-        if (!player)
-            continue;
-
-        if (player->IsInWorld() && player->GetCurrentZoneID() == zone)
-        {
-            // Used by the weather system. We return the player to broadcast the change weather message to him and all players in the zone.
-            return player;
-        }
-    }
-    return nullptr;
-}
-
 bool World::IsClosed() const
 {
     return m_isClosed;
@@ -2805,16 +2783,15 @@ void World::UpdateGlobalMessage()
     {
         GlobalMessageData* message = &aMessageQueue.front();
 
-        for (SessionMap::const_iterator itr = m_sessions.begin(); itr != m_sessions.end(); ++itr)
+        // players live in their own map threads: read them only through the accessor
+        for (ObjectGuid const& guid : ObjectAccessor::GetOnlinePlayerGuids())
         {
-            if (itr->second &&
-                itr->second->GetPlayer() &&
-                itr->second->GetPlayer()->IsInWorld() &&
-                itr->second.get() != message->self &&
-                (message->team == 0 || itr->second->GetPlayer()->GetTeam() == message->team))
+            ObjectAccessor::WithPlayer(guid, [message](Player* player)
             {
-                itr->second->SendPacket(&message->packet);
-            }
+                if (player->GetSession() != message->self &&
+                    (message->team == 0 || player->GetTeam() == message->team))
+                    player->SendDirectMessage(&message->packet);
+            });
         }
         aMessageQueue.pop();
     }
@@ -2823,22 +2800,18 @@ void World::UpdateGlobalMessage()
 /// Send a packet to all GMs (except self if mentioned)
 void World::SendGlobalGMMessage(WorldPacket const* packet, WorldSession* self, uint32 team)
 {
-    std::shared_lock<sf::contention_free_shared_mutex< >> sessionsGuard(m_sessionsLock);
-    for (SessionMap::const_iterator itr = m_sessions.begin(); itr != m_sessions.end(); ++itr)
+    for (ObjectGuid const& guid : ObjectAccessor::GetOnlinePlayerGuids())
     {
-        // check if session and can receive global GM Messages and its not self
-        WorldSession* session = itr->second.get();
-        if (!session || session == self || AccountMgr::IsPlayerAccount(itr->second->GetSecurity()))
-            continue;
+        ObjectAccessor::WithPlayer(guid, [=](Player* player)
+        {
+            // GMs only, not the sender, same team if one is given
+            WorldSession* session = player->GetSession();
+            if (session == self || AccountMgr::IsPlayerAccount(session->GetSecurity()))
+                return;
 
-        // Player should be in world
-        Player* player = session->GetPlayer();
-        if (!player || !player->IsInWorld() /*|| !player->IsSpectator()*/)
-            continue;
-
-        // Send only to same team, if team is given
-        if (!team || player->GetTeam() == team)
-            player->SendDirectMessage(packet);
+            if (!team || player->GetTeam() == team)
+                player->SendDirectMessage(packet);
+        });
     }
 }
 
@@ -2899,14 +2872,8 @@ void World::SendWorldText(int32 string_id, ...)
 
     Trinity::WorldWorldTextBuilder wt_builder(string_id, &ap);
     Trinity::LocalizedPacketListDo<Trinity::WorldWorldTextBuilder> wt_do(wt_builder);
-    std::shared_lock<sf::contention_free_shared_mutex< >> sessionsGuard(m_sessionsLock);
-    for (SessionMap::const_iterator itr = m_sessions.begin(); itr != m_sessions.end(); ++itr)
-    {
-        if (!itr->second || !itr->second->GetPlayer() || !itr->second->GetPlayer()->IsInWorld())
-            continue;
-
-        wt_do(itr->second->GetPlayer());
-    }
+    for (ObjectGuid const& guid : ObjectAccessor::GetOnlinePlayerGuids())
+        ObjectAccessor::WithPlayer(guid, [&wt_do](Player* player) { wt_do(player); });
 
     va_end(ap);
 }
@@ -2919,16 +2886,15 @@ void World::SendGMText(int32 string_id, ...)
 
     Trinity::WorldWorldTextBuilder wt_builder(string_id, &ap);
     Trinity::LocalizedPacketListDo<Trinity::WorldWorldTextBuilder> wt_do(wt_builder);
-    std::shared_lock<sf::contention_free_shared_mutex< >> sessionsGuard(m_sessionsLock);
-    for (SessionMap::iterator itr = m_sessions.begin(); itr != m_sessions.end(); ++itr)
+    for (ObjectGuid const& guid : ObjectAccessor::GetOnlinePlayerGuids())
     {
-        if (!itr->second || !itr->second->GetPlayer() || !itr->second->GetPlayer()->IsInWorld())
-            continue;
+        ObjectAccessor::WithPlayer(guid, [&wt_do](Player* player)
+        {
+            if (player->IsSpectator() || AccountMgr::IsPlayerAccount(player->GetSession()->GetSecurity()))
+                return;
 
-        if (itr->second->GetPlayer()->IsSpectator() || AccountMgr::IsPlayerAccount(itr->second->GetSecurity()))
-            continue;
-
-        wt_do(itr->second->GetPlayer());
+            wt_do(player);
+        });
     }
 
     va_end(ap);
@@ -2954,21 +2920,20 @@ void World::SendGlobalText(const char* text, WorldSession* self)
 /// Send a packet to all players (or players selected team) in the zone (except self if mentioned)
 bool World::SendZoneMessage(uint32 zone, WorldPacket const* packet, WorldSession* self, uint32 team)
 {
-    std::shared_lock<sf::contention_free_shared_mutex< >> sessionsGuard(m_sessionsLock);
     bool foundPlayerToSend = false;
 
-    for (auto itr = m_sessions.cbegin(); itr != m_sessions.cend(); ++itr)
+    for (ObjectGuid const& guid : ObjectAccessor::GetOnlinePlayerGuids())
     {
-        if (itr->second &&
-            itr->second->GetPlayer() &&
-            itr->second->GetPlayer()->IsInWorld() &&
-            itr->second->GetPlayer()->GetCurrentZoneID() == zone &&
-            itr->second.get() != self &&
-            (team == 0 || itr->second->GetPlayer()->GetTeam() == team))
+        ObjectAccessor::WithPlayer(guid, [&](Player* player)
         {
-            itr->second->SendPacket(packet);
-            foundPlayerToSend = true;
-        }
+            if (player->GetCurrentZoneID() == zone &&
+                player->GetSession() != self &&
+                (team == 0 || player->GetTeam() == team))
+            {
+                player->SendDirectMessage(packet);
+                foundPlayerToSend = true;
+            }
+        });
     }
 
     return foundPlayerToSend;
@@ -3179,13 +3144,13 @@ void World::BanFlaggedAccounts()
 /// Ban an account or ban an IP address, duration will be parsed using TimeStringToSecs if it is positive, otherwise permban
 BanReturn World::BanCharacter(std::string name, std::string duration, std::string reason, std::string author)
 {
-    Player* pBanned = sObjectAccessor->FindPlayerByName(name);
+    ObjectGuid bannedGuid = sObjectAccessor->FindPlayerGuidByName(name);
     ObjectGuid::LowType guid = 0;
 
     uint32 duration_secs = TimeStringToSecs(duration);
 
     /// Pick a player to ban if not online
-    if (!pBanned)
+    if (!bannedGuid)
     {
         CharacterDatabasePreparedStatement* stmt = CharacterDatabase.GetPreparedStatement(CHAR_SEL_GUID_BY_NAME);
         stmt->setString(0, name);
@@ -3197,7 +3162,7 @@ BanReturn World::BanCharacter(std::string name, std::string duration, std::strin
         guid = (*resultCharacter)[0].GetUInt64();
     }
     else
-        guid = pBanned->GetGUIDLow();
+        guid = bannedGuid.GetGUIDLow();
 
     // make sure there is only one active ban
     CharacterDatabasePreparedStatement* stmt = CharacterDatabase.GetPreparedStatement(CHAR_UPD_CHARACTER_BAN);
@@ -3211,8 +3176,8 @@ BanReturn World::BanCharacter(std::string name, std::string duration, std::strin
     stmt->setString(3, reason);
     CharacterDatabase.Execute(stmt);
 
-    if (pBanned)
-        pBanned->GetSession()->KickPlayer();
+    if (bannedGuid)
+        ObjectAccessor::WithPlayer(bannedGuid, [](Player* player) { player->GetSession()->KickPlayer(); }, ObjectAccessor::PlayerScope::InOrOutOfWorld);
 
     return BAN_SUCCESS;
 }
@@ -3220,11 +3185,11 @@ BanReturn World::BanCharacter(std::string name, std::string duration, std::strin
 /// Remove a ban from a character
 bool World::RemoveBanCharacter(std::string name)
 {
-    Player* pBanned = sObjectAccessor->FindPlayerByName(name);
+    ObjectGuid bannedGuid = sObjectAccessor->FindPlayerGuidByName(name);
     ObjectGuid::LowType guid = 0;
 
     /// Pick a player to ban if not online
-    if (!pBanned)
+    if (!bannedGuid)
     {
         auto nameData = sWorld->GetCharacterInfo(name);
         if (!nameData)
@@ -3233,7 +3198,7 @@ bool World::RemoveBanCharacter(std::string name)
         guid = nameData->Guid;
     }
     else
-        guid = pBanned->GetGUIDLow();
+        guid = bannedGuid.GetGUIDLow();
 
     if (!guid)
         return false;
@@ -4215,12 +4180,11 @@ void World::ProcessStopEvent()
 
 void World::UpdateAreaDependentAuras()
 {
-    for (SessionMap::const_iterator itr = m_sessions.begin(); itr != m_sessions.end(); ++itr)
-        if (itr->second && itr->second->GetPlayer() && itr->second->GetPlayer()->IsInWorld())
-        {
-            itr->second->GetPlayer()->UpdateAreaDependentAuras(itr->second->GetPlayer()->GetCurrentAreaID());
-            itr->second->GetPlayer()->UpdateZoneDependentAuras(itr->second->GetPlayer()->GetCurrentZoneID());
-        }
+    ObjectAccessor::PostToAllPlayers([](Player* player)
+    {
+        player->UpdateAreaDependentAuras(player->GetCurrentAreaID());
+        player->UpdateZoneDependentAuras(player->GetCurrentZoneID());
+    }, 0, ObjectAccessor::PlayerScope::InWorld);
 }
 
 void World::LoadWorldStates()
