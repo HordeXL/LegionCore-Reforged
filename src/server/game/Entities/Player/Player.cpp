@@ -27062,19 +27062,22 @@ void Player::TextEmote(std::string const& text, bool isSpamm)
 
 void Player::BossWhisper(std::string const& text, const uint32 language, ObjectGuid receiver)
 {
-    Player* rPlayer = ObjectAccessor::FindPlayer(receiver);
-    if (!rPlayer)
+    // the receiver may stand on another map: the script hooks get him only from this map, and the packet goes through his send queue
+    if (!ObjectAccessor::WithPlayer(receiver, [](Player*) { }))
         return;
 
+    Player* local = ObjectAccessor::GetPlayer(*this, receiver);
+
     std::string _text(text);
-    sScriptMgr->OnPlayerChat(this, CHAT_MSG_RAID_BOSS_WHISPER, LANG_UNIVERSAL, _text, rPlayer);
+    sScriptMgr->OnPlayerChat(this, CHAT_MSG_RAID_BOSS_WHISPER, LANG_UNIVERSAL, _text, local);
 
     if (_text.empty())
         return;
 
     WorldPackets::Chat::Chat packet;
-    packet.Initialize(CHAT_MSG_RAID_BOSS_WHISPER, LANG_UNIVERSAL, this, rPlayer, _text);
-    rPlayer->SendDirectMessage(packet.Write());
+    packet.Initialize(CHAT_MSG_RAID_BOSS_WHISPER, LANG_UNIVERSAL, this, nullptr, _text);
+    packet.TargetGUID = receiver;
+    ObjectAccessor::SendToPlayer(receiver, packet.Write());
 }
 
 void Player::WhisperAddon(std::string const& text, std::string const& prefix, ObjectGuid receiver)
@@ -27140,13 +27143,34 @@ void Player::QueryWhisperTarget(ObjectGuid receiver, std::function<void(Player*,
 
     ObjectGuid const asker = GetGUID();
     auto callback = std::make_shared<std::function<void(Player*, WhisperTarget const*)>>(std::move(done));
-    bool const posted = ObjectAccessor::PostToPlayer(receiver, [asker, callback](Player* rPlayer) -> void
+
+    // the receiver's action can be dropped unrun (logout, map change): the asker is then told the receiver is gone
+    struct Answer
     {
-        ObjectAccessor::PostToPlayer(asker, [callback, target = rPlayer->GetWhisperTarget(asker)](Player* sender) -> void { (*callback)(sender, &target); });
+        ObjectGuid Asker;
+        std::shared_ptr<std::function<void(Player*, WhisperTarget const*)>> Callback;
+        bool Given = false;
+        ~Answer()
+        {
+            if (!Given)
+                ObjectAccessor::PostToPlayer(Asker, [callback = Callback](Player* sender) -> void { (*callback)(sender, nullptr); });
+        }
+    };
+    auto answer = std::make_shared<Answer>();   // built in place: a temporary copy would answer when destroyed
+    answer->Asker = asker;
+    answer->Callback = callback;
+
+    bool const posted = ObjectAccessor::PostToPlayer(receiver, [answer](Player* rPlayer) -> void
+    {
+        answer->Given = true;
+        ObjectAccessor::PostToPlayer(answer->Asker, [callback = answer->Callback, target = rPlayer->GetWhisperTarget(answer->Asker)](Player* sender) -> void { (*callback)(sender, &target); });
     });
 
     if (!posted)
+    {
+        answer->Given = true;
         (*callback)(this, nullptr);
+    }
 }
 
 void Player::Whisper(std::string const& text, uint32 language, ObjectGuid receiver, bool isSpamm)
