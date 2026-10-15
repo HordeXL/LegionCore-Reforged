@@ -216,7 +216,8 @@ private:
     std::map<uint32, std::list <ObjectGuid>> _spectatorData;
     mutable std::mutex _spectatorLock;
     std::mutex _freeSlotQueueLock;
-    // Written by the world thread only (Update, StartBattleground), read from map threads: leaf lock, nothing called under it
+    // Written by the world thread (Update, the queues) and by the map thread that starts a wargame (StartBattleground),
+    // read from map threads: leaf lock, nothing called under it. Every walk of the maps takes it.
     mutable std::shared_mutex _battlegroundsLock;
     std::map<uint32, Battleground*> _battlegrounds[MS::Battlegrounds::BattlegroundTypeId::Max];
     std::map<uint16, uint8> _selectionWeights[MS::Battlegrounds::IternalPvpTypes::Max];

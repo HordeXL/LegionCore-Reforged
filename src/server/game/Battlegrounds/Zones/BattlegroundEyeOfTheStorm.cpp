@@ -61,7 +61,7 @@ void BattlegroundEyeOfTheStorm::PostUpdateImpl(uint32 diff)
         _checkFlagPickuperPos -= diff;
         if (_checkFlagPickuperPos <= 0)
         {
-            if (Player* player = ObjectAccessor::FindPlayer(GetFlagPickerGUID(), true))
+            if (Player* player = FindMemberPlayer(GetFlagPickerGUID()))
             {
                 for (uint8 i = FEL_REAVER; i < EY_POINTS_MAX; i++)
                     if (player->GetDistance(PointData[i]) < 3.0f)
@@ -134,7 +134,7 @@ void BattlegroundEyeOfTheStorm::PostUpdateImpl(uint32 diff)
 void BattlegroundEyeOfTheStorm::GetPlayerPositionData(std::vector<WorldPackets::Battleground::BattlegroundPlayerPosition>* positions) const
 {
     ObjectGuid guid = GetFlagPickerGUID();
-    Player* player = ObjectAccessor::FindPlayer(guid, true);
+    Player* player = FindMemberPlayer(guid);
     if (!player)
         return;
 
@@ -195,7 +195,7 @@ void BattlegroundEyeOfTheStorm::_CheckSomeoneJoinedPoint()
             uint8 j = 0;
             while (j < _playersNearPoint[EY_POINTS_MAX].size())
             {
-                Player* player = ObjectAccessor::FindPlayer(_playersNearPoint[EY_POINTS_MAX][j]);
+                Player* player = FindMemberPlayer(_playersNearPoint[EY_POINTS_MAX][j]);
                 if (!player)
                 {
                     TC_LOG_ERROR("bg.battleground", "BattlegroundEyeOfTheStorm:_CheckSomeoneJoinedPoint: Player (GUID: %lu) not found!", _playersNearPoint[EY_POINTS_MAX][j].GetCounter());
@@ -234,7 +234,7 @@ void BattlegroundEyeOfTheStorm::_CheckSomeoneLeftPoint()
             uint8 j = 0;
             while (j < _playersNearPoint[i].size())
             {
-                Player* player = ObjectAccessor::FindPlayer(_playersNearPoint[i][j]);
+                Player* player = FindMemberPlayer(_playersNearPoint[i][j]);
                 if (!player)
                 {
                     TC_LOG_ERROR("bg.battleground", "BattlegroundEyeOfTheStorm:_CheckSomeoneLeftPoint Player (GUID: %lu) not found!", _playersNearPoint[i][j].GetCounter());
@@ -285,7 +285,7 @@ void BattlegroundEyeOfTheStorm::UpdatePointStatuses()
 
         for (size_t i = 0; i < _playersNearPoint[point].size(); ++i)
         {
-            Player* player = ObjectAccessor::FindPlayer(_playersNearPoint[point][i]);
+            Player* player = FindMemberPlayer(_playersNearPoint[point][i]);
             if (player)
             {
                 player->SendUpdateWorldState(WorldStates::PROGRESS_BAR_STATUS, _pointBarStatus[point]);
@@ -845,7 +845,7 @@ void BattlegroundEyeOfTheStorm::FillInitialWorldStates(WorldPackets::WorldState:
     packet.Worldstates.emplace_back(static_cast<WorldStates>(3217), 0);
     packet.Worldstates.emplace_back(static_cast<WorldStates>(3218), 0);
 
-    Player* player = ObjectAccessor::FindPlayer(GetFlagPickerGUID(), true);
+    Player* player = FindMemberPlayer(GetFlagPickerGUID());
     packet.Worldstates.emplace_back(WorldStates::NETHERSTROM_FLAG_UI_ALLIANCE, player ? player->GetBGTeamId() == TEAM_ALLIANCE ? (_flagState ? _flagState : 1) : 1 : 1);
     packet.Worldstates.emplace_back(WorldStates::NETHERSTROM_FLAG_UI_HORDE, player ? player->GetBGTeamId() == TEAM_HORDE ? (_flagState ? _flagState : 1) : 1 : 1);
 

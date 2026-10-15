@@ -173,8 +173,11 @@ uint16 Bracket::FinishGame(bool win, uint16 opponents_mmv, bool winnerNone /*fal
     if (m_rating > values[BRACKET_BEST])
         values[BRACKET_BEST] = m_rating;
 
-    if (Player* player = ObjectAccessor::FindPlayer(m_owner))
-        player->UpdateAchievementCriteria(CRITERIA_TYPE_HIGHEST_PERSONAL_RATING, m_rating, GetSlotByType());
+    // The owner may be absent or in another map thread: post the update with the values copied
+    ObjectAccessor::PostToPlayer(m_owner, [rating = uint32(m_rating), slot = uint32(GetSlotByType())](Player* player)
+    {
+        player->UpdateAchievementCriteria(CRITERIA_TYPE_HIGHEST_PERSONAL_RATING, rating, slot);
+    }, 0, ObjectAccessor::PlayerScope::InWorld);
 
     if (m_state == BRACKET_UNCHANGED)
         m_state = BRACKET_CHANGED;

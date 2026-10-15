@@ -269,7 +269,7 @@ void BattlegroundSeethingShore::_CheckPositions(uint32 diff)
     ValidStartPositionTimer = 0;
 
     for (auto const& itr : GetPlayers())
-        if (auto player = ObjectAccessor::FindPlayer(itr.first))
+        if (auto player = FindMemberPlayer(itr.first))
             if (player->GetPositionZ() < 317.0f)
                 TeleportToStart(player);
 }
