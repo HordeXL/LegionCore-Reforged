@@ -43,6 +43,7 @@ BlackMarketMgr* BlackMarketMgr::instance()
 
 void BlackMarketMgr::LoadTemplates()
 {
+    std::lock_guard<std::recursive_mutex> guard(_lock);
     uint32 oldMSTime = getMSTime();
 
     if (!mTemplates.empty())
@@ -82,6 +83,7 @@ void BlackMarketMgr::LoadTemplates()
 
 void BlackMarketMgr::LoadAuctions()
 {
+    std::lock_guard<std::recursive_mutex> guard(_lock);
     uint32 oldMSTime = getMSTime();
 
     if (!mAuctions.empty())
@@ -128,6 +130,7 @@ void BlackMarketMgr::LoadAuctions()
 
 void BlackMarketMgr::Update(bool updateTime)
 {
+    std::lock_guard<std::recursive_mutex> guard(_lock);
     CharacterDatabaseTransaction trans = CharacterDatabase.BeginTransaction();
     time_t now = GameTime::GetGameTime();
     for (auto itr = mAuctions.begin(); itr != mAuctions.end();)
@@ -156,6 +159,7 @@ void BlackMarketMgr::Update(bool updateTime)
 
 void BlackMarketMgr::RefreshAuctions()
 {
+    std::lock_guard<std::recursive_mutex> guard(_lock);
     int32 const auctionDiff = sWorld->getIntConfig(CONFIG_BLACKMARKET_MAXAUCTIONS) - mAuctions.size();
 
     // We are already at max auctions, do nothing
@@ -193,6 +197,7 @@ void BlackMarketMgr::RefreshAuctions()
 
 time_t BlackMarketMgr::GetLastUpdate() const
 {
+    std::lock_guard<std::recursive_mutex> guard(_lock);
     return _LastUpdate;
 }
 
@@ -203,6 +208,7 @@ bool BlackMarketMgr::IsEnabled() const
 
 void BlackMarketMgr::BuildItemsResponse(WorldPackets::BlackMarket::BlackMarketRequestItemsResult& packet, Player* player)
 {
+    std::lock_guard<std::recursive_mutex> guard(_lock);
     packet.LastUpdateID = _LastUpdate;
     packet.Items.reserve(mAuctions.size());
     for (auto const& mAuction : mAuctions)
@@ -239,11 +245,13 @@ void BlackMarketMgr::BuildItemsResponse(WorldPackets::BlackMarket::BlackMarketRe
 
 void BlackMarketMgr::AddAuction(BlackMarketEntry* auction)
 {
+    std::lock_guard<std::recursive_mutex> guard(_lock);
     mAuctions.insert(std::make_pair(auction->GetMarketId(), auction));
 }
 
 void BlackMarketMgr::AddTemplate(BlackMarketTemplate* templ)
 {
+    std::lock_guard<std::recursive_mutex> guard(_lock);
     mTemplates.insert(std::make_pair(templ->MarketID, templ));
 }
 
@@ -298,11 +306,13 @@ void BlackMarketMgr::SendAuctionOutbidMail(BlackMarketEntry* entry, CharacterDat
 
 BlackMarketEntry* BlackMarketMgr::GetAuctionByID(int32 marketId) const
 {
+    std::lock_guard<std::recursive_mutex> guard(_lock);
     return Trinity::Containers::MapGetValuePtr(mAuctions, marketId);
 }
 
 BlackMarketTemplate* BlackMarketMgr::GetTemplateByID(int32 marketId) const
 {
+    std::lock_guard<std::recursive_mutex> guard(_lock);
     return Trinity::Containers::MapGetValuePtr(mTemplates, marketId);
 }
 

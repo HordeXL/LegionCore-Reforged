@@ -21,6 +21,7 @@
 #include "Common.h"
 #include "ObjectGuid.h"
 #include "ItemPackets.h"
+#include <mutex>
 
 namespace WorldPackets
 {
@@ -140,7 +141,15 @@ public:
     void SendAuctionWonMail(BlackMarketEntry* entry, CharacterDatabaseTransaction& trans);
     void SendAuctionOutbidMail(BlackMarketEntry* entry, CharacterDatabaseTransaction& trans);
 
+    // Auctions and templates. Bid handlers run in their map threads, Update and RefreshAuctions in the world thread.
+    // Held by the handler for a whole bid (GetAuctionByID hands out a pointer Update may delete); taken first or alone,
+    // never under another lock; under it only the bidder's own state, mails (delivered in the receiver's thread),
+    // the database queue and session sends are reached.
+    std::recursive_mutex& GetLock() const { return _lock; }
+
 private:
+    mutable std::recursive_mutex _lock;
+
     BlackMarketEntryMap mAuctions;
     BlackMarketTemplateMap mTemplates;
 
