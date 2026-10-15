@@ -106,6 +106,8 @@ class TC_GAME_API MapManager
 
         uint32 i_gridCleanUpDelay;
         MapMapType i_maps;
+        // creation of a base map (FindBaseMap, construction, i_maps/_mapThreads slot, thread start)
+        std::recursive_mutex _createMapLock;
 
         std::atomic<uint32> _nextInstanceId; // map threads create instances in parallel
         uint8 _mapInfoCounter;

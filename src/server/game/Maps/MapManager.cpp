@@ -72,6 +72,13 @@ Map* MapManager::CreateBaseMap(uint32 id)
 
     if (map == nullptr)
     {
+        // two threads asking for the same absent map would build it twice and start two map threads; recursive because
+        // the constructors run script hooks and grid loads
+        std::lock_guard<std::recursive_mutex> lock(_createMapLock);
+        map = FindBaseMap(id);
+        if (map != nullptr)
+            return map;
+
         MapEntry const* entry = sMapStore.LookupEntry(id);
         ASSERT(entry);
 

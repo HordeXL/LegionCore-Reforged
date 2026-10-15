@@ -411,13 +411,20 @@ Transport* TransportMgr::CreateTransport(uint32 entry, ObjectGuid::LowType guid 
         }
     }
 
+    if (!map)
+    {
+        // a continent map is already updating in its own thread (started with the map): it adds the transport itself
+        trans->AddToMapDeferred(sMapMgr->CreateMap(mapId, nullptr));
+        return trans;
+    }
+
     // use preset map for instances (need to know which instance)
-    trans->SetMap(map ? map : sMapMgr->CreateMap(mapId, nullptr));
-    if (map && map->IsDungeon())
+    trans->SetMap(map);
+    if (map->IsDungeon())
         trans->m_zoneScript = map->ToInstanceMap()->GetInstanceScript();
 
     // Passengers will be loaded once a player is near
-    trans->GetMap()->AddToMap<Transport>(trans);
+    map->AddToMap<Transport>(trans);
     return trans;
 }
 
@@ -458,7 +465,9 @@ void TransportMgr::CreateInstanceTransports(Map* map)
     if (mapTransports == _instanceTransports.end() || mapTransports->second.empty())
         return;
 
-    // create transports
+    // The map is not registered in its parent yet (callers insert it after this call, under the parent's lock) and
+    // instance maps have no thread of their own: nobody else touches it, so the transports go in at once, which the
+    // callers need (ForceStopMovement, passengers).
     for (std::set<uint32>::const_iterator itr = mapTransports->second.begin(); itr != mapTransports->second.end(); ++itr)
         if (Transport* transport = CreateTransport(*itr, UI64LIT(0), map))
         {
