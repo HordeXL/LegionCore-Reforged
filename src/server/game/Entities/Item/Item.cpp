@@ -584,16 +584,17 @@ void Item::SaveToDB(CharacterDatabaseTransaction& trans)
                     stmt->setUInt32(6, GetTotalPurchasedArtifactPowers());
                     trans->Append(stmt);
 
+                    // one multi-row write instead of a statement per power; numbers only, nothing to escape
+                    std::string powerRows;
                     for (ItemDynamicFieldArtifactPowers const& artifactPower : GetArtifactPowers())
                     {
-                        stmt = CharacterDatabase.GetPreparedStatement(CHAR_REP_ITEM_INSTANCE_ARTIFACT_POWERS);
-                        stmt->setUInt64(0, guid);
-                        stmt->setUInt32(1, artifactPower.ArtifactPowerId);
-                        stmt->setUInt8(2, artifactPower.PurchasedRank);
-                        stmt->setUInt32(3, GetEntry());
-                        stmt->setUInt64(4, GetOwnerGUID().GetCounter());
-                        trans->Append(stmt);
+                        if (!powerRows.empty())
+                            powerRows += ',';
+                        powerRows += Trinity::StringFormat("(%u, %u, %u, %u, %u)", guid, artifactPower.ArtifactPowerId,
+                            uint32(artifactPower.PurchasedRank), GetEntry(), GetOwnerGUID().GetCounter());
                     }
+                    if (!powerRows.empty())
+                        trans->Append(("REPLACE INTO item_instance_artifact_powers (itemGuid, artifactPowerId, purchasedRank, itemEntry, char_guid) VALUES " + powerRows).c_str());
                 }
             }
 
