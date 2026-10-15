@@ -202,8 +202,8 @@ public:
     void SetAnnounce(bool nannounce) { std::lock_guard<std::recursive_mutex> guard(_lock); _announceEnabled = nannounce; }
     uint32 GetNumPlayers() const { std::lock_guard<std::recursive_mutex> guard(_lock); return _playersStore.size(); }
     bool IsOn(ObjectGuid who) const;
-    uint8 GetFlags() const { return _channelFlags; }
-    bool HasFlag(uint8 flag) const { return _channelFlags & flag; }
+    uint32 GetFlags() const { return _channelFlags; }
+    bool HasFlag(uint32 flag) const { return _channelFlags & flag; }
 
     void JoinChannel(Player* player, std::string const& pass, bool clientRequest = false);
     void LeaveChannel(Player* player, bool send = true, bool clientRequest = false);
