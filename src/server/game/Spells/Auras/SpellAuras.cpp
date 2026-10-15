@@ -1686,9 +1686,31 @@ bool Aura::IsSingleTargetWith(Aura const* aura) const
     return HasEffectType(SPELL_AURA_CONTROL_VEHICLE) && aura->HasEffectType(SPELL_AURA_CONTROL_VEHICLE);
 }
 
+namespace
+{
+// A player caster standing in another map is kept alive by the accessor lock while his aura lists (leaf-locked in Unit)
+// are edited at once; the aura is only compared with the entries, never read. A player no longer online has no lists left.
+// False for any other caster, who cannot be reached safely.
+template<class Fn>
+bool WithFarPlayerCaster(ObjectGuid const& casterGuid, Fn&& action)
+{
+    if (!casterGuid.IsPlayer())
+        return false;
+
+    ObjectAccessor::WithPlayer(casterGuid, std::forward<Fn>(action), ObjectAccessor::PlayerScope::InOrOutOfWorld);
+    return true;
+}
+}
+
 void Aura::UnregisterCasterAuras(AuraRemoveMode removeMode)
 {
     Unit* caster = GetCaster();
+    if (!caster)
+    {
+        // The summons of a caster standing in another map are in that map, not here: the block below does not apply to him
+        if (WithFarPlayerCaster(GetCasterGUID(), [this](Player* player) { player->RemoveMyCastAuras(GetId(), this); }))
+            return;
+    }
     // TODO: find a better way to do this.
     if (!caster)
         caster = ObjectAccessor::GetObjectInOrOutOfWorld(GetCasterGUID(), static_cast<Unit*>(nullptr));
@@ -1729,26 +1751,39 @@ void Aura::UnregisterSingleTarget()
 {
     ASSERT(HasAuraAttribute(AURA_ATTR_IS_SINGLE_TARGET));
     Unit* caster = GetCaster();
+    if (!caster)
+    {
+        if (WithFarPlayerCaster(GetCasterGUID(), [this](Player* player) { player->RemoveSingleCastAura(this); }))
+        {
+            SetAuraAttribute(AURA_ATTR_IS_SINGLE_TARGET, false);
+            return;
+        }
+    }
     // TODO: find a better way to do this.
     if (!caster)
         caster = ObjectAccessor::GetObjectInOrOutOfWorld(GetCasterGUID(), static_cast<Unit*>(nullptr));
     //ASSERT(caster);
     if(!caster)
         return;
-    caster->GetSingleCastAuras().remove(this);
+    caster->RemoveSingleCastAura(this);
     SetAuraAttribute(AURA_ATTR_IS_SINGLE_TARGET, false);
 }
 
 void Aura::UnregisterMultiSingleTarget()
 {
     Unit* caster = GetCaster();
+    if (!caster)
+    {
+        if (WithFarPlayerCaster(GetCasterGUID(), [this](Player* player) { player->RemoveMultiSingleTargetAura(this); }))
+            return;
+    }
     // TODO: find a better way to do this.
     if (!caster)
         caster = ObjectAccessor::GetObjectInOrOutOfWorld(GetCasterGUID(), static_cast<Unit*>(nullptr));
     //ASSERT(caster);
     if(!caster)
         return;
-    caster->GetMultiSingleTargetAuras().remove(this);
+    caster->RemoveMultiSingleTargetAura(this);
 }
 
 bool Aura::IsMultiSingleTarget() const

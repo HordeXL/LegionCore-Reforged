@@ -1748,10 +1748,14 @@ class TC_GAME_API Unit : public WorldObject
         void GetTotalNotStuckAuraEffectByType(AuraType auratype, AuraEffectList& EffectList, std::vector<uint32>& ExcludeAuraList);
         void GetAuraEffectsByListType(std::list<AuraType> *auratypelist, AuraEffectList& EffectList);
 
-        AuraList& GetSingleCastAuras() { return m_scAuras; }
-        AuraList const& GetSingleCastAuras() const { return m_scAuras; }
-        AuraMyMap& GetMyCastAuras() { return m_my_Auras; }
-        AuraList& GetMultiSingleTargetAuras() { return m_gbAuras; }
+        // m_scAuras, m_gbAuras and m_my_Auras are reached from the caster's thread and from the threads of the maps holding his
+        // auras: only through these functions, under my_aura_lock (a leaf lock, nothing is called out while it is held)
+        void AddSingleCastAura(Aura* aura);
+        void RemoveSingleCastAura(Aura* aura);
+        Aura* FindConflictingSingleCastAura(Aura const* aura);
+        void AddMultiSingleTargetAura(Aura* aura);
+        void RemoveMultiSingleTargetAura(Aura* aura);
+        Aura* GetOldestMultiSingleTargetAura(uint32 limit);
         void AddMyCastAuras(Aura* aura);
         void RemoveMyCastAuras(uint32 auraId, Aura* aura);
         void RemoveMultiSingleTargetAuras(uint32 newPhase = 0);
