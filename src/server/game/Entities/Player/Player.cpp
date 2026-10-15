@@ -27852,8 +27852,12 @@ void Player::RemovePetitionsAndSigns(ObjectGuid guid)
         do
         {
             Field* fields = result->Fetch();
-            if (Player* owner = ObjectAccessor::FindPlayer(ObjectGuid::Create<HighGuid::Player>(fields[0].GetUInt64())))
-                owner->GetSession()->SendPetitionQueryOpcode(ObjectGuid::Create<HighGuid::Item>(fields[1].GetUInt64()));
+            // the charter's owner may be on another map: his query is answered in his own thread
+            ObjectGuid const petitionGuid = ObjectGuid::Create<HighGuid::Item>(fields[1].GetUInt64());
+            ObjectAccessor::PostToPlayer(ObjectGuid::Create<HighGuid::Player>(fields[0].GetUInt64()), [petitionGuid](Player* owner)
+            {
+                owner->GetSession()->SendPetitionQueryOpcode(petitionGuid);
+            });
         }
         while (result->NextRow());
 
