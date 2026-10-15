@@ -517,8 +517,6 @@ class TC_GAME_API ObjectMgr
     static ObjectMgr* instance();
         std::list<CurrencyLoot> GetCurrencyLoot(uint32 entry, uint8 type, uint8 spawnMode);
 
-        Player* GetPlayerByLowGUID(ObjectGuid::LowType const& lowguid) const;
-
         bool IsStaticTransport(uint32 entry);
         GameObjectTemplate const* GetGameObjectTemplate(uint32 entry);
         GameObjectTemplateContainer const* GetGameObjectTemplates() const { return &_gameObjectTemplateStore; }

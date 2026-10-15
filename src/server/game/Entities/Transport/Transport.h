@@ -97,6 +97,9 @@ class TC_GAME_API Transport : public GameObject, public TransportBase
 
         void SetDelayedAddModelToMap() { _delayedAddModel = true; }
 
+        //! Hands the transport over to a map running in another thread: the map adds it at the start of its next update
+        void AddToMapDeferred(Map* map);
+
         TransportTemplate const* GetTransportTemplate() const { return _transportInfo; }
         PassengerSet _passengers;
         PassengerSet _staticPassengers;

@@ -27,6 +27,7 @@ EndScriptData */
 #include "MapManager.h"
 #include "Chat.h"
 #include "Group.h"
+#include "ObjectAccessor.h"
 #include "DatabaseEnv.h"
 
 class tele_commandscript : public CommandScript
@@ -252,40 +253,51 @@ public:
             return false;
         }
 
-        for (GroupReference* itr = grp->GetFirstMember(); itr != NULL; itr = itr->next())
+        for (Group::MemberSlot const& slot : grp->GetMemberSlots())
         {
-            Player* player = itr->getSource();
-
-            if (!player || !player->GetSession())
+            // members may stand on any map: read them under the accessor lock, act in their own thread
+            std::string plNameLink;
+            bool lowerSecurity = false;
+            bool isTeleported = false;
+            bool report = false;
+            if (!ObjectAccessor::WithPlayer(slot.Guid, [&](Player* player)
+            {
+                // check online security
+                lowerSecurity = handler->HasLowerSecurity(player, ObjectGuid::Empty);
+                plNameLink = handler->GetNameLink(player);
+                isTeleported = player->IsBeingTeleported();
+                report = handler->needReportToTarget(player);
+            }))
                 continue;
 
-            // check online security
-            if (handler->HasLowerSecurity(player, ObjectGuid::Empty))
+            if (lowerSecurity)
                 return false;
 
-            std::string plNameLink = handler->GetNameLink(player);
-
-            if (player->IsBeingTeleported())
+            if (isTeleported)
             {
                 handler->PSendSysMessage(LANG_IS_TELEPORTED, plNameLink.c_str());
                 continue;
             }
 
             handler->PSendSysMessage(LANG_TELEPORTING_TO, plNameLink.c_str(), "", tele->name.c_str());
-            if (handler->needReportToTarget(player))
-                (ChatHandler(player)).PSendSysMessage(LANG_TELEPORTED_TO_BY, nameLink.c_str());
 
-            // stop flight if need
-            if (player->isInFlight())
+            ObjectAccessor::PostToPlayer(slot.Guid, [mapId = tele->mapId, x = tele->position_x, y = tele->position_y, z = tele->position_z, o = tele->orientation, nameLink, report](Player* player)
             {
-                player->GetMotionMaster()->MovementExpired();
-                player->CleanupAfterTaxiFlight();
-            }
-            // save only in non-flight case
-            else
-                player->SaveRecallPosition();
+                if (report)
+                    (ChatHandler(player)).PSendSysMessage(LANG_TELEPORTED_TO_BY, nameLink.c_str());
 
-            player->TeleportTo(tele->mapId, tele->position_x, tele->position_y, tele->position_z, tele->orientation);
+                // stop flight if need
+                if (player->isInFlight())
+                {
+                    player->GetMotionMaster()->MovementExpired();
+                    player->CleanupAfterTaxiFlight();
+                }
+                // save only in non-flight case
+                else
+                    player->SaveRecallPosition();
+
+                player->TeleportTo(mapId, x, y, z, o);
+            });
         }
 
         return true;

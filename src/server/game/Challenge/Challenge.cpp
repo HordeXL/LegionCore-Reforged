@@ -52,10 +52,10 @@ Challenge::Challenge(InstanceMap* map, Player* player, uint32 instanceID, Scenar
 
     if (Group* group = player->GetGroup())
     {
-        group->m_challengeInstanceID = _instanceID;
-        m_ownerGuid = group->m_challengeOwner;
-        m_itemGuid = group->m_challengeItem;
-        _challengeEntry = group->m_challengeEntry;
+        Group::ChallengeInfo const info = group->StartChallenge(_instanceID);
+        m_ownerGuid = info.Owner;
+        m_itemGuid = info.Item;
+        _challengeEntry = info.Entry;
         m_gguid = group->GetGUID();
 
         if (!m_itemGuid)
@@ -70,8 +70,8 @@ Challenge::Challenge(InstanceMap* map, Player* player, uint32 instanceID, Scenar
             if (ObjectAccessor::WithPlayer(slot.Guid, [](Player*) { }, ObjectAccessor::PlayerScope::InOrOutOfWorld))
                 _challengers.insert(slot.Guid);
 
-        _affixes = group->m_affixes;
-        _challengeLevel = group->m_challengeLevel;
+        _affixes = info.Affixes;
+        _challengeLevel = info.Level;
     }
     else
     {
@@ -145,14 +145,7 @@ Challenge::~Challenge()
         CharacterDatabase.PExecute("UPDATE challenge_key SET %sInstanceID = 0 WHERE guid = %u AND InstanceID = %u", deplete ? "KeyIsCharded = 0, " : "", m_ownerGuid.GetGUIDLow(), _instanceID);
 
         if (Group* group = sGroupMgr->GetGroupByGUID(m_gguid))
-            if (group->m_challengeInstanceID == _instanceID && group->m_challengeItem == m_itemGuid)   // not a key started since
-            {
-                group->m_challengeEntry = nullptr;
-                group->m_challengeLevel = 0;
-                group->m_affixes.fill(0);
-                group->SetDungeonDifficultyID(DIFFICULTY_MYTHIC_DUNGEON);
-                group->m_challengeInstanceID = 0;
-            }
+            group->ResetChallengeIf(_instanceID, m_itemGuid);   // not a key started since
     }
 
     if (InstanceScript* script = GetInstanceScript())
@@ -305,13 +298,7 @@ void Challenge::Update(uint32 diff)
         _isKeyDepleted = true;
 
         if (Group* group = sGroupMgr->GetGroupByGUID(m_gguid))
-        {
-            group->m_challengeEntry = nullptr;
-            group->m_challengeLevel = 0;
-            group->m_affixes.fill(0);
-            group->SetDungeonDifficultyID(DIFFICULTY_MYTHIC_DUNGEON);
-            group->m_challengeInstanceID = 0;
-        }
+            group->ResetChallenge();
 
         _item = nullptr;
         Player* keyOwner = ObjectAccessor::FindPlayer(_map, m_ownerGuid);
@@ -446,13 +433,7 @@ void Challenge::Complete()
     }
 
     if (Group* group = sGroupMgr->GetGroupByGUID(m_gguid))
-    {
-        group->m_challengeEntry = nullptr;
-        group->m_challengeLevel = 0;
-        group->m_affixes.fill(0);
-        group->SetDungeonDifficultyID(DIFFICULTY_MYTHIC_DUNGEON);
-        group->m_challengeInstanceID = 0;
-    }
+        group->ResetChallenge();
 
     /// Reward part
     if (_item)

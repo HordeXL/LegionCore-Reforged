@@ -2339,13 +2339,11 @@ void WorldSession::HandleRequestRaidInfo(WorldPackets::Party::RequestRaidInfo& /
 
 void WorldSession::HandleSetSavedInstanceExtend(WorldPackets::Calendar::SetSavedInstanceExtend& packet)
 {
-    auto instanceBind = _player->GetBoundInstance(packet.MapID, Difficulty(packet.DifficultyID));
-    if (!instanceBind || !instanceBind->perm || _player->GetMap()->IsGarrison())
+    InstancePlayerBind const instanceBind = _player->GetBoundInstanceCopy(packet.MapID, Difficulty(packet.DifficultyID));
+    if (!instanceBind.save || !instanceBind.perm || _player->GetMap()->IsGarrison())
         return;
 
-    auto instanceSave = instanceBind->save;
-    if (!instanceSave)
-        return;
+    InstanceSave* instanceSave = instanceBind.save;
 
     if (packet.Extend == instanceSave->GetExtended())
         return;

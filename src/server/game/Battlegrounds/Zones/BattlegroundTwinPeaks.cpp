@@ -119,14 +119,14 @@ void BattlegroundTwinPeaks::PostUpdateImpl(uint32 diff)
                 if (_flagDebuffState <= 5)
                 {
                     for (uint8 team = TEAM_ALLIANCE; team < MAX_TEAMS; ++team)
-                        if (Player* player = ObjectAccessor::FindPlayer(_flagKeepers[team]))
+                        if (Player* player = FindMemberPlayer(_flagKeepers[team]))
                             player->CastSpell(player, SPELL_BG_FOCUSED_ASSAULT, true);
                 }
                 else if (_flagDebuffState == 6)
                 {
                     for (uint8 team = TEAM_ALLIANCE; team < MAX_TEAMS; ++team)
                     {
-                        if (Player* player = ObjectAccessor::FindPlayer(_flagKeepers[team]))
+                        if (Player* player = FindMemberPlayer(_flagKeepers[team]))
                         {
                             player->RemoveAurasDueToSpell(SPELL_BG_FOCUSED_ASSAULT);
                             player->CastCustomSpell(SPELL_BG_BRUTAL_ASSAULT, SPELLVALUE_AURA_STACK, _flagDebuffState, player);
@@ -135,7 +135,7 @@ void BattlegroundTwinPeaks::PostUpdateImpl(uint32 diff)
                 }
                 else
                     for (uint8 team = TEAM_ALLIANCE; team < MAX_TEAMS; ++team)
-                        if (Player* player = ObjectAccessor::FindPlayer(_flagKeepers[team]))
+                        if (Player* player = FindMemberPlayer(_flagKeepers[team]))
                             player->CastSpell(player, SPELL_BG_BRUTAL_ASSAULT, true);
             }
         }
@@ -309,7 +309,7 @@ void BattlegroundTwinPeaks::EndBattleground(uint32 winner)
 {
     for (uint8 team = TEAM_ALLIANCE; team < MAX_TEAMS; ++team)
     {
-        if (Player* player = ObjectAccessor::FindPlayer(_flagKeepers[team]))
+        if (Player* player = FindMemberPlayer(_flagKeepers[team]))
         {
             player->RemoveAurasDueToSpell(SPELL_BG_FOCUSED_ASSAULT);
             player->RemoveAurasDueToSpell(SPELL_BG_BRUTAL_ASSAULT);
@@ -355,7 +355,7 @@ void BattlegroundTwinPeaks::_CheckPositions(uint32 diff)
 {
     for (auto const& itr : GetPlayers())
     {
-        Player* player = ObjectAccessor::FindPlayer(itr.first);
+        Player* player = FindMemberPlayer(itr.first);
         if (!player)
             continue;
 
@@ -624,7 +624,7 @@ void BattlegroundTwinPeaks::RemovePlayer(Player* player, ObjectGuid guid, uint32
         {
             for (uint8 teamTemp = TEAM_ALLIANCE; teamTemp < MAX_TEAMS; ++teamTemp)
             {
-                if (Player* pl = ObjectAccessor::FindPlayer(_flagKeepers[team]))
+                if (Player* pl = FindMemberPlayer(_flagKeepers[team]))
                 {
                     if (_flagDebuffState && _flagDebuffState < 6)
                         pl->RemoveAurasDueToSpell(SPELL_BG_FOCUSED_ASSAULT);

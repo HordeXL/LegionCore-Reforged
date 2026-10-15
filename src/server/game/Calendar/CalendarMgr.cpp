@@ -507,6 +507,7 @@ void CalendarMgr::CountUpcomingEvents(ObjectGuid owner, ObjectGuid::LowType guil
 // player's event - and, now that the server owns events of its own, its announcements too.
 bool CalendarMgr::CanModify(CalendarEvent const* calendarEvent, ObjectGuid guid)
 {
+    std::lock_guard<std::recursive_mutex> guard(_lock);
     if (!calendarEvent || calendarEvent->IsServerEvent())
         return false;
 
@@ -535,6 +536,8 @@ CalendarInviteStore CalendarMgr::GetPlayerInvites(ObjectGuid guid)
 
 uint32 CalendarMgr::GetPlayerNumPending(ObjectGuid guid)
 {
+    // the invites are read below: they must not be removed by another map thread in between
+    std::lock_guard<std::recursive_mutex> guard(_lock);
     CalendarInviteStore const invites = GetPlayerInvites(guid);
 
     uint32 pendingNum = 0;

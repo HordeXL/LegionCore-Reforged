@@ -523,9 +523,10 @@ void OutdoorPvP::HandleKill(Player* killer, Unit* killed)
 {
     if (Group* group = killer->GetGroup())
     {
-        for (GroupReference* itr = group->GetFirstMember(); itr != nullptr; itr = itr->next())
+        // members on other maps live in other threads: only those of the killer's map are reachable
+        for (Group::MemberSlot const& slot : group->GetMemberSlots())
         {
-            Player* groupGuy = itr->getSource();
+            Player* groupGuy = slot.Guid == killer->GetGUID() ? killer : ObjectAccessor::FindPlayer(killer->FindMap(), slot.Guid);
 
             if (!groupGuy)
                 continue;
@@ -675,7 +676,11 @@ void OutdoorPvP::BroadcastPacket(const WorldPacket &data) const
 void OutdoorPvP::AddCapturePoint(OPvPCapturePoint* cp)
 {
     m_capturePoints[cp->m_capturePointGUID] = cp;
-    if (auto go = sObjectAccessor->FindGameObject(cp->m_capturePointGUID))
+    // Looked up on the engine's map once it is set; before that (setup runs ahead of the map) no map can be compared
+    // and the global lookup is kept.
+    GameObject* go = m_map ? ObjectAccessor::GetObjectInMap(cp->m_capturePointGUID, m_map, static_cast<GameObject*>(nullptr))
+                           : sObjectAccessor->FindGameObject(cp->m_capturePointGUID);
+    if (go)
         cp->m_capturePoint = go;
     else
         TC_LOG_TRACE("misc", "OutdoorPvP::AddCapturePoint !!!!!!m_capturePoint! %s", cp->m_capturePointGUID.ToString().c_str());
@@ -999,7 +1004,7 @@ void OutdoorGraveyard::AddPlayer(ObjectGuid guid)
     {
         m_ResurrectQueue.insert(guid);
 
-        if (Player* player = sObjectAccessor->FindPlayer(guid))
+        if (Player* player = ObjectAccessor::FindPlayer(m_OutdoorPvP->GetMap(), guid))
             player->CastSpell(player, SPELL_WAITING_FOR_RESURRECT, true);
     }
 }
@@ -1079,7 +1084,8 @@ bool OutdoorGraveyard::HasNpc(ObjectGuid guid)
     if (!m_SpiritGuide[0] && !m_SpiritGuide[1])
         return false;
 
-    if (!sObjectAccessor->FindUnit(m_SpiritGuide[0]) && !sObjectAccessor->FindUnit(m_SpiritGuide[1]))
+    Map* map = m_OutdoorPvP->GetMap();
+    if (!ObjectAccessor::GetObjectInMap(m_SpiritGuide[0], map, static_cast<Unit*>(nullptr)) && !ObjectAccessor::GetObjectInMap(m_SpiritGuide[1], map, static_cast<Unit*>(nullptr)))
         return false;
 
     return (m_SpiritGuide[0] == guid || m_SpiritGuide[1] == guid);

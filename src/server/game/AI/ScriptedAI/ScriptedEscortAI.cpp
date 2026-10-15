@@ -11,6 +11,7 @@
 
 #include "CreatureGroups.h"
 #include "Group.h"
+#include "ObjectAccessor.h"
 #include "ScriptedCreature.h"
 #include "ScriptedEscortAI.h"
 #include "ScriptSystem.h"
@@ -131,10 +132,21 @@ void npc_escortAI::JustDied(Unit* /*killer*/)
     {
         if (Group* group = player->GetGroup())
         {
-            for (GroupReference* groupRef = group->GetFirstMember(); groupRef != nullptr; groupRef = groupRef->next())
-                if (Player* member = groupRef->getSource())
-                    if (member->GetQuestStatus(m_pQuestForEscort->GetQuestId()) == QUEST_STATUS_INCOMPLETE)
-                        member->FailQuest(m_pQuestForEscort->GetQuestId());
+            uint32 const questId = m_pQuestForEscort->GetQuestId();
+            auto failQuest = [questId](Player* member)
+            {
+                if (member->GetQuestStatus(questId) == QUEST_STATUS_INCOMPLETE)
+                    member->FailQuest(questId);
+            };
+
+            // members on other maps belong to other threads
+            for (Group::MemberSlot const& slot : group->GetMemberSlots())
+            {
+                if (Player* member = ObjectAccessor::GetPlayer(*me, slot.Guid))
+                    failQuest(member);
+                else
+                    ObjectAccessor::PostToPlayer(slot.Guid, failQuest);
+            }
         }
         else
         {
@@ -211,10 +223,13 @@ bool npc_escortAI::IsPlayerOrGroupInRange()
     {
         if (Group* group = player->GetGroup())
         {
-            for (GroupReference* groupRef = group->GetFirstMember(); groupRef != nullptr; groupRef = groupRef->next())
-                if (Player* member = groupRef->getSource())
-                    if (me->IsWithinDistInMap(member, GetMaxPlayerDistance()))
-                        return true;
+            bool inRange = false;
+            group->ForEachMemberInMap(me->GetMap(), [this, &inRange](Player* member)
+            {
+                if (me->IsWithinDistInMap(member, GetMaxPlayerDistance()))
+                    inRange = true;
+            });
+            return inRange;
         }
         else if (me->IsWithinDistInMap(player, GetMaxPlayerDistance()))
             return true;

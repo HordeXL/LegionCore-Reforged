@@ -146,7 +146,7 @@ void BattlegroundWarsongGulch::PostUpdateImpl(uint32 diff)
             {
                 for (uint8 team = TEAM_ALLIANCE; team < MAX_TEAMS; ++team)
                     for (uint8 j = 0; j < 3; ++j)
-                        if (Player* player = ObjectAccessor::FindPlayer(_flagKeepers[team][j]))
+                        if (Player* player = FindMemberPlayer(_flagKeepers[team][j]))
                             player->CastSpell(player, SPELL_BG_FOCUSED_ASSAULT, true);
             }
             else if (_flagDebuffState == 6)
@@ -154,7 +154,7 @@ void BattlegroundWarsongGulch::PostUpdateImpl(uint32 diff)
                 for (uint8 team = TEAM_ALLIANCE; team < MAX_TEAMS; ++team)
                 {
                     for (uint8 j = 0; j < 3; ++j)
-                        if (Player* player = ObjectAccessor::FindPlayer(_flagKeepers[team][j]))
+                        if (Player* player = FindMemberPlayer(_flagKeepers[team][j]))
                         {
                             player->RemoveAurasDueToSpell(SPELL_BG_FOCUSED_ASSAULT);
                             player->CastCustomSpell(SPELL_BG_BRUTAL_ASSAULT, SPELLVALUE_AURA_STACK, _flagDebuffState, player);
@@ -164,7 +164,7 @@ void BattlegroundWarsongGulch::PostUpdateImpl(uint32 diff)
             else
                 for (uint8 team = TEAM_ALLIANCE; team < MAX_TEAMS; ++team)
                     for (uint8 j = 0; j < 3; ++j)
-                        if (Player* player = ObjectAccessor::FindPlayer(_flagKeepers[team][j]))
+                        if (Player* player = FindMemberPlayer(_flagKeepers[team][j]))
                             player->CastSpell(player, SPELL_BG_BRUTAL_ASSAULT, true);
         }
     }
@@ -410,7 +410,7 @@ void BattlegroundWarsongGulch::EndBattleground(uint32 winner)
 {
     for (uint8 team = TEAM_ALLIANCE; team < MAX_TEAMS; ++team)
         for (uint8 j = 0; j < 3; ++j)
-            if (Player* player = ObjectAccessor::FindPlayer(_flagKeepers[team][j]))
+            if (Player* player = FindMemberPlayer(_flagKeepers[team][j]))
             {
                 player->RemoveAurasDueToSpell(SPELL_BG_FOCUSED_ASSAULT);
                 player->RemoveAurasDueToSpell(SPELL_BG_BRUTAL_ASSAULT);
@@ -455,7 +455,7 @@ void BattlegroundWarsongGulch::_CheckPositions(uint32 diff)
 {
     for (auto const& itr : GetPlayers())
     {
-        Player* player = ObjectAccessor::FindPlayer(itr.first);
+        Player* player = FindMemberPlayer(itr.first);
         if (!player)
             continue;
 
@@ -821,7 +821,7 @@ void BattlegroundWarsongGulch::RemovePlayer(Player* player, ObjectGuid guid, uin
 
                 for (uint8 z = 0; z < 3; ++z)
                 {
-                    if (Player* pl = ObjectAccessor::FindPlayer(_flagKeepers[team][z]))
+                    if (Player* pl = FindMemberPlayer(_flagKeepers[team][z]))
                     {
                         if (_flagDebuffState && _flagDebuffState < 6)
                             pl->RemoveAurasDueToSpell(SPELL_BG_FOCUSED_ASSAULT);

@@ -328,13 +328,15 @@ void WorldSession::HandleSignPetition(WorldPackets::Petition::SignPetition& pack
 
     SendPetitionSignResult(playerGUID, packet.PetitionGUID, PETITION_SIGN_OK);
 
-    // The owner's items belong to his map thread: only touched from the same map; the result reaches him anywhere
-    if (Player* owner = ObjectAccessor::GetPlayer(*player, ownerGuid))
-        if (Item* item = owner->GetItemByGuid(packet.PetitionGUID))
+    // The owner's items belong to his map thread: the update is posted to it, whatever map he is in
+    ObjectGuid const petitionGuid = packet.PetitionGUID;
+    ObjectAccessor::PostToPlayer(ownerGuid, [petitionGuid, signs, playerGUID](Player* owner)
+    {
+        if (Item* item = owner->GetItemByGuid(petitionGuid))
             item->SetUInt32Value(ITEM_FIELD_ENCHANTMENT + 1, signs);
 
-    ObjectGuid const petitionGuid = packet.PetitionGUID;
-    ObjectAccessor::WithPlayer(ownerGuid, [playerGUID, petitionGuid](Player* owner) { owner->GetSession()->SendPetitionSignResult(playerGUID, petitionGuid, PETITION_SIGN_OK); });
+        owner->GetSession()->SendPetitionSignResult(playerGUID, petitionGuid, PETITION_SIGN_OK);
+    });
 }
 
 void WorldSession::SendPetitionSignResult(ObjectGuid const& playerGuid, ObjectGuid const& petitionGuid, uint8 result)
@@ -370,8 +372,18 @@ void WorldSession::HandleOfferPetition(WorldPackets::Petition::OfferPetition& pa
     if (!_player->GetItemByGuid(packet.ItemGUID))
         return;
 
-    Player* player = ObjectAccessor::FindPlayer(packet.TargetPlayer);
-    if (!player)
+    // The target may be in another map thread: read what is needed under the accessor lock, send through the guid
+    uint32 targetTeam = 0;
+    ObjectGuid::LowType targetGuildId = 0;
+    ObjectGuid::LowType targetGuildIdInvited = 0;
+    uint32 targetAccountId = 0;
+    if (!ObjectAccessor::WithPlayer(packet.TargetPlayer, [&](Player* target)
+    {
+        targetTeam = target->GetTeam();
+        targetGuildId = target->GetGuildId();
+        targetGuildIdInvited = target->GetGuildIdInvited();
+        targetAccountId = target->GetSession()->GetAccountId();
+    }))
         return;
 
     CharacterDatabasePreparedStatement* stmt = CharacterDatabase.GetPreparedStatement(CHAR_SEL_PETITION_TYPE);
@@ -380,19 +392,19 @@ void WorldSession::HandleOfferPetition(WorldPackets::Petition::OfferPetition& pa
     if (!result)
         return;
 
-    if (!sWorld->getBoolConfig(CONFIG_ALLOW_TWO_SIDE_INTERACTION_GUILD) && GetPlayer()->GetTeam() != player->GetTeam())
+    if (!sWorld->getBoolConfig(CONFIG_ALLOW_TWO_SIDE_INTERACTION_GUILD) && GetPlayer()->GetTeam() != targetTeam)
     {
         Guild::SendCommandResult(this, GUILD_CREATE_S, ERR_GUILD_NOT_ALLIED);
         return;
     }
 
-    if (player->GetGuildId())
+    if (targetGuildId)
     {
         Guild::SendCommandResult(this, GUILD_INVITE_S, ERR_ALREADY_IN_GUILD_S, _player->GetName());
         return;
     }
 
-    if (player->GetGuildIdInvited())
+    if (targetGuildIdInvited)
     {
         Guild::SendCommandResult(this, GUILD_INVITE_S, ERR_ALREADY_INVITED_TO_GUILD_S, _player->GetName());
         return;
@@ -410,7 +422,7 @@ void WorldSession::HandleOfferPetition(WorldPackets::Petition::OfferPetition& pa
     WorldPackets::Petition::ServerPetitionShowSignatures signaturesPacket;
     signaturesPacket.Item = packet.ItemGUID;
     signaturesPacket.Owner = _player->GetGUID();
-    signaturesPacket.OwnerAccountID = ObjectGuid::Create<HighGuid::WowAccount>(player->GetSession()->GetAccountId());
+    signaturesPacket.OwnerAccountID = ObjectGuid::Create<HighGuid::WowAccount>(targetAccountId);
     signaturesPacket.PetitionID = int32(packet.ItemGUID.GetCounter());  // @todo verify that...
 
     signaturesPacket.Signatures.reserve(signs);
@@ -428,7 +440,7 @@ void WorldSession::HandleOfferPetition(WorldPackets::Petition::OfferPetition& pa
             break;
     }
 
-    player->SendDirectMessage(signaturesPacket.Write());
+    ObjectAccessor::SendToPlayer(packet.TargetPlayer, signaturesPacket.Write());
 }
 
 void WorldSession::HandlePetitionShowList(WorldPackets::Petition::PetitionShowList& packet)
@@ -524,10 +536,12 @@ void WorldSession::HandleTurnInPetition(WorldPackets::Petition::TurnInPetition& 
         ObjectGuid guid = ObjectGuid::Create<HighGuid::Player>(fields[0].GetUInt64());
         if (ObjectAccessor::IsPlayerOnline(guid))
         {
-            AddDelayedEvent(10, [guild, guid]() -> void
+            // looked up again when it runs: the guild may have been disbanded meanwhile
+            ObjectGuid::LowType const guildId = guild->GetId();
+            AddDelayedEvent(10, [guildId, guid]() -> void
             {
-                if (guild)
-                    guild->AddMember(guid);
+                if (Guild* newGuild = sGuildMgr->GetGuildById(guildId))
+                    newGuild->AddMember(guid);
             });
         }
         else

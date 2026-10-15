@@ -2813,7 +2813,10 @@ uint8 Group::CanJoinBattlegroundQueue(Battleground const* bgOrTemplate, uint8 bg
 
 void Group::SetDungeonDifficultyID(Difficulty difficulty)
 {
-    m_dungeonDifficulty = difficulty;
+    {
+        std::lock_guard<std::recursive_mutex> guard(m_lock);
+        m_dungeonDifficulty = difficulty;
+    }
     if (!isBGGroup() && !isBFGroup() && difficulty != DIFFICULTY_MYTHIC_KEYSTONE)
     {
         CharacterDatabasePreparedStatement* stmt = CharacterDatabase.GetPreparedStatement(CHAR_UPD_GROUP_DIFFICULTY);
@@ -2904,6 +2907,7 @@ Difficulty Group::GetDifficultyID(MapEntry const* mapEntry) const
 
 Difficulty Group::GetDungeonDifficultyID() const
 {
+    std::lock_guard<std::recursive_mutex> guard(m_lock);
     return m_dungeonDifficulty;
 }
 
@@ -3481,6 +3485,13 @@ void Group::ForEachLinkedMember(std::function<void(Player*)> const& fn) const
         ObjectAccessor::WithPlayer(ref.Guid, fn);
 }
 
+void Group::ForEachMemberInMap(Map* map, std::function<void(Player*)> const& fn) const
+{
+    for (MemberRef const& ref : GetMemberRefs())
+        if (Player* player = ObjectAccessor::FindPlayer(map, ref.Guid))
+            fn(player);
+}
+
 GroupReference* Group::GetFirstMember()
 {
     return m_memberMgr.getFirst();
@@ -3936,7 +3947,66 @@ void Group::SendRaidMarkersChanged(WorldSession* session, int8 partyIndex)
 
 bool Group::InChallenge()
 {
+    std::lock_guard<std::recursive_mutex> guard(m_lock);
     return m_dungeonDifficulty == DIFFICULTY_MYTHIC_KEYSTONE;
+}
+
+Group::ChallengeInfo Group::GetChallengeInfo() const
+{
+    std::lock_guard<std::recursive_mutex> guard(m_lock);
+    ChallengeInfo info;
+    info.Entry = m_challengeEntry;
+    info.Owner = m_challengeOwner;
+    info.Item = m_challengeItem;
+    info.Level = m_challengeLevel;
+    info.InstanceID = m_challengeInstanceID;
+    info.Affixes = m_affixes;
+    return info;
+}
+
+Group::ChallengeInfo Group::StartChallenge(uint32 instanceId)
+{
+    std::lock_guard<std::recursive_mutex> guard(m_lock);
+    m_challengeInstanceID = instanceId;
+    return GetChallengeInfo();
+}
+
+void Group::SetChallenge(MapChallengeModeEntry const* entry, ObjectGuid owner, ObjectGuid item, uint32 level, std::array<uint32, 3> const& affixes)
+{
+    std::lock_guard<std::recursive_mutex> guard(m_lock);
+    m_challengeEntry = entry;
+    m_challengeOwner = owner;
+    m_challengeItem = item;
+    m_challengeLevel = level;
+    m_affixes = affixes;
+}
+
+void Group::ResetChallenge()
+{
+    {
+        std::lock_guard<std::recursive_mutex> guard(m_lock);
+        m_challengeEntry = nullptr;
+        m_challengeLevel = 0;
+        m_affixes.fill(0);
+        m_challengeInstanceID = 0;
+    }
+    SetDungeonDifficultyID(DIFFICULTY_MYTHIC_DUNGEON);
+}
+
+bool Group::ResetChallengeIf(uint32 instanceId, ObjectGuid item)
+{
+    {
+        std::lock_guard<std::recursive_mutex> guard(m_lock);
+        if (m_challengeInstanceID != instanceId || m_challengeItem != item)
+            return false;
+
+        m_challengeEntry = nullptr;
+        m_challengeLevel = 0;
+        m_affixes.fill(0);
+        m_challengeInstanceID = 0;
+    }
+    SetDungeonDifficultyID(DIFFICULTY_MYTHIC_DUNGEON);
+    return true;
 }
 
 bool Group::GetMaxCountOfRolesForArenaQueue(uint8 role)

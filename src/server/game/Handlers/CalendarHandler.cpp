@@ -30,6 +30,28 @@ void WorldSession::HandleCalendarGetCalendar(WorldPackets::Calendar::CalendarGet
     WorldPackets::Calendar::CalendarSendCalendar packet;
     packet.ServerTime = currTime;
 
+    // outside the calendar lock: no instance data is read under it
+    for (Difficulty const difficulty : { DIFFICULTY_NORMAL, DIFFICULTY_HEROIC, DIFFICULTY_MYTHIC_DUNGEON })
+    {
+        // one difficulty per bound type: several difficulties share a type and would list its locks again
+        Player::BoundInstancesMap boundInstances = _player->GetBoundInstancesCopy(difficulty);
+        for (auto const& boundInstance : boundInstances)
+        {
+            if (!boundInstance.second.perm)
+                continue;
+
+            if (InstanceSave* save = boundInstance.second.save)
+            {
+                WorldPackets::Calendar::CalendarSendCalendarRaidLockoutInfo lockoutInfo;
+                lockoutInfo.MapID = save->GetMapId();
+                lockoutInfo.DifficultyID = save->GetDifficultyID();
+                lockoutInfo.ExpireTime = save->GetResetTime() - currTime;
+                lockoutInfo.InstanceID = save->GetInstanceId();
+                packet.RaidLockouts.push_back(lockoutInfo);
+            }
+        }
+    }
+
     std::lock_guard<std::recursive_mutex> guard(sCalendarMgr->GetLock());
 
     CalendarInviteStore playerInvites = sCalendarMgr->GetPlayerInvites(guid);
@@ -62,23 +84,6 @@ void WorldSession::HandleCalendarGetCalendar(WorldPackets::Calendar::CalendarGet
         eventInfo.TextureID = event->GetTextureId();
 
         packet.Events.push_back(eventInfo);
-    }
-
-    for (uint8 i = 0; i < MAX_BOUND; ++i)
-    {
-        Player::BoundInstancesMap boundInstances = _player->GetBoundInstances(Difficulty(i));
-        for (auto const& boundInstance : boundInstances)
-        {
-            if (InstanceSave* save = boundInstance.second.save)
-            {
-                WorldPackets::Calendar::CalendarSendCalendarRaidLockoutInfo lockoutInfo;
-                lockoutInfo.MapID = save->GetMapId();
-                lockoutInfo.DifficultyID = save->GetDifficultyID();
-                lockoutInfo.ExpireTime = save->GetResetTime() - currTime;
-                lockoutInfo.InstanceID = save->GetInstanceId();
-                packet.RaidLockouts.push_back(lockoutInfo);
-            }
-        }
     }
 
     SendPacket(packet.Write());

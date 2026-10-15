@@ -1345,14 +1345,11 @@ struct spell_pal_at_aura_of_sacrifice : public AreaTriggerAI
             {
                 if (Group* group = plr->GetGroup())
                 {
-                    for (GroupReference* itr = group->GetFirstMember(); itr != nullptr; itr = itr->next())
+                    group->ForEachMemberInMap(plr->GetMap(), [&unitList](Player* player)
                     {
-                        if (Player* player = itr->getSource())
-                        {
-                            if (player->IsAlive())
-                                unitList.push_back(player);
-                        }
-                    }
+                        if (player->IsAlive())
+                            unitList.push_back(player);
+                    });
                 }
                 else
                     unitList.push_back(caster);

@@ -630,23 +630,6 @@ void WorldSession::JoinBracket(uint8 bracketType, uint8 rolesMask /*= ROLES_DEFA
 
         sLFGMgr->InitiBattlgroundCheckRoles(grp, player->GetGUID(), bgTypeId, rolesMask, bgQueueTypeId, WorldPackets::Battleground::IgnorMapInfo(), false);
         return;
-
-       /* auto ginfo = bgQueue.AddGroup(player, grp, bgTypeId, bracketEntry);
-        auto avgTime = bgQueue.GetAverageQueueWaitTime(ginfo, bracketEntry->RangeIndex);
-        auto joinTime = ginfo->JoinTime;
-
-        for (auto itr = grp->GetFirstMember(); itr != nullptr; itr = itr->next())
-        {
-            auto member = itr->getSource();
-            if (!member)
-                continue;
-
-            WorldPackets::Battleground::BattlefieldStatusQueued queued;
-            sBattlegroundMgr->BuildBattlegroundStatusQueued(&queued, bg, member, member->AddBattlegroundQueueId(bgQueueTypeId), joinTime, avgTime, 0, true);
-            auto const& message = queued.Write();
-            SendPacket(message);
-            member->SendDirectMessage(message);
-        }*/
     }
     else
     {

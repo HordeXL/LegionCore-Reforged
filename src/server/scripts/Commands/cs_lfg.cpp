@@ -19,6 +19,21 @@
 #include "Chat.h"
 #include "LFGMgr.h"
 #include "Group.h"
+#include "ObjectAccessor.h"
+#include "Player.h"
+
+void GetPlayerInfo(ChatHandler* handler, ObjectGuid guid, char const* name, Group* grp)
+{
+    ObjectGuid gguid = grp->GetGUID();
+    uint32 queueId = sLFGMgr->GetQueueId(gguid);
+
+    lfg::LfgDungeonSet dungeons = sLFGMgr->GetSelectedDungeons(guid, queueId);
+
+    std::string const& state = lfg::GetStateString(sLFGMgr->GetState(guid, queueId));
+    handler->PSendSysMessage(LANG_LFG_PLAYER_INFO, name,
+        state.c_str(), uint8(dungeons.size()), lfg::ConcatenateDungeons(dungeons).c_str(),
+        lfg::GetRolesString(sLFGMgr->GetRoles(guid, queueId)).c_str(), "");
+}
 
 void GetPlayerInfo(ChatHandler* handler, Player* player)
 {
@@ -29,16 +44,7 @@ void GetPlayerInfo(ChatHandler* handler, Player* player)
     if (!grp)
         return;
 
-    ObjectGuid gguid = grp->GetGUID();
-    uint32 queueId = sLFGMgr->GetQueueId(gguid);
-
-    ObjectGuid guid = player->GetGUID();
-    lfg::LfgDungeonSet dungeons = sLFGMgr->GetSelectedDungeons(guid, queueId);
-
-    std::string const& state = lfg::GetStateString(sLFGMgr->GetState(guid, queueId));
-    handler->PSendSysMessage(LANG_LFG_PLAYER_INFO, player->GetName(),
-        state.c_str(), uint8(dungeons.size()), lfg::ConcatenateDungeons(dungeons).c_str(),
-        lfg::GetRolesString(sLFGMgr->GetRoles(guid, queueId)).c_str(), "");
+    GetPlayerInfo(handler, player->GetGUID(), player->GetName(), grp);
 }
 
 class lfg_commandscript : public CommandScript
@@ -123,8 +129,14 @@ public:
         handler->PSendSysMessage(LANG_LFG_GROUP_INFO, grp->isLFGGroup(),
             state.c_str(), sLFGMgr->GetDungeon(guid));
 
-        for (GroupReference* itr = grp->GetFirstMember(); itr != NULL; itr = itr->next())
-            GetPlayerInfo(handler, itr->getSource());
+        // members may stand on other maps: the name is read under the accessor lock, the LFG state outside it
+        for (Group::MemberSlot const& slot : grp->GetMemberSlots())
+        {
+            ObjectGuid const memberGuid = slot.Guid;
+            std::string memberName;
+            if (ObjectAccessor::WithPlayer(memberGuid, [&memberName](Player* member) { memberName = member->GetName(); }))
+                GetPlayerInfo(handler, memberGuid, memberName.c_str(), grp);
+        }
 
         return true;
     }

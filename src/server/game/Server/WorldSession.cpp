@@ -1452,7 +1452,7 @@ void WorldSession::LookupPlayerSearchCommand(PreparedQueryResult result, int32 l
                 uint32 guid             = characterFields[0].GetUInt32();
                 std::string name        = characterFields[1].GetString();
 
-                if (sObjectMgr->GetPlayerByLowGUID(guid) != NULL) // online
+                if (ObjectAccessor::IsPlayerOnline(ObjectGuid::Create<HighGuid::Player>(guid)))
                     chH.PSendSysMessage(363, name.c_str(), guid);
                 else
                     chH.PSendSysMessage(LANG_LOOKUP_PLAYER_CHARACTER, name.c_str(), guid);

@@ -36,6 +36,7 @@
 #include "Vehicle.h"
 #include "ZoneScript.h"
 #include <G3D/Vector3.h>
+#include <memory>
 
 Transport::Transport() : GameObject(),
     _transportInfo(nullptr), _isMoving(true), _pendingStop(false),
@@ -204,10 +205,7 @@ void Transport::Update(uint32 diff)
         // Departure event
         if (_currentFrame->IsTeleportFrame())
             if (TeleportTransport(_nextFrame->Node->ContinentID, _nextFrame->Node->Loc.X, _nextFrame->Node->Loc.Y, _nextFrame->Node->Loc.Z, _nextFrame->InitialOrientation))
-            {
-                m_isUpdate = false;
-                return; // Update more in new map thread
-            }
+                return; // Update more in new map thread; the transport is no longer ours to touch
     }
 
     // Add model to map after we are fully done with moving maps
@@ -601,6 +599,45 @@ float Transport::CalculateSegmentPos(float now)
     return segmentPos / frame.NextDistFromPrev;
 }
 
+namespace
+{
+    // Owns a transport in transit. A map dropping its queued calls unrun (unloaded first) destroys this, which frees
+    // the transport. One still carrying passengers is left alone: they point to it.
+    struct TransportInTransit
+    {
+        explicit TransportInTransit(Transport* t) : Transit(t) { }
+        TransportInTransit(TransportInTransit const&) = delete;
+        TransportInTransit& operator=(TransportInTransit const&) = delete;
+        ~TransportInTransit() { Dispose(Transit); }
+
+        static void Dispose(Transport* transport)
+        {
+            if (transport && transport->_passengers.empty())
+                delete transport;
+        }
+
+        Transport* Transit;
+    };
+}
+
+void Transport::AddToMapDeferred(Map* map)
+{
+    // the map's own thread inserts the transport, a map container is not safe to write from another thread
+    auto pending = std::make_shared<TransportInTransit>(this);
+    map->m_Functions.AddFunction([pending, map]()
+    {
+        Transport* transport = pending->Transit;
+        pending->Transit = nullptr;
+
+        transport->SetMap(map);
+        if (!map->AddToMap<Transport>(transport))
+        {
+            TC_LOG_ERROR("entities.transport", "Transport %u (%s) could not be added to map %u", transport->GetEntry(), transport->GetName(), map->GetId());
+            TransportInTransit::Dispose(transport);
+        }
+    }, map->m_Functions.CalculateTime(0));
+}
+
 bool Transport::TeleportTransport(uint32 newMapid, float x, float y, float z, float o)
 {
     Map* oldMap = GetMap();
@@ -642,10 +679,10 @@ bool Transport::TeleportTransport(uint32 newMapid, float x, float y, float z, fl
         }
 
         Map* newMap = sMapMgr->CreateBaseMap(newMapid);
-        SetMap(newMap);
 
-        ASSERT(GetMap());
-        newMap->AddToMap<Transport>(this);
+        // last access to this transport from the old map's thread
+        m_isUpdate = false;
+        AddToMapDeferred(newMap);
         return true;
     }
     else

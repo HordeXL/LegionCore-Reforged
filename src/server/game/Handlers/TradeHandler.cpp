@@ -652,11 +652,12 @@ void WorldSession::HandleInitiateTrade(WorldPackets::Trade::InitiateTrade& packe
         return;
     }
 
-    Player* pOther = ObjectAccessor::FindPlayer(packet.Guid);
+    // Only a player of this map thread may be read and written here; one on another map is simply too far away
+    Player* pOther = ObjectAccessor::GetPlayer(*player, packet.Guid);
 
     if (!pOther)
     {
-        info.Status = TRADE_STATUS_NO_TARGET;
+        info.Status = ObjectAccessor::IsPlayerOnline(packet.Guid) ? TRADE_STATUS_TOO_FAR_AWAY : TRADE_STATUS_NO_TARGET;
         SendTradeStatus(info);
         return;
     }

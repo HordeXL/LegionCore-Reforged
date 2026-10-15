@@ -2820,26 +2820,45 @@ void WorldObject::MonsterTextEmote(int32 textId, ObjectGuid TargetGuid, bool IsB
 
 void WorldObject::MonsterWhisper(const char* text, ObjectGuid receiver, bool IsBossWhisper)
 {
-    Player* player = ObjectAccessor::FindPlayer(receiver);
-    if (!player || !player->GetSession())
+    // the receiver may stand on another map: only his locale is read from him, and the packet goes through his send queue
+    LocaleConstant locale = DEFAULT_LOCALE;
+    bool found = false;
+    ObjectAccessor::WithPlayer(receiver, [&](Player* player)
+    {
+        if (player->GetSession())
+        {
+            locale = player->GetSession()->GetSessionDbLocaleIndex();
+            found = true;
+        }
+    });
+    if (!found)
         return;
 
-    LocaleConstant locale = player->GetSession()->GetSessionDbLocaleIndex();
     WorldPackets::Chat::Chat packet;
-    packet.Initialize(IsBossWhisper ? CHAT_MSG_RAID_BOSS_WHISPER : CHAT_MSG_MONSTER_WHISPER, LANG_UNIVERSAL, this, player, text, 0, "", locale);
-    player->SendDirectMessage(packet.Write());
+    packet.Initialize(IsBossWhisper ? CHAT_MSG_RAID_BOSS_WHISPER : CHAT_MSG_MONSTER_WHISPER, LANG_UNIVERSAL, this, nullptr, text, 0, "", locale);
+    packet.TargetGUID = receiver;
+    ObjectAccessor::SendToPlayer(receiver, packet.Write());
 }
 
 void WorldObject::MonsterWhisper(int32 textId, ObjectGuid receiver, bool IsBossWhisper)
 {
-    Player* player = ObjectAccessor::FindPlayer(receiver);
-    if (!player || !player->GetSession())
+    LocaleConstant localeConstant = DEFAULT_LOCALE;
+    bool found = false;
+    ObjectAccessor::WithPlayer(receiver, [&](Player* player)
+    {
+        if (player->GetSession())
+        {
+            localeConstant = player->GetSession()->GetSessionDbLocaleIndex();
+            found = true;
+        }
+    });
+    if (!found)
         return;
 
-    LocaleConstant localeConstant = player->GetSession()->GetSessionDbLocaleIndex();
     WorldPackets::Chat::Chat packet;
-    packet.Initialize(IsBossWhisper ? CHAT_MSG_RAID_BOSS_WHISPER : CHAT_MSG_MONSTER_WHISPER, LANG_UNIVERSAL, this, player, sObjectMgr->GetTrinityString(textId, localeConstant), 0, "", localeConstant);
-    player->SendDirectMessage(packet.Write());
+    packet.Initialize(IsBossWhisper ? CHAT_MSG_RAID_BOSS_WHISPER : CHAT_MSG_MONSTER_WHISPER, LANG_UNIVERSAL, this, nullptr, sObjectMgr->GetTrinityString(textId, localeConstant), 0, "", localeConstant);
+    packet.TargetGUID = receiver;
+    ObjectAccessor::SendToPlayer(receiver, packet.Write());
 }
 
 void WorldObject::SendMessageToSet(WorldPacket const* data, bool self, GuidUnorderedSet const& ignoredList /*= GuidUnorderedSet()*/)

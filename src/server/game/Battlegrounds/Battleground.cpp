@@ -61,7 +61,7 @@ template<class Do>
 void Battleground::BroadcastWorker(Do& _do)
 {
     for (auto const& itr : GetPlayers())
-        if (Player* player = ObjectAccessor::FindPlayer(itr.first))
+        if (Player* player = FindMemberPlayer(itr.first))
             _do(player);
 }
 
@@ -292,8 +292,8 @@ inline void Battleground::_ProcessRessurect(uint32 diff)
                 Creature* sh = nullptr;
                 for (GuidVector::const_iterator itr2 = itr.second.begin(); itr2 != itr.second.end(); ++itr2)
                 {
-                    auto player = ObjectAccessor::FindPlayer(*itr2);
-                    if (!player || player->GetMap() != GetBgMap())
+                    auto player = FindMemberPlayer(*itr2);
+                    if (!player)
                         continue;
 
                     if (!sh && player->IsInWorld())
@@ -318,8 +318,8 @@ inline void Battleground::_ProcessRessurect(uint32 diff)
         for (GuidVector::const_iterator itr = _resurrectQueue.begin(); itr != _resurrectQueue.end(); ++itr)
         {
             // someone who left the battleground or was raised meanwhile must not get a free full heal
-            auto player = ObjectAccessor::FindPlayer(*itr);
-            if (!player || player->GetMap() != GetBgMap() || player->IsAlive())
+            auto player = FindMemberPlayer(*itr);
+            if (!player || player->IsAlive())
                 continue;
             player->ResurrectPlayer(1.0f);
             player->CastSpell(player, SPELL_SPIRIT_HEAL_MANA, true);
@@ -387,7 +387,7 @@ inline void Battleground::_ProcessJoin(uint32 diff)
     {
         m_ResetStatTimer = 0;
         for (const auto& itr : GetPlayers())
-            if (Player* player = ObjectAccessor::FindPlayer(itr.first))
+            if (Player* player = FindMemberPlayer(itr.first))
                 player->ResetAllPowers();
     }
 
@@ -442,7 +442,7 @@ inline void Battleground::_ProcessJoin(uint32 diff)
             PlaySoundToAll(BG_SOUND_START);
 
             for (auto const& itr : GetPlayers())
-                if (Player* player = ObjectAccessor::FindPlayer(itr.first))
+                if (Player* player = FindMemberPlayer(itr.first))
                 {
                     if (sWorld->getBoolConfig(CONFIG_CROSSFACTIONBG) && !IsRBG()) // make some visual 
                     {
@@ -464,7 +464,7 @@ inline void Battleground::_ProcessJoin(uint32 diff)
         if (IsArena() || IsRBG())
         {
             for (auto const& itr : GetPlayers())
-                if (Player* player = ObjectAccessor::FindPlayer(itr.first))
+                if (Player* player = FindMemberPlayer(itr.first))
                 {
                     if (auto group = player->GetGroup())
                         if (group->GetLeaderGUID() == player->GetGUID())
@@ -493,25 +493,32 @@ inline void Battleground::_ProcessLeave(uint32 diff)
     }
 }
 
-Player* Battleground::GetPlayer(ObjectGuid guid, bool offlineRemove, char const* context)
+Player* Battleground::FindMemberPlayer(ObjectGuid guid) const
+{
+    return ObjectAccessor::FindPlayer(FindBgMap(), guid);
+}
+
+Player* Battleground::GetPlayer(ObjectGuid guid, bool offlineRemove, char const* context) const
 {
     if (!offlineRemove)
     {
-        if (Player* player = ObjectAccessor::FindPlayer(guid))
+        if (Player* player = FindMemberPlayer(guid))
             return player;
 
-        TC_LOG_ERROR("bg.battleground", "Battleground::%s: player (GUID: %lu) not found", context, guid.GetCounter());
+        // between maps or on another one is not an error: his own thread keeps him
+        if (!ObjectAccessor::WithPlayer(guid, [](Player*) { }, ObjectAccessor::PlayerScope::InOrOutOfWorld))
+            TC_LOG_ERROR("bg.battleground", "Battleground::%s: player (GUID: %lu) not found", context, guid.GetCounter());
     }
 
     return nullptr;
 }
 
-Player* Battleground::GetPlayer(std::pair<ObjectGuid, BattlegroundPlayer> pair, char const* context)
+Player* Battleground::GetPlayer(std::pair<ObjectGuid, BattlegroundPlayer> pair, char const* context) const
 {
     return GetPlayer(pair.first, pair.second.OfflineRemoveTime, context);
 }
 
-Player* Battleground::GetPlayerForTeam(uint32 teamId, std::pair<ObjectGuid, BattlegroundPlayer> pair, char const* context)
+Player* Battleground::GetPlayerForTeam(uint32 teamId, std::pair<ObjectGuid, BattlegroundPlayer> pair, char const* context) const
 {
     if (pair.second.Team != teamId)
         return nullptr;
@@ -644,7 +651,7 @@ void Battleground::EndBattleground(uint32 winner)
 
     if (HaveSpectators())
         for (auto vGuid : _spectators)
-            if (Player* player = ObjectAccessor::FindPlayer(vGuid))
+            if (Player* player = FindMemberPlayer(vGuid))
                 player->TeleportToBGEntryPoint();
 
     RemoveFromBGFreeSlotQueue();
@@ -1203,7 +1210,7 @@ void Battleground::RemovePlayerAtLeave(ObjectGuid guid, bool Transport, bool Sen
 
     RemovePlayerFromResurrectQueue(guid);
 
-    Player* player = ObjectAccessor::FindPlayer(guid);
+    Player* player = FindMemberPlayer(guid);
     if (player)
     {
         if (player->HasAuraType(SPELL_AURA_SPIRIT_OF_REDEMPTION))
@@ -1315,6 +1322,27 @@ void Battleground::RemovePlayerAtLeave(ObjectGuid guid, bool Transport, bool Sen
 
         TC_LOG_INFO("bg.battleground", "BATTLEGROUND: Removed player %s from Battleground.", player->GetName());
     }
+    else
+    {
+        // He stands on another map (a GM command, a teleport in progress): his own thread drops what ties him to this
+        // battleground. Nothing of this object is used there, it may be gone by then.
+        ObjectAccessor::PostToPlayer(guid, [instanceId = GetInstanceID(), queueBgTypeId = GetTypeID(!IsRBG()), joinType = GetJoinType(), participant](Player* leaver) -> void
+        {
+            if (leaver->GetBattlegroundId() != instanceId)
+                return;
+
+            if (participant)
+            {
+                uint16 const typeId = leaver->IsInvitedForBattlegroundQueueType(MS::Battlegrounds::BattlegroundQueueTypeId::BattlegroundRandom) ? uint16(MS::Battlegrounds::BattlegroundTypeId::BattlegroundRandom) : queueBgTypeId;
+                leaver->RemoveBattlegroundQueueId(MS::Battlegrounds::GetBgQueueTypeIdByBgTypeID(typeId, joinType));
+            }
+
+            leaver->SetBattlegroundId(0, MS::Battlegrounds::BattlegroundTypeId::None);
+            leaver->SetBGTeam(0);
+            leaver->SetByteValue(PLAYER_FIELD_BYTES_6, PLAYER_BYTES_6_OFFSET_ARENA_FACTION, 0);
+            leaver->SetEffectiveLevel(0);
+        });
+    }
 }
 
 void Battleground::Reset()
@@ -1359,7 +1387,7 @@ void Battleground::RelocateDeadPlayers(ObjectGuid guideGuid)
     if (!ghostList.empty())
     {
         for (auto const& v : ghostList)
-            if (Player* player = ObjectAccessor::FindPlayer(v))
+            if (Player* player = FindMemberPlayer(v))
                 if (WorldSafeLocsEntry const* closestGrave = GetClosestGraveYard(player))
                     player->SafeTeleport(GetMapId(), closestGrave->Loc.X, closestGrave->Loc.Y, closestGrave->Loc.Z, player->GetOrientation());
 
@@ -1740,7 +1768,7 @@ void Battleground::BuildPvPLogDataPacket(WorldPackets::Battleground::PVPLogData&
         playerData.HealingDone = score.second->HealingDone;
         score.second->BuildObjectivesBlock(playerData.Stats);
 
-        if (Player* player = ObjectAccessor::FindPlayer(playerData.PlayerGUID))
+        if (Player* player = FindMemberPlayer(playerData.PlayerGUID))
         {
             auto const& bgPlayerData = _players[playerData.PlayerGUID];
 
@@ -1817,7 +1845,7 @@ void Battleground::AddPlayerToResurrectQueue(ObjectGuid npc_guid, ObjectGuid pla
 {
     RemovePlayerFromResurrectQueue(playerGUID); // queued once, even if the client asks again
     m_ReviveQueue[npc_guid].push_back(playerGUID);
-    if (Player* player = ObjectAccessor::FindPlayer(playerGUID))
+    if (Player* player = FindMemberPlayer(playerGUID))
         player->CastSpell(player, SPELL_WAITING_FOR_RESURRECT, true);
 }
 
@@ -1830,7 +1858,7 @@ void Battleground::RemovePlayerFromResurrectQueue(ObjectGuid playerGUID)
             if (*itr2 == playerGUID)
             {
                 itr.second.erase(itr2);
-                if (Player* player = ObjectAccessor::FindPlayer(playerGUID))
+                if (Player* player = FindMemberPlayer(playerGUID))
                     player->RemoveAurasDueToSpell(SPELL_WAITING_FOR_RESURRECT);
                 return;
             }
@@ -2181,7 +2209,7 @@ void Battleground::HandleKillPlayer(Player* victim, Player* killer)
 
         for (auto const& itr : GetPlayers())
         {
-            Player* creditedPlayer = ObjectAccessor::FindPlayer(itr.first);
+            Player* creditedPlayer = FindMemberPlayer(itr.first);
             if (!creditedPlayer || creditedPlayer == killer)
                 continue;
 
@@ -2238,7 +2266,7 @@ uint32 Battleground::GetAlivePlayersCountByTeam(uint32 Team) const
     uint32 count = 0;
     for (auto const& itr : GetPlayers())
         if (itr.second.Team == Team)
-            if (Player* player = ObjectAccessor::FindPlayer(itr.first))
+            if (Player* player = FindMemberPlayer(itr.first))
                 if (player->IsAlive() && player->GetShapeshiftForm() != FORM_SPIRITOFREDEMPTION && (player->InArena() || (IsBrawl() && player->InBattleground())))
                     ++count;
 
@@ -2321,7 +2349,7 @@ bool Battleground::IsTeamScoreInRange(uint32 team, uint32 minScore, uint32 maxSc
 void Battleground::StartTimedAchievement(CriteriaTimedTypes type, uint32 entry)
 {
     for (auto const& itr : GetPlayers())
-        if (Player* player = ObjectAccessor::FindPlayer(itr.first))
+        if (Player* player = FindMemberPlayer(itr.first))
             player->GetAchievementMgr()->StartTimedAchievement(type, entry);
 }
 
@@ -2390,7 +2418,7 @@ void Battleground::_CheckPositions(uint32 diff)
     }
 
     for (auto const& itr : GetPlayers())
-        if (auto player = ObjectAccessor::FindPlayer(itr.first))
+        if (auto player = FindMemberPlayer(itr.first))
         {
             auto const* startPos = GetTeamStartPosition(player->GetBGTeamId());
             if (player->GetExactDist2d(startPos) > 70.0f)

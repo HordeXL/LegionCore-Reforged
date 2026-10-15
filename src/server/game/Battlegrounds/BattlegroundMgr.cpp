@@ -124,32 +124,41 @@ void BattlegroundMgr::Update(uint32 diff)
 {
     m_Functions.Update(diff);
 
-    std::map<uint32, Battleground*>::iterator next;
-    for (uint16 i = MS::Battlegrounds::BattlegroundTypeId::None; i < MS::Battlegrounds::BattlegroundTypeId::Max; ++i)
+    // A wargame starts its battleground from a map thread (AddBattleground): the maps are walked under the lock,
+    // the erase and the delete come after it
+    struct FinishedBattleground { uint16 TypeId; uint32 InstanceId; Battleground* Bg; };
+    std::vector<FinishedBattleground> finished;
     {
-        auto itr = _battlegrounds[i].begin();
-        if (itr != _battlegrounds[i].end())
-            ++itr;
-
-        for (; itr != _battlegrounds[i].end(); itr = next)
+        std::shared_lock<std::shared_mutex> guard(_battlegroundsLock);
+        for (uint16 i = MS::Battlegrounds::BattlegroundTypeId::None; i < MS::Battlegrounds::BattlegroundTypeId::Max; ++i)
         {
-            next = itr;
-            ++next;
+            auto itr = _battlegrounds[i].begin();
+            if (itr != _battlegrounds[i].end())
+                ++itr;
 
-            Battleground* bg = itr->second;
-            if (bg && bg->ToBeDeleted())
-            {
-                std::lock_guard<std::recursive_mutex> _bg_lock(bg->m_bg_lock);
-                {
-                    std::unique_lock<std::shared_mutex> guard(_battlegroundsLock);
-                    _battlegrounds[i].erase(itr);
-                    if (!_clientBattlegroundIDs[i][bg->GetBracketId()].empty())
-                        _clientBattlegroundIDs[i][bg->GetBracketId()].erase(bg->GetClientInstanceID());
-                }
-
-                delete bg;
-            }
+            for (; itr != _battlegrounds[i].end(); ++itr)
+                if (itr->second && itr->second->ToBeDeleted())
+                    finished.push_back({ i, itr->first, itr->second });
         }
+    }
+
+    for (FinishedBattleground const& entry : finished)
+    {
+        Battleground* bg = entry.Bg;
+
+        // an update still running in its map thread finishes first; the guard must not outlive the object it locks
+        {
+            std::lock_guard<std::recursive_mutex> _bg_lock(bg->m_bg_lock);
+        }
+
+        {
+            std::unique_lock<std::shared_mutex> guard(_battlegroundsLock);
+            _battlegrounds[entry.TypeId].erase(entry.InstanceId);
+            if (!_clientBattlegroundIDs[entry.TypeId][bg->GetBracketId()].empty())
+                _clientBattlegroundIDs[entry.TypeId][bg->GetBracketId()].erase(bg->GetClientInstanceID());
+        }
+
+        delete bg;
     }
 
     for (uint16 qtype = MS::Battlegrounds::BattlegroundQueueTypeId::None; qtype < MS::Battlegrounds::BattlegroundQueueTypeId::Max; ++qtype)

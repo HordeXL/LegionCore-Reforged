@@ -68,6 +68,9 @@ void WorldSession::HandleBlackMarketBidOnItem(WorldPackets::BlackMarket::BlackMa
     if (!unit)
         return;
 
+    // the entry is deleted by the world thread's Update once expired: kept locked from the lookup to the bid
+    std::lock_guard<std::recursive_mutex> blackMarketGuard(sBlackMarketMgr->GetLock());
+
     BlackMarketEntry* entry = sBlackMarketMgr->GetAuctionByID(packet.MarketID);
     if (!entry)
     {

@@ -357,6 +357,29 @@ void WorldSession::HandleResetInstances(WorldPackets::Instance::ResetInstances& 
         player->ResetInstances(INSTANCE_RESET_ALL, false, false);
 }
 
+namespace
+{
+    // Members live in their own map thread: read their map under the accessor lock, never through their pointer.
+    // A connected member who is not in a map (loading, teleporting) blocks the change, as before.
+    template<class MapPredicate>
+    bool IsAnyGroupMemberBlocking(Group const* group, MapPredicate&& isBlocking)
+    {
+        for (Group::MemberSlot const& slot : group->GetMemberSlots())
+        {
+            bool blocking = false;
+            ObjectAccessor::WithPlayer(slot.Guid, [&blocking, &isBlocking](Player* member)
+            {
+                Map const* map = member->IsInWorld() ? member->GetMap() : nullptr;
+                blocking = !map || isBlocking(map);
+            }, ObjectAccessor::PlayerScope::InOrOutOfWorld);
+
+            if (blocking)
+                return true;
+        }
+        return false;
+    }
+}
+
 void WorldSession::HandleSetDungeonDifficulty(WorldPackets::Misc::SetDungeonDifficulty& packet)
 {
     Player* player = GetPlayer();
@@ -388,18 +411,8 @@ void WorldSession::HandleSetDungeonDifficulty(WorldPackets::Misc::SetDungeonDiff
 
         if (group->IsLeader(player->GetGUID()))
         {
-            for (GroupReference* itr = group->GetFirstMember(); itr != nullptr; itr = itr->next())
-            {
-                Player* groupGuy = itr->getSource();
-                if (!groupGuy)
-                    continue;
-
-                if (!groupGuy->IsInMap(groupGuy))
-                    return;
-
-                if (groupGuy->GetMap()->IsNonRaidDungeon())
-                    return;
-            }
+            if (IsAnyGroupMemberBlocking(group, [](Map const* map) { return map->IsNonRaidDungeon(); }))
+                return;
 
             group->ResetInstances(INSTANCE_RESET_CHANGE_DIFFICULTY, false, false, player);
             group->SetDungeonDifficultyID(Difficulty(packet.DifficultyID));
@@ -450,18 +463,8 @@ void WorldSession::HandleSetRaidDifficulty(WorldPackets::Misc::SetRaidDifficulty
 
         if (group->IsLeader(player->GetGUID()))
         {
-            for (GroupReference* itr = group->GetFirstMember(); itr != nullptr; itr = itr->next())
-            {
-                Player* groupGuy = itr->getSource();
-                if (!groupGuy)
-                    continue;
-
-                if (!groupGuy->IsInMap(groupGuy))
-                    return;
-
-                if (groupGuy->GetMap()->IsRaid())
-                    return;
-            }
+            if (IsAnyGroupMemberBlocking(group, [](Map const* map) { return map->IsRaid(); }))
+                return;
 
             group->ResetInstances(INSTANCE_RESET_CHANGE_DIFFICULTY, true, packet.Legacy != 0, player);
             if (packet.Legacy)

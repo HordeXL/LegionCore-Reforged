@@ -2838,11 +2838,6 @@ void ObjectMgr::RemoveGameobjectFromGrid(ObjectGuid::LowType const& guid, GameOb
     }
 }
 
-Player* ObjectMgr::GetPlayerByLowGUID(ObjectGuid::LowType const& lowguid) const
-{
-    return ObjectAccessor::FindPlayer(ObjectGuid::Create<HighGuid::Player>(lowguid));
-}
-
 // name must be checked to correctness (if received) before call this function
 ObjectGuid ObjectMgr::GetPlayerGUIDByName(std::string name)
 {
@@ -4402,11 +4397,12 @@ void ObjectMgr::ReturnOrDeleteOldMails(bool serverUp)
         m->checked        = fields[7].GetUInt8();
         m->mailTemplateId = fields[8].GetInt16();
 
-        Player* player = nullptr;
+        // the receiver may stand on another map thread: read the flag under the accessor lock
+        bool mailsLoaded = false;
         if (serverUp)
-            player = ObjectAccessor::FindPlayer(ObjectGuid::Create<HighGuid::Player>(m->receiver));
+            ObjectAccessor::WithPlayer(ObjectGuid::Create<HighGuid::Player>(m->receiver), [&mailsLoaded](Player* player) { mailsLoaded = player->m_mailsLoaded; });
 
-        if (player && player->m_mailsLoaded)
+        if (mailsLoaded)
         {                                                   // this code will run very improbably (the time is between 4 and 5 am, in game is online a player, who has old mail
             // his in mailbox and he has already listed his mails)
             delete m;

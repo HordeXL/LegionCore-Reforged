@@ -150,7 +150,7 @@ void Scenario::CreateChallenge(Player* player)
     InstanceMap* instanceMap = map->ToInstanceMap();
     ASSERT(instanceMap);
 
-    MapChallengeModeEntry const* m_challengeEntry = player->GetGroup() ? player->GetGroup()->m_challengeEntry : player->m_challengeKeyInfo.challengeEntry;
+    MapChallengeModeEntry const* m_challengeEntry = player->GetGroup() ? player->GetGroup()->GetChallengeInfo().Entry : player->m_challengeKeyInfo.challengeEntry;
     if (!m_challengeEntry)
         return;
 

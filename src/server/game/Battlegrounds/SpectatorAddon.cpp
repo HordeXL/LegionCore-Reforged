@@ -295,7 +295,12 @@ WorldPacket const* SpectatorAddonMsg::CachedMessage()
     }
 
     WorldPackets::Chat::Chat packet;
-    packet.Initialize(CHAT_MSG_WHISPER, LANG_ADDON, ObjectAccessor::FindPlayer(player), nullptr, msg, 0, "", DEFAULT_LOCALE, "ARENASPEC");
+    auto initialize = [&](Player const* sender)
+    {
+        packet.Initialize(CHAT_MSG_WHISPER, LANG_ADDON, sender, nullptr, msg, 0, "", DEFAULT_LOCALE, "ARENASPEC");
+    };
+    if (!ObjectAccessor::WithPlayer(player, initialize))
+        initialize(nullptr);
     cachedMessage = packet.Write();
     return cachedMessage;
 }
@@ -307,11 +312,7 @@ void SpectatorAddonMsg::EnableFlag(uint8 prefix)
 
 bool SpectatorAddonMsg::SendPacket(ObjectGuid receiver)
 {
-    auto rPlayer = ObjectAccessor::FindPlayer(receiver);
-    if (!rPlayer)
-        return false;
-
-    return true;
+    return ObjectAccessor::WithPlayer(receiver, [](Player*) { });
 }
 
 bool SpectatorAddonMsg::isFilledIn(uint8 prefix)
@@ -321,9 +322,5 @@ bool SpectatorAddonMsg::isFilledIn(uint8 prefix)
 
 bool SpectatorAddonMsg::SendPacket(SpectatorAddonMsg& msg, ObjectGuid receiver)
 {
-    auto rPlayer = ObjectAccessor::FindPlayer(receiver);
-    if (!rPlayer)
-        return false;
-
-    return true;
+    return ObjectAccessor::WithPlayer(receiver, [](Player*) { });
 }

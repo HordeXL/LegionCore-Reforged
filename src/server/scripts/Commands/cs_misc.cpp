@@ -756,8 +756,8 @@ public:
 
                 // if the player or the player's group is bound to another instance
                 // the player will not be bound to another one
-                InstancePlayerBind* bind = _player->GetBoundInstance(target->GetMapId(), target->GetDifficultyID(map->GetEntry()));
-                if (!bind)
+                InstancePlayerBind const bind = _player->GetBoundInstanceCopy(target->GetMapId(), target->GetDifficultyID(map->GetEntry()));
+                if (!bind.save)
                 {
                     Group* group = _player->GetGroup();
                     // if no bind exists, create a solo bind
@@ -975,57 +975,76 @@ public:
             return false;
         }
 
-        for (GroupReference* itr = group->GetFirstMember(); itr != NULL; itr = itr->next())
+        for (Group::MemberSlot const& slot : group->GetMemberSlots())
         {
-            Player* player = itr->getSource();
-
-            if (!player || player == handler->GetSession()->GetPlayer() || !player->GetSession())
+            if (slot.Guid == handler->GetSession()->GetPlayer()->GetGUID())
                 continue;
 
-            // check online security
-            if (handler->HasLowerSecurity(player, ObjectGuid::Empty))
+            // members may stand on any map: read them under the accessor lock, act in their own thread
+            std::string plNameLink;
+            bool lowerSecurity = false;
+            bool isTeleported = false;
+            bool report = false;
+            bool inOtherInstance = false;
+            float objectSize = 0.0f;
+            if (!ObjectAccessor::WithPlayer(slot.Guid, [&](Player* player)
+            {
+                // check online security
+                lowerSecurity = handler->HasLowerSecurity(player, ObjectGuid::Empty);
+                plNameLink = handler->GetNameLink(player);
+                isTeleported = player->IsBeingTeleported();
+                report = handler->needReportToTarget(player);
+                objectSize = player->GetObjectSize();
+
+                if (toInstance)
+                {
+                    Map* playerMap = player->GetMap();
+                    inOtherInstance = playerMap && playerMap->Instanceable() && playerMap->GetInstanceId() != gmMap->GetInstanceId();
+                }
+            }))
+                continue;
+
+            if (lowerSecurity)
                 return false;
 
-            std::string plNameLink = handler->GetNameLink(player);
-
-            if (player->IsBeingTeleported() == true)
+            if (isTeleported)
             {
                 handler->PSendSysMessage(LANG_IS_TELEPORTED, plNameLink.c_str());
                 handler->SetSentErrorMessage(true);
                 return false;
             }
 
-            if (toInstance)
+            if (inOtherInstance)
             {
-                Map* playerMap = player->GetMap();
-
-                if (playerMap->Instanceable() && playerMap->GetInstanceId() != gmMap->GetInstanceId())
-                {
-                    // cannot summon from instance to instance
-                    handler->PSendSysMessage(LANG_CANNOT_SUMMON_TO_INST, plNameLink.c_str());
-                    handler->SetSentErrorMessage(true);
-                    return false;
-                }
+                // cannot summon from instance to instance
+                handler->PSendSysMessage(LANG_CANNOT_SUMMON_TO_INST, plNameLink.c_str());
+                handler->SetSentErrorMessage(true);
+                return false;
             }
 
             handler->PSendSysMessage(LANG_SUMMONING, plNameLink.c_str(), "");
-            if (handler->needReportToTarget(player))
-                ChatHandler(player).PSendSysMessage(LANG_SUMMONED_BY, handler->GetNameLink().c_str());
-
-            // stop flight if need
-            if (player->isInFlight())
-            {
-                player->GetMotionMaster()->MovementExpired();
-                player->CleanupAfterTaxiFlight();
-            }
-            // save only in non-flight case
-            else
-                player->SaveRecallPosition();
 
             // before GM
             float x, y, z;
-            handler->GetSession()->GetPlayer()->GetClosePoint(x, y, z, player->GetObjectSize());
-            player->TeleportTo(handler->GetSession()->GetPlayer()->GetMapId(), x, y, z, player->GetOrientation());
+            handler->GetSession()->GetPlayer()->GetClosePoint(x, y, z, objectSize);
+
+            ObjectAccessor::PostToPlayer(slot.Guid, [mapId = handler->GetSession()->GetPlayer()->GetMapId(), x, y, z, report, gmLink = handler->GetNameLink()](Player* player)
+            {
+                if (report)
+                    ChatHandler(player).PSendSysMessage(LANG_SUMMONED_BY, gmLink.c_str());
+
+                // stop flight if need
+                if (player->isInFlight())
+                {
+                    player->GetMotionMaster()->MovementExpired();
+                    player->CleanupAfterTaxiFlight();
+                }
+                // save only in non-flight case
+                else
+                    player->SaveRecallPosition();
+
+                player->TeleportTo(mapId, x, y, z, player->GetOrientation());
+            });
         }
 
         return true;
@@ -2019,17 +2038,14 @@ public:
     // show info of player
     static bool HandlePInfoCommand(ChatHandler* handler, char const* args)
     {
-        Player* target;
+        Player* target = nullptr;
         ObjectGuid targetGuid;
         std::string targetName;
 
         ObjectGuid parseGUID = ObjectGuid::Create<HighGuid::Player>(atol((char*)args));
 
         if (ObjectMgr::GetPlayerNameByGUID(parseGUID, targetName))
-        {
-            target = sObjectMgr->GetPlayerByLowGUID(parseGUID.GetGUIDLow());
             targetGuid = parseGUID;
-        }
         else if (!handler->extractPlayerTarget((char*)args, &target, &targetGuid, &targetName))
             return false;
 
@@ -2048,25 +2064,35 @@ public:
         uint32 phase            = 0;
         std::string lastLogin   = handler->GetTrinityString(LANG_ERROR);
 
-        // get additional information from Player object
-        if (target)
+        // the target may stand on any map: what is read from him is copied under the accessor lock
+        bool lowerSecurity = false;
+        ObjectGuid::LowType onlineGuildId = 0;
+        bool const online = ObjectAccessor::WithPlayer(targetGuid, [&](Player* player)
         {
             // check online security
-            if (handler->HasLowerSecurity(target, ObjectGuid::Empty))
+            lowerSecurity = handler->HasLowerSecurity(player, ObjectGuid::Empty);
+
+            accId             = player->GetSession()->GetAccountId();
+            money             = player->GetMoney();
+            totalPlayerTime   = player->GetTotalPlayedTime();
+            level             = player->getLevel();
+            latency           = player->GetSession()->GetLatency();
+            race              = player->getRace();
+            Class             = player->getClass();
+            muteTime          = player->GetSession()->m_muteTime;
+            mapId             = player->GetMapId();
+            areaId            = player->GetAreaId();
+            phase             = player->GetPhaseMask();
+            totalAccountTime  = player->GetTotalAccountTime();
+            onlineGuildId     = player->GetGuildId();
+        });
+
+        // get additional information from Player object
+        if (online)
+        {
+            if (lowerSecurity)
                 return false;
 
-            accId             = target->GetSession()->GetAccountId();
-            money             = target->GetMoney();
-            totalPlayerTime   = target->GetTotalPlayedTime();
-            level             = target->getLevel();
-            latency           = target->GetSession()->GetLatency();
-            race              = target->getRace();
-            Class             = target->getClass();
-            muteTime          = target->GetSession()->m_muteTime;
-            mapId             = target->GetMapId();
-            areaId            = target->GetAreaId();
-            phase             = target->GetPhaseMask();
-            totalAccountTime  = target->GetTotalAccountTime();
             lastLogin = "Online";
         }
         // get additional information from DB
@@ -2150,7 +2176,7 @@ public:
 
         std::string nameLink = handler->playerLink(targetName);
 
-        handler->PSendSysMessage(LANG_PINFO_ACCOUNT, (target ? "" : handler->GetTrinityString(LANG_OFFLINE)), nameLink.c_str(), targetGuid.GetGUIDLow(), userName.c_str(), accId, accId, eMail.c_str(), security, lastIp.c_str(), lastLogin.c_str(), latency);
+        handler->PSendSysMessage(LANG_PINFO_ACCOUNT, (online ? "" : handler->GetTrinityString(LANG_OFFLINE)), nameLink.c_str(), targetGuid.GetGUIDLow(), userName.c_str(), accId, accId, eMail.c_str(), security, lastIp.c_str(), lastLogin.c_str(), latency);
 
         std::string bannedby = "unknown";
         std::string banreason = "";
@@ -2294,7 +2320,7 @@ public:
                 zoneName = zone->ZoneName->Str[sObjectMgr->GetDBCLocaleIndex()];
         }
 
-        if (target)
+        if (online)
         {
             if (!zoneName.empty())
                 handler->PSendSysMessage(LANG_PINFO_MAP_ONLINE, map->MapName->Str[sObjectMgr->GetDBCLocaleIndex()], zoneName.c_str(), areaName.c_str(), phase);
@@ -2306,7 +2332,7 @@ public:
        
        // info about guild
        
-        ObjectGuid::LowType guildId = target ? target->GetGuildId() : Player::GetGuildIdFromDB(targetGuid);
+        ObjectGuid::LowType guildId = online ? onlineGuildId : Player::GetGuildIdFromDB(targetGuid);
         if (!guildId)
         {
             handler->PSendSysMessage("Target don't have a guild!");

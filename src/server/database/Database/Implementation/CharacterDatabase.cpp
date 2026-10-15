@@ -794,7 +794,6 @@ void CharacterDatabaseConnection::DoPrepareStatements()
     PrepareStatement(CHAR_SEL_ITEM_INSTANCE_ARTIFACT_XP, "SELECT xp FROM item_instance_artifact where char_guid = ? AND itemEntry = ?", CONNECTION_SYNCH);
 
     PrepareStatement(CHAR_SEL_ITEM_INSTANCE_ARTIFACT_POWERS, "SELECT artifactPowerId, purchasedRank FROM item_instance_artifact_powers iiap inner join item_instance ii on ii.itemEntry = iiap.itemEntry and ii.owner_guid = iiap.char_guid WHERE ii.guid = ?", CONNECTION_BOTH);
-    PrepareStatement(CHAR_REP_ITEM_INSTANCE_ARTIFACT_POWERS, "REPLACE INTO item_instance_artifact_powers (itemGuid, artifactPowerId, purchasedRank, itemEntry, char_guid) VALUES (?, ?, ?, ?, ?)", CONNECTION_ASYNC);
     PrepareStatement(CHAR_DEL_ITEM_INSTANCE_ARTIFACT_POWERS, "DELETE FROM item_instance_artifact_powers WHERE itemGuid = ?", CONNECTION_ASYNC);
     PrepareStatement(CHAR_DEL_ITEM_INSTANCE_ARTIFACT_POWERS_BY_OWNER, "DELETE iiap FROM item_instance_artifact_powers iiap LEFT JOIN item_instance ii ON iiap.itemGuid = ii.guid WHERE ii.owner_guid = ?", CONNECTION_ASYNC);
     PrepareStatement(CHAR_INS_ITEM_INSTANCE_MODIFIERS, "INSERT INTO item_instance_modifiers (itemGuid, fixedScalingLevel, artifactKnowledgeLevel) VALUES (?, ?, ?)", CONNECTION_ASYNC);

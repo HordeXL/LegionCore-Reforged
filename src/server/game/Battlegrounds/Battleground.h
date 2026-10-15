@@ -532,9 +532,12 @@ public:
     void _ProcessPlayerPositionBroadcast(Milliseconds diff);
     virtual void GetPlayerPositionData(std::vector<WorldPackets::Battleground::BattlegroundPlayerPosition>* /*positions*/) const { }
 
-    static Player* GetPlayer(ObjectGuid guid, bool offlineRemove, const char* context);
-    static Player* GetPlayer(std::pair<ObjectGuid, BattlegroundPlayer> pair, const char* context);
-    static Player* GetPlayerForTeam(uint32 teamId, std::pair<ObjectGuid, BattlegroundPlayer> pair, const char* context);
+    // A member of this battleground stands in its map: only there does the calling thread own him. One between
+    // maps, or on another map, belongs to another thread and is reached through PostToPlayer / SendToPlayer.
+    Player* FindMemberPlayer(ObjectGuid guid) const;
+    Player* GetPlayer(ObjectGuid guid, bool offlineRemove, const char* context) const;
+    Player* GetPlayer(std::pair<ObjectGuid, BattlegroundPlayer> pair, const char* context) const;
+    Player* GetPlayerForTeam(uint32 teamId, std::pair<ObjectGuid, BattlegroundPlayer> pair, const char* context) const;
 
     Milliseconds GetCountdownTimer() const { return m_CountdownTimer; }
     void SetCountdownTimer(Milliseconds value) { m_CountdownTimer = value; }

@@ -73,7 +73,7 @@ void Arena::_ProcessJoin(uint32 diff)
         uint8 bgQueueTypeId = MS::Battlegrounds::GetBgQueueTypeIdByBgTypeID(GetTypeID(), GetJoinType());
 
         for (auto const& itr : GetPlayers())
-            if (Player* player = ObjectAccessor::FindPlayer(itr.first))
+            if (Player* player = FindMemberPlayer(itr.first))
             {
                 WorldPackets::Battleground::BattlefieldStatusActive battlefieldStatus;
                 sBattlegroundMgr->BuildBattlegroundStatusActive(&battlefieldStatus, this, player, player->GetBattlegroundQueueIndex(bgQueueTypeId), player->GetBattlegroundQueueJoinTime(bgQueueTypeId), GetJoinType());
@@ -193,7 +193,7 @@ void Arena::StartingEventOpenDoors()
     CheckWinConditions();
 
     for (auto const& v : GetPlayers())
-        if (Player* player = ObjectAccessor::FindPlayer(v.first))
+        if (Player* player = FindMemberPlayer(v.first))
         {
             player->RemoveAurasDueToSpell(SPELL_ARENA_PREPARATION);
             player->ResetAllPowers();
@@ -215,7 +215,7 @@ void Arena::StartingEventOpenDoors()
 
     for (const auto& itr : GetPlayers())
     {
-        if (auto player = ObjectAccessor::FindPlayer(itr.first))
+        if (auto player = FindMemberPlayer(itr.first))
         {
             if (auto group = player->GetGroup())
             {
@@ -234,7 +234,7 @@ void Arena::StartingEventOpenDoors()
 
 void Arena::RemovePlayerAtLeave(ObjectGuid guid, bool transport, bool sendPacket)
 {
-    if (Player* player = ObjectAccessor::FindPlayer(guid))
+    if (Player* player = FindMemberPlayer(guid))
     {
         player->RemoveAurasDueToSpell(SPELL_ARENA_PERIODIC_AURA);
         player->RemoveAurasDueToSpell(SPELL_ENTERING_BATTLEGROUND);
@@ -314,7 +314,7 @@ void Arena::EndBattleground(uint32 winner)
 
         for (const auto& itr : GetPlayers())
         {
-            if (auto player = ObjectAccessor::FindPlayer(itr.first))
+            if (auto player = FindMemberPlayer(itr.first))
             {
                 LogsSystem::RosterData data;
                 data.GuidLow = player->GetGUIDLow();

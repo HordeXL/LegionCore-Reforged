@@ -150,7 +150,7 @@ namespace
 
         if (application.Listed)
         {
-            if (Player* player = application.GetPlayer())
+            ObjectAccessor::WithPlayer(application.GetPlayerGUID(), [&](Player* player)
             {
                 WorldPackets::LfgList::ApplicantMember member;
                 member.PlayerGUID = player->GetGUID();
@@ -161,7 +161,7 @@ namespace
                 member.PossibleRoleMask = application.RoleMask;
                 member.SelectedRoleMask = 0;
                 info.Member.emplace_back(member);
-            }
+            });
         }
 
         update.Applicants.emplace_back(info);
@@ -790,7 +790,8 @@ void LFGListMgr::_ChangeApplicantStatus(LFGListEntry* listEntry, uint32 applicat
         return;
 
     bool remove = false;
-    Player* player = application->GetPlayer();
+    ObjectGuid const playerGuid = application->GetPlayerGUID();
+    bool const online = ObjectAccessor::IsPlayerOnline(playerGuid);
 
     application->ApplicationStatus = status;
 
@@ -798,18 +799,18 @@ void LFGListMgr::_ChangeApplicantStatus(LFGListEntry* listEntry, uint32 applicat
     {
         case LFGListApplicationStatus::Invited:
             // the count already includes this application
-            if (!listEntry->ApplicationGroup->isRaidGroup() && _GetMemeberCountInGroupIncludingInvite(listEntry) > 5 || player && _CanQueueFor(listEntry, player) != LFGListStatus::None)
+            if (!listEntry->ApplicationGroup->isRaidGroup() && _GetMemeberCountInGroupIncludingInvite(listEntry) > 5 || online && _CanQueueFor(listEntry, playerGuid) != LFGListStatus::None)
                 break;
         case LFGListApplicationStatus::Applied:
             application->ResetTimeout();
             listEntry->ResetTimeout();
             outbox.Packets.push_back({ GetMemberGuids(listEntry->ApplicationGroup), BuildStatusUpdate(listEntry, true) });
 
-            if (notify && player)
+            if (notify && online)
             {
                 LFGListOutbox::ApplyResult result;
                 result.Entry = MakeSnapshot(listEntry);
-                result.Applicant = player->GetGUID();
+                result.Applicant = playerGuid;
                 result.ApplicationID = application->ID;
                 result.ApplicationTime = application->ApplicationTime;
                 result.Timeout = application->Timeout;
@@ -827,8 +828,8 @@ void LFGListMgr::_ChangeApplicantStatus(LFGListEntry* listEntry, uint32 applicat
         case LFGListApplicationStatus::DeclinedDelisted:
             application->Listed = false;
             remove = true;
-            if (notify && player)
-                outbox.Packets.push_back({ { player->GetGUID() }, BuildGroupInviteResponse(listEntry->ApplicationGroup->GetGUID(), listEntry->CreationTime, *application) });
+            if (notify && online)
+                outbox.Packets.push_back({ { playerGuid }, BuildGroupInviteResponse(listEntry->ApplicationGroup->GetGUID(), listEntry->CreationTime, *application) });
             break;
         default: // InviteAccepted: RespondToInvite, which must join the group without the lock
             break;
@@ -963,11 +964,36 @@ LFGListStatus LFGListMgr::_CanQueueFor(LFGListEntry* entry, Player* requestingPl
     if (!requestingPlayer)
         return LFGListStatus::None;
 
+    ApplicantInfo applicant;
+    applicant.LowGuid = requestingPlayer->GetGUIDLow();
+    applicant.Team = requestingPlayer->GetTeam();
+    applicant.Level = requestingPlayer->getLevel();
+    applicant.ItemLevel = GetPlayerItemLevelForActivity(entry->GroupFinderActivityData, requestingPlayer);
+    return _CanQueueFor(entry, applicant, apply);
+}
+
+LFGListStatus LFGListMgr::_CanQueueFor(LFGListEntry* entry, ObjectGuid const& playerGuid)
+{
+    ApplicantInfo applicant;
+    if (!ObjectAccessor::WithPlayer(playerGuid, [&](Player* player)
+    {
+        applicant.LowGuid = player->GetGUIDLow();
+        applicant.Team = player->GetTeam();
+        applicant.Level = player->getLevel();
+        applicant.ItemLevel = GetPlayerItemLevelForActivity(entry->GroupFinderActivityData, player);
+    }))
+        return LFGListStatus::None;
+
+    return _CanQueueFor(entry, applicant, true);
+}
+
+LFGListStatus LFGListMgr::_CanQueueFor(LFGListEntry* entry, ApplicantInfo const& applicant, bool apply)
+{
     auto group = entry->ApplicationGroup;
     auto activity = entry->GroupFinderActivityData;
-    auto iLvl = GetPlayerItemLevelForActivity(activity, requestingPlayer);
+    auto iLvl = applicant.ItemLevel;
 
-    if (requestingPlayer->GetTeam() != group->GetTeam())
+    if (applicant.Team != group->GetTeam())
         return LFGListStatus::LFG_LIST_STATUS_ERR_LFG_LIST_INVALID_SLOT;   ///< Shouldnt be a problem, because its only for filters
 
     if ((activity->MinGearLevelSuggestion && iLvl < activity->MinGearLevelSuggestion) || iLvl < entry->ItemLevel)
@@ -976,13 +1002,13 @@ LFGListStatus LFGListMgr::_CanQueueFor(LFGListEntry* entry, Player* requestingPl
     if ((activity->MaxPlayers && static_cast<int32>(group->GetMembersCount()) >= activity->MaxPlayers) || group->GetMembersCount() >= 40)
         return LFGListStatus::LFG_LIST_STATUS_ERR_LFG_LIST_TOO_MANY_MEMBERS;
 
-    if (requestingPlayer->getLevel() < activity->MinLevel || (activity->MaxLevelSuggestion && requestingPlayer->getLevel() > activity->MaxLevelSuggestion))
+    if (applicant.Level < activity->MinLevel || (activity->MaxLevelSuggestion && applicant.Level > activity->MaxLevelSuggestion))
         return LFGListStatus::LFG_LIST_STATUS_ERR_LFG_LIST_INVALID_SLOT;   ///< Filtered out
 
     if (apply)
         return LFGListStatus::None;
 
-    if (GetApplicationCountByPlayer(requestingPlayer->GetGUIDLow()) >= LFG_LIST_MAX_APPLICATIONS)
+    if (GetApplicationCountByPlayer(applicant.LowGuid) >= LFG_LIST_MAX_APPLICATIONS)
         return LFGListStatus::LFG_LIST_STATUS_ERR_LFG_LIST_REASON_TOO_MANY_LFG_LIST;
 
     return LFGListStatus::None;
@@ -1038,7 +1064,7 @@ void LFGListMgr::_AutoInviteApplicantsIfPossible(LFGListEntry* entry, LFGListOut
     // collected first: each status change may erase applications
     std::vector<uint32> ids;
     for (auto const& applicant : entry->ApplicationsContainer)
-        if (_CanQueueFor(entry, applicant.second.GetPlayer()) == LFGListStatus::None)
+        if (_CanQueueFor(entry, applicant.second.GetPlayerGUID()) == LFGListStatus::None)
             ids.push_back(applicant.first);
 
     for (uint32 id : ids)

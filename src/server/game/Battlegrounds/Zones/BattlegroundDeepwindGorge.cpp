@@ -647,7 +647,7 @@ void BattlegroundDeepwindGorge::Cart::CartDropped()
 
 Player* BattlegroundDeepwindGorge::Cart::ControlledBy()
 {
-    return ObjectAccessor::FindPlayer(m_controlledBy);
+    return m_bg->FindMemberPlayer(m_controlledBy);
 }
 
 void BattlegroundDeepwindGorge::Cart::CartDelivered()

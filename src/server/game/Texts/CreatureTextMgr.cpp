@@ -25,6 +25,8 @@
 #include "GridNotifiersImpl.h"
 #include "CreatureTextMgr.h"
 #include <utility>
+#include <mutex>
+#include <shared_mutex>
 #include "MiscPackets.h"
 #include "ChatPackets.h"
 #include "GlobalFunctional.h"
@@ -296,9 +298,17 @@ uint32 CreatureTextMgr::SendChat(Creature* source, uint8 textGroup, ObjectGuid w
 
     if (tempGroup.empty())
     {
-        auto mapItr = mTextRepeatMap.find(source->GetGUIDLow());
-        if (mapItr != mTextRepeatMap.end())
-            mapItr->second.find(textGroup)->second.clear();
+        {
+            // every map thread has creatures talking: the repeat map is shared
+            std::unique_lock<decltype(i_lockTextRepeat)> lock(i_lockTextRepeat);
+            auto mapItr = mTextRepeatMap.find(source->GetGUIDLow());
+            if (mapItr != mTextRepeatMap.end())
+            {
+                auto groupItr = mapItr->second.find(textGroup);
+                if (groupItr != mapItr->second.end())
+                    groupItr->second.clear();
+            }
+        }
 
         tempGroup = textGroupContainer;
     }
@@ -521,6 +531,7 @@ CreatureTextRepeatIds CreatureTextMgr::GetRepeatGroup(Creature* source, uint8 te
     ASSERT(source);//should never happen
     CreatureTextRepeatIds ids;
 
+    std::shared_lock<decltype(i_lockTextRepeat)> lock(i_lockTextRepeat);
     CreatureTextRepeatMap::const_iterator mapItr = mTextRepeatMap.find(source->GetGUIDLow());
     if (mapItr != mTextRepeatMap.end())
     {

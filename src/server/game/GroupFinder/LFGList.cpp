@@ -20,10 +20,10 @@ LFGListEntry::LFGListApplicationEntry::LFGListApplicationEntry(ObjectGuid::LowTy
     RoleMask = 0;
 }
 
-Player* LFGListEntry::LFGListApplicationEntry::GetPlayer() const
+ObjectGuid LFGListEntry::LFGListApplicationEntry::GetPlayerGUID() const
 {
-    return sObjectMgr->GetPlayerByLowGUID(PlayerLowGuid);
-};
+    return ObjectGuid::Create<HighGuid::Player>(PlayerLowGuid);
+}
 
 void LFGListEntry::LFGListApplicationEntry::ResetTimeout()
 {

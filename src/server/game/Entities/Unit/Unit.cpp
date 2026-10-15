@@ -4575,27 +4575,24 @@ void Unit::_AddAura(UnitAura* aura, Unit* caster)
          */
 
         // register single target aura
-        caster->GetSingleCastAuras().push_back(aura);
-        // remove other single target auras
-        Unit::AuraList& scAuras = caster->GetSingleCastAuras();
-        for (Unit::AuraList::iterator itr = scAuras.begin(); itr != scAuras.end();)
+        caster->AddSingleCastAura(aura);
+        // remove other single target auras; Remove() runs outside the list lock and unregisters the aura itself
+        Aura* lastRemoved = nullptr;
+        while (Aura* other = caster->FindConflictingSingleCastAura(aura))
         {
-            if ((*itr) != aura && (*itr)->IsSingleTargetWith(aura))
-            {
-                (*itr)->Remove();
-                itr = scAuras.begin();
-            }
-            else
-                ++itr;
+            if (other == lastRemoved)
+                break;
+
+            lastRemoved = other;
+            other->Remove();
         }
     }
     if (caster && aura->IsMultiSingleTarget())     // the caster may be gone (loaded or stolen auras)
     {
-        if (caster->GetMultiSingleTargetAuras().size() >= aura->GetMultiSingleTargetCount())
-            if (Aura* auraGB = caster->GetMultiSingleTargetAuras().front())
-                auraGB->Remove();
+        if (Aura* auraGB = caster->GetOldestMultiSingleTargetAura(aura->GetMultiSingleTargetCount()))
+            auraGB->Remove();
 
-        caster->GetMultiSingleTargetAuras().push_back(aura);
+        caster->AddMultiSingleTargetAura(aura);
     }
     if(caster)
         caster->AddMyCastAuras(aura);
@@ -5328,12 +5325,12 @@ void Unit::RemoveAurasDueToSpellBySteal(uint32 spellId, ObjectGuid casterGUID, U
                         newAura->UnregisterSingleTarget();
                         // bring back single target aura status to the old aura
                         aura->SetAuraAttribute(AURA_ATTR_IS_SINGLE_TARGET);
-                        caster->GetSingleCastAuras().push_back(aura);
+                        caster->AddSingleCastAura(aura);
                     }
                     if (newAura->IsMultiSingleTarget())
                     {
                         newAura->UnregisterMultiSingleTarget();
-                        caster->GetMultiSingleTargetAuras().push_back(aura);
+                        caster->AddMultiSingleTargetAura(aura);
                     }
                     // FIXME: using aura->GetMaxDuration() maybe not blizzlike but it fixes stealing of spells like Innervate
                     newAura->SetLoadedState(aura->GetMaxDuration(), int32(dur), stealCharge ? 1 : aura->GetCharges(), 1, recalculateMask, &damage[0]);
@@ -5460,32 +5457,28 @@ void Unit::RemoveNotOwnSingleTargetAuras(uint32 newPhase)
     // single target auras at other targets
     // if (newPhase)
     {
-        AuraList& scAuras = GetSingleCastAuras();
-        for (AuraList::iterator iter = scAuras.begin(); iter != scAuras.end();)
+        struct OtherTargetAura { Unit* unit; Aura* aura; uint32 spellId; };
+        std::vector<OtherTargetAura> toRemove;
         {
-            Aura* aura = *iter;
-            if (aura)
+            std::lock_guard<std::recursive_mutex> _lock(my_aura_lock);
+            for (Aura* aura : m_scAuras)
             {
+                if (!aura)
+                    continue;
+
                 WorldObject* _owner = aura->GetOwner();
                 if (!_owner || !_owner->ToUnit() || _owner == this || _owner->ToUnit()->isSummon())
-                {
-                    ++iter;
                     continue;
-                }
 
                 if (!_owner->InSamePhase(newPhase))
-                {
-                    if (Unit* _unit = _owner->ToUnit())
-                        _unit->RemoveAurasDueToSpell(aura->GetId());
-
-                    scAuras.remove(aura);
-                    iter = scAuras.begin();
-                }
-                else
-                    ++iter;
+                    toRemove.push_back({ _owner->ToUnit(), aura, aura->GetId() });
             }
-            else
-                ++iter;
+        }
+
+        for (OtherTargetAura const& entry : toRemove)
+        {
+            entry.unit->RemoveAurasDueToSpell(entry.spellId);
+            RemoveSingleCastAura(entry.aura);
         }
         RemoveMultiSingleTargetAuras(newPhase);
     }
@@ -27045,6 +27038,51 @@ void Unit::RemoveMyCastAuras(uint32 auraId, Aura* aura)
     }
 }
 
+void Unit::AddSingleCastAura(Aura* aura)
+{
+    std::lock_guard<std::recursive_mutex> _lock(my_aura_lock);
+    m_scAuras.push_back(aura);
+}
+
+void Unit::RemoveSingleCastAura(Aura* aura)
+{
+    std::lock_guard<std::recursive_mutex> _lock(my_aura_lock);
+    m_scAuras.remove(aura);
+}
+
+// First registered single target aura, other than the given one, that cannot coexist with it
+Aura* Unit::FindConflictingSingleCastAura(Aura const* aura)
+{
+    std::lock_guard<std::recursive_mutex> _lock(my_aura_lock);
+    for (Aura* other : m_scAuras)
+        if (other != aura && other->IsSingleTargetWith(aura))
+            return other;
+
+    return nullptr;
+}
+
+void Unit::AddMultiSingleTargetAura(Aura* aura)
+{
+    std::lock_guard<std::recursive_mutex> _lock(my_aura_lock);
+    m_gbAuras.push_back(aura);
+}
+
+void Unit::RemoveMultiSingleTargetAura(Aura* aura)
+{
+    std::lock_guard<std::recursive_mutex> _lock(my_aura_lock);
+    m_gbAuras.remove(aura);
+}
+
+// The oldest registered aura once the list holds `limit` entries
+Aura* Unit::GetOldestMultiSingleTargetAura(uint32 limit)
+{
+    std::lock_guard<std::recursive_mutex> _lock(my_aura_lock);
+    if (m_gbAuras.size() >= limit && !m_gbAuras.empty())
+        return m_gbAuras.front();
+
+    return nullptr;
+}
+
 void Unit::RemoveMyAurasDueToSpell(uint32 spellId)
 {
     if (!IsPlayer())
@@ -28060,11 +28098,14 @@ void Unit::Clear()
     m_whoHasMyAuras.clear();
     m_attackers.clear();
     m_triggeredEffect.clear();
-    m_scAuras.clear();
-    m_gbAuras.clear();
+    {
+        std::lock_guard<std::recursive_mutex> _lock(my_aura_lock);
+        m_scAuras.clear();
+        m_gbAuras.clear();
+        m_my_Auras.clear();
+    }
     m_interruptableAuras.clear();
     m_auraStateAuras.clear();
-    m_my_Auras.clear();
     m_visibleAuras.clear();
     m_sharedVision.clear();
     m_appliedAuras.clear();
@@ -28144,32 +28185,33 @@ uint32 Unit::GetSize()
 
 void Unit::RemoveMultiSingleTargetAuras(uint32 newPhase)
 {
-    AuraList& gbAuras = GetMultiSingleTargetAuras();
-    for (AuraList::iterator iter = gbAuras.begin(); iter != gbAuras.end();)
+    struct OtherTargetAura { Unit* unit; Aura* aura; uint32 spellId; };
+    std::vector<OtherTargetAura> toRemove;
     {
-        Aura* aura = *iter;
-        if (aura)
+        std::lock_guard<std::recursive_mutex> _lock(my_aura_lock);
+        for (Aura* aura : m_gbAuras)
         {
+            if (!aura)
+                continue;
+
             WorldObject* _owner = aura->GetOwner();
             if (_owner && _owner != this && !_owner->InSamePhase(newPhase))
-            {
-                if (Unit* _unit = _owner->ToUnit())
-                {
-                    uint32 auraID = aura->GetId();
-                    _unit->AddDelayedEvent(100, [_unit, auraID]() -> void
-                    {
-                        if (_unit)
-                            _unit->RemoveAurasDueToSpell(auraID);
-                    });
-                }
-                gbAuras.remove(aura);
-                iter = gbAuras.begin();
-            }
-            else
-                ++iter;
+                toRemove.push_back({ _owner->ToUnit(), aura, aura->GetId() });
         }
-        else
-            ++iter;
+    }
+
+    for (OtherTargetAura const& entry : toRemove)
+    {
+        if (Unit* _unit = entry.unit)
+        {
+            uint32 auraID = entry.spellId;
+            _unit->AddDelayedEvent(100, [_unit, auraID]() -> void
+            {
+                if (_unit)
+                    _unit->RemoveAurasDueToSpell(auraID);
+            });
+        }
+        RemoveMultiSingleTargetAura(entry.aura);
     }
 }
 

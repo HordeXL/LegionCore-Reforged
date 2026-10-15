@@ -89,7 +89,7 @@ struct LFGListEntry
         uint8 RoleMask;
         bool Listed;
 
-        Player* GetPlayer() const;
+        ObjectGuid GetPlayerGUID() const;
         void ResetTimeout();
         bool Update(uint32 const diff);
     };

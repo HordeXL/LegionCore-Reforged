@@ -778,8 +778,6 @@ class TC_GAME_API World
         void IncreaseSessionCount();
         void DecreaseSessionCount();
 
-        Player* FindPlayerInZone(uint32 zone);
-
         /// Deny clients?
         bool IsClosed() const;
 
