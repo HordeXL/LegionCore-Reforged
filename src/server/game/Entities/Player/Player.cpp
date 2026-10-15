@@ -3694,10 +3694,11 @@ void Player::RemoveFromGroup(Group* group, ObjectGuid guid, RemoveMethod method 
     {
         // the scenario belongs to another map's thread: its state is copied under the store lock
         bool chargeKey = false;
-        sScenarioMgr->WithScenario(group->m_challengeInstanceID, [&chargeKey, &group, &guid](Scenario* progress)
+        Group::ChallengeInfo const info = group->GetChallengeInfo();
+        sScenarioMgr->WithScenario(info.InstanceID, [&chargeKey, &info, &guid](Scenario* progress)
         {
             if (Challenge* _challenge = progress->GetChallenge())
-                chargeKey = guid == group->m_challengeOwner && !_challenge->_complete && _challenge->_run;
+                chargeKey = guid == info.Owner && !_challenge->_complete && _challenge->_run;
         });
 
         if (chargeKey)

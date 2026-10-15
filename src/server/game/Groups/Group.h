@@ -469,6 +469,25 @@ class TC_GAME_API Group
 
         bool InChallenge();
         bool GetMaxCountOfRolesForArenaQueue(uint8 role);
+
+        // Mythic+ key state. The fields below are guarded by m_lock: from a map thread use these accessors, not the fields.
+        struct ChallengeInfo
+        {
+            MapChallengeModeEntry const* Entry = nullptr;
+            ObjectGuid Owner;
+            ObjectGuid Item;
+            uint32 Level = 0;
+            uint32 InstanceID = 0;
+            std::array<uint32, 3> Affixes{};
+        };
+        ChallengeInfo GetChallengeInfo() const;
+        // records the instance of the run and returns the key state it starts with
+        ChallengeInfo StartChallenge(uint32 instanceId);
+        void SetChallenge(MapChallengeModeEntry const* entry, ObjectGuid owner, ObjectGuid item, uint32 level, std::array<uint32, 3> const& affixes);
+        void ResetChallenge();
+        // only if the group still runs this instance with this key (not a key started since)
+        bool ResetChallengeIf(uint32 instanceId, ObjectGuid item);
+
         ObjectGuid m_challengeOwner;
         ObjectGuid m_challengeItem;
         MapChallengeModeEntry const* m_challengeEntry;

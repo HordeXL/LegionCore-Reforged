@@ -203,27 +203,25 @@ void WorldSession::HandleStartChallengeMode(WorldPackets::ChallengeMode::StartCh
                 return;
             }
 
-            group->m_challengeEntry = sMapChallengeModeStore.LookupEntry(_player->m_challengeKeyInfo.ID);
-            group->m_affixes.fill(0);
-
+            MapChallengeModeEntry const* keyEntry = sMapChallengeModeStore.LookupEntry(_player->m_challengeKeyInfo.ID);
             MapChallengeModeEntry const* challengeEntry = sDB2Manager.GetChallengeModeByMapID(_player->GetMapId());
-            if (!group->m_challengeEntry || !challengeEntry || challengeEntry->MapID != group->m_challengeEntry->MapID)
+            if (!keyEntry || !challengeEntry || challengeEntry->MapID != keyEntry->MapID)
             {
-                group->m_challengeEntry = nullptr;
+                Group::ChallengeInfo const previous = group->GetChallengeInfo();   // as before: the group's key is cleared
+                group->SetChallenge(nullptr, previous.Owner, previous.Item, previous.Level, {});
                 ChatHandler(_player).PSendSysMessage("Error: Is not this challenge.");
                 return;
             }
 
-            group->m_challengeOwner = _player->GetGUID();
-            group->m_challengeItem = item->GetGUID();
-            group->m_challengeLevel = _player->m_challengeKeyInfo.Level;
-
-            if (group->m_challengeLevel > 3)
-                group->m_affixes[0] = _player->m_challengeKeyInfo.Affix;
-            if (group->m_challengeLevel > 6)
-                group->m_affixes[1] = _player->m_challengeKeyInfo.Affix1;
-            if (group->m_challengeLevel > 9)
-                group->m_affixes[2] = _player->m_challengeKeyInfo.Affix2;
+            uint32 const level = _player->m_challengeKeyInfo.Level;
+            std::array<uint32, 3> affixes{};
+            if (level > 3)
+                affixes[0] = _player->m_challengeKeyInfo.Affix;
+            if (level > 6)
+                affixes[1] = _player->m_challengeKeyInfo.Affix1;
+            if (level > 9)
+                affixes[2] = _player->m_challengeKeyInfo.Affix2;
+            group->SetChallenge(keyEntry, _player->GetGUID(), item->GetGUID(), level, affixes);
 
             WorldPackets::Instance::ChangePlayerDifficultyResult result;
             result.Result = AsUnderlyingType(ChangeDifficultyResult::DIFFICULTY_CHANGE_SET_COOLDOWN_S);
