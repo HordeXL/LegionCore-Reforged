@@ -19,6 +19,10 @@
 #ifndef _FORMATIONS_H
 #define _FORMATIONS_H
 
+#include <mutex>
+#include <unordered_map>
+#include <vector>
+
 class Creature;
 class CreatureGroup;
 
@@ -28,6 +32,9 @@ struct FormationInfo
     float follow_dist;
     float follow_angle;
     uint8 groupAI;
+
+    // scripts delete the shared info of a custom formation themselves in places: the manager has to hear of it
+    static TC_GAME_API void operator delete(void* info);
 };
 
 typedef std::unordered_map<ObjectGuid::LowType/*memberDBGUID*/, FormationInfo*>   CreatureGroupInfoType;
@@ -44,7 +51,15 @@ class TC_GAME_API FormationMgr
         void RemoveCreatureFromGroup(CreatureGroup* group, Creature* creature);
         void LoadCreatureFormations();
         CreatureGroupInfoType CreatureGroupMap;
+        // the info belongs to the leader's group and is freed with it
         FormationInfo* CreateCustomFormation(Creature* c);
+
+        bool IsCustomFormationOwnedBy(FormationInfo const* info, CreatureGroup const* group);
+        void ForgetCustomFormation(void const* info);
+
+    private:
+        std::mutex _customLock;                             // protects _customFormations (maps run in their own threads)
+        std::unordered_map<void const*, CreatureGroup const*> _customFormations;  // custom infos not deleted yet, with their group
 };
 
 class TC_GAME_API CreatureGroup
@@ -53,13 +68,17 @@ class TC_GAME_API CreatureGroup
         typedef std::map<Creature*, FormationInfo*>  CreatureGroupMemberType;
         CreatureGroupMemberType m_members;
 
+        std::vector<FormationInfo*> m_ownedInfos;           // custom infos created for this group
+
         ObjectGuid::LowType m_groupID;
         bool m_Formed;
 
     public:
         //Group cannot be created empty
         explicit CreatureGroup(ObjectGuid::LowType const& id);
-        ~CreatureGroup() {}
+        ~CreatureGroup();
+
+        void AddOwnedInfo(FormationInfo* info) { m_ownedInfos.push_back(info); }
 
         Creature* getLeader() const { return m_leader; }
         ObjectGuid::LowType GetId() const { return m_groupID; }

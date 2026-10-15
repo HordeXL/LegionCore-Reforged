@@ -155,12 +155,47 @@ FormationInfo* FormationMgr::CreateCustomFormation(Creature* c)
     group_member->follow_angle          = float(45 * M_PI / 180);
     sFormationMgr->AddCreatureToGroup(c->GetGUIDLow(), c);
     if (CreatureGroup* f = c->GetFormation())
+    {
+        // the group frees it with itself; with no group (creature outside a map) nothing owns it
+        {
+            std::lock_guard<std::mutex> lock(_customLock);
+            _customFormations[group_member] = f;
+        }
+        f->AddOwnedInfo(group_member);
         f->AddMember(c, group_member);
+    }
     return group_member;
+}
+
+bool FormationMgr::IsCustomFormationOwnedBy(FormationInfo const* info, CreatureGroup const* group)
+{
+    std::lock_guard<std::mutex> lock(_customLock);
+    auto itr = _customFormations.find(info);
+    return itr != _customFormations.end() && itr->second == group;
+}
+
+void FormationMgr::ForgetCustomFormation(void const* info)
+{
+    std::lock_guard<std::mutex> lock(_customLock);
+    _customFormations.erase(info);
+}
+
+void FormationInfo::operator delete(void* info)
+{
+    sFormationMgr->ForgetCustomFormation(info);
+    ::operator delete(info);
 }
 
 CreatureGroup::CreatureGroup(ObjectGuid::LowType const& id): m_leader(nullptr), m_groupID(id), m_Formed(false)
 {
+}
+
+CreatureGroup::~CreatureGroup()
+{
+    // a script may have deleted the shared info already, and its address may be another group's by now
+    for (FormationInfo* info : m_ownedInfos)
+        if (sFormationMgr->IsCustomFormationOwnedBy(info, this))
+            delete info;
 }
 
 void CreatureGroup::AddMember(Creature* member, FormationInfo* f)
