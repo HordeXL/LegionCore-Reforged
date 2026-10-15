@@ -123,6 +123,8 @@ class TC_GAME_API ChatHandler
         std::string extractPlayerNameFromLink(char* text);
         // select by arg (name/link) or in-game selection online/offline player
         bool extractPlayerTarget(char* args, Player** player, ObjectGuid* player_guid = nullptr, std::string* player_name = nullptr);
+        // same selection, but only the guid and name are returned: a player found by name may stand on another map, so no pointer
+        bool extractPlayerGuidTarget(char* args, ObjectGuid* player_guid, std::string* player_name = nullptr);
 
         std::string playerLink(std::string const& name) const { return m_session ? "|cffffffff|Hplayer:"+name+"|h["+name+"]|h|r" : name; }
         std::string GetNameLink(Player* chr) const { return playerLink(chr->GetName()); }

@@ -1231,6 +1231,46 @@ bool ChatHandler::extractPlayerTarget(char* args, Player** player, ObjectGuid* p
     return true;
 }
 
+bool ChatHandler::extractPlayerGuidTarget(char* args, ObjectGuid* player_guid, std::string* player_name /*= nullptr*/)
+{
+    ObjectGuid guid;
+    std::string name;
+    if (args && *args)
+    {
+        name = extractPlayerNameFromLink(args);
+        if (name.empty())
+        {
+            SendSysMessage(LANG_PLAYER_NOT_FOUND);
+            SetSentErrorMessage(true);
+            return false;
+        }
+
+        guid = sObjectAccessor->FindPlayerGuidByName(name);
+        if (guid.IsEmpty())
+            guid = ObjectMgr::GetPlayerGUIDByName(name);
+        if (guid.IsEmpty())
+            name.clear();
+    }
+    else if (Player* selected = getSelectedPlayer())
+    {
+        guid = selected->GetGUID();
+        name = selected->GetName();
+    }
+
+    if (guid.IsEmpty())
+    {
+        SendSysMessage(LANG_PLAYER_NOT_FOUND);
+        SetSentErrorMessage(true);
+        return false;
+    }
+
+    if (player_guid)
+        *player_guid = guid;
+    if (player_name)
+        *player_name = name;
+    return true;
+}
+
 void ChatHandler::extractOptFirstArg(char* args, char** arg1, char** arg2)
 {
     char* p1 = strtok(args, " ");

@@ -662,10 +662,7 @@ public:
         ObjectGuid parseGUID = ObjectGuid::Create<HighGuid::Player>(atol((char*)args));
 
         if (ObjectMgr::GetPlayerNameByGUID(parseGUID, targetName))
-        {
-            target = sObjectMgr->GetPlayerByLowGUID(parseGUID.GetGUIDLow());
             targetGuid = parseGUID;
-        }
         else if (!handler->extractPlayerTarget((char*)args, &target, &targetGuid, &targetName))
             return false;
 
