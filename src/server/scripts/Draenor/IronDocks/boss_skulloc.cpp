@@ -1,3 +1,11 @@
+////////////////////////////////////////////
+///                                      ///
+///         LEGIONCORE REFORGED          ///
+///  Copyright 2026 LegionCore Reforged  ///
+///         All Rights Reserved.         ///
+///                                      ///
+////////////////////////////////////////////
+
 /*
     Dungeon : Iron Docks 93-95
     Encounter: Skulloc <Son of Gruul>
@@ -470,7 +478,7 @@ public:
         {
             if (InstanceScript* instance = player->GetInstanceScript())
             {
-                uint8 textId;
+                uint8 textId = 0;
                 uint32 spellText[4] =
                 {
                     SPELL_IRON_DOCKS_BANTER_3,
@@ -509,6 +517,8 @@ public:
                     textId = 3;
                     break;
                 }
+                default:
+                    return true;
                 }
 
                 if (auto skulloc = instance->instance->GetCreature(instance->GetGuidData(NPC_SKULLOC)))

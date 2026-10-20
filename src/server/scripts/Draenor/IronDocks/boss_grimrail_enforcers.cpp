@@ -1,3 +1,11 @@
+////////////////////////////////////////////
+///                                      ///
+///         LEGIONCORE REFORGED          ///
+///  Copyright 2026 LegionCore Reforged  ///
+///         All Rights Reserved.         ///
+///                                      ///
+////////////////////////////////////////////
+
 /*
     Dungeon : Iron Docks / Железные доки 93-95
     Encounter: Grimrail Enforcers / Головорезы Мрачных Путей
@@ -446,6 +454,9 @@ class spell_neesa_ogre_traps : public AuraScript
 
         Unit* target = GetCaster()->getVictim();
         if (!target)
+            return;
+
+        if (Idx >= 8)
             return;
 
         caster->CastSpell(target, spellTrap[Idx], true);
