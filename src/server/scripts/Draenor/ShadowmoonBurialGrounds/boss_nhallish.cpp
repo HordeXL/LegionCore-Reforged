@@ -1,3 +1,11 @@
+////////////////////////////////////////////
+///                                      ///
+///         LEGIONCORE REFORGED          ///
+///  Copyright 2026 LegionCore Reforged  ///
+///         All Rights Reserved.         ///
+///                                      ///
+////////////////////////////////////////////
+
 /*
     Dungeon : Shadowmoon Burial Grounds 100
     Encounter: Nhallish
@@ -158,7 +166,7 @@ struct boss_nhallish : public BossAI
                 if (Player* plr = i->getSource())
                 {
                     if (!plr->IsAlive() || plr->isGameMaster())
-                        return;
+                        continue;
 
                     if (!plr->HasAura(SPELL_SOULLESS_SCREAN))
                     {

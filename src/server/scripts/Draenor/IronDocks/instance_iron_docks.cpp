@@ -1,3 +1,11 @@
+////////////////////////////////////////////
+///                                      ///
+///         LEGIONCORE REFORGED          ///
+///  Copyright 2026 LegionCore Reforged  ///
+///         All Rights Reserved.         ///
+///                                      ///
+////////////////////////////////////////////
+
 /*
     Dungeon : Iron Docks 93-95
 */
@@ -257,7 +265,7 @@ public:
 
         void WriteSaveDataMore(std::ostringstream& data) override
         {
-            for (uint8 i = 0; i < 7; i++)
+            for (uint8 i = 0; i < 5; i++)
                 data << (uint32)m_uiDialogs[i] << " ";
         }
 

@@ -1,3 +1,11 @@
+////////////////////////////////////////////
+///                                      ///
+///         LEGIONCORE REFORGED          ///
+///  Copyright 2026 LegionCore Reforged  ///
+///         All Rights Reserved.         ///
+///                                      ///
+////////////////////////////////////////////
+
 /*
     Dungeon : Shadowmoon Burial Grounds 100
     Encounter: Sadana Bloodfury
@@ -163,6 +171,7 @@ struct boss_sadana_bloodfury : public BossAI
             {
             case EVENT_DEATHSPIKE:
                 DoCast(me, SPELL_DEATHSPIKE, true);
+                events.RescheduleEvent(EVENT_DEATHSPIKE, 16000);
                 break;
             case EVENT_DAGGERFALL_SUMM:
                 DoCast(SPELL_DAGGERFALL_TARGETING);

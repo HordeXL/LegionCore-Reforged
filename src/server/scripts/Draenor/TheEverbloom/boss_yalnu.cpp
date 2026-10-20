@@ -1,3 +1,11 @@
+////////////////////////////////////////////
+///                                      ///
+///         LEGIONCORE REFORGED          ///
+///  Copyright 2026 LegionCore Reforged  ///
+///         All Rights Reserved.         ///
+///                                      ///
+////////////////////////////////////////////
+
 /*
     Dungeon : The Everbloom 100
     Encounter: Yalnu
@@ -168,18 +176,18 @@ struct boss_yalnu : public BossAI
                 if (Player* plr = i->getSource())
                 {
                     if (!plr->IsAlive() || plr->isGameMaster())
-                        break;
+                        continue;
 
                     if (plr->GetCurrentAreaID() == 7330)
                         find = true;
                 }
-
-                if (find && !me->isInCombat())
-                    DoZoneInCombat();
-                else if (!find && me->isInCombat())
-                    EnterEvadeMode();
             }
         }
+
+        if (find && !me->isInCombat())
+            DoZoneInCombat();
+        else if (!find && me->isInCombat())
+            EnterEvadeMode();
     }
 
     void UpdateAI(uint32 diff) override

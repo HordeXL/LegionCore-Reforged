@@ -1,3 +1,11 @@
+////////////////////////////////////////////
+///                                      ///
+///         LEGIONCORE REFORGED          ///
+///  Copyright 2026 LegionCore Reforged  ///
+///         All Rights Reserved.         ///
+///                                      ///
+////////////////////////////////////////////
+
 /*
     Dungeon : The Everbloom 100
     Encounter: Witherbark
@@ -275,12 +283,11 @@ struct boss_witherbark : public BossAI
                 events.RescheduleEvent(EVENT_AGITATED_WATER, 6000);
                 break;
             case EVENT_SUM_AQUEOUS:
-                if (aquaRand = urand(0, 3))
+                for (uint8 i = 0; i < 3; ++i)
+                {
+                    aquaRand = urand(i * 4, i * 4 + 3);
                     me->CastSpell(aquaSummPos[aquaRand], SPELL_SUM_AQUEOUS_GLOBULE, true);
-                if (aquaRand = urand(4, 7))
-                    me->CastSpell(aquaSummPos[aquaRand], SPELL_SUM_AQUEOUS_GLOBULE, true);
-                if (aquaRand = urand(8, 11))
-                    me->CastSpell(aquaSummPos[aquaRand], SPELL_SUM_AQUEOUS_GLOBULE, true);
+                }
 
                 events.RescheduleEvent(EVENT_SUM_AQUEOUS, 15000, 0, STAGE_AQUEOUS);
                 break;
