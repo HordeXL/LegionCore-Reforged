@@ -1,3 +1,11 @@
+////////////////////////////////////////////
+///                                      ///
+///         LEGIONCORE REFORGED          ///
+///  Copyright 2026 LegionCore Reforged  ///
+///         All Rights Reserved.         ///
+///                                      ///
+////////////////////////////////////////////
+
 /*
     Dungeon : The Everbloom 100
     Encounter: Ancient Protectors
@@ -169,7 +177,10 @@ public:
                         auto targetA = instance->instance->GetCreature(instance->GetGuidData(NPC_EARTHSHAPER_TELU));
                         auto targetB = instance->instance->GetCreature(instance->GetGuidData(NPC_DULHU));
                         if (!targetA || !targetB)
+                        {
+                            events.RescheduleEvent(EVENT_HEAL_PCT, 22000);
                             return;
+                        }
 
                         if (targetA->IsAlive() && targetB->IsAlive())
                             targetGUID = targetA->GetHealthPct() < targetB->GetHealthPct() ? targetA->GetGUID() : targetB->GetGUID();
@@ -292,7 +303,10 @@ public:
                         auto targetA = instance->instance->GetCreature(instance->GetGuidData(NPC_LIFE_WARDEN_GOLA));
                         auto targetB = instance->instance->GetCreature(instance->GetGuidData(NPC_DULHU));
                         if (!targetA || !targetB)
+                        {
+                            events.RescheduleEvent(EVENT_BRIARSKIN, 22000);
                             return;
+                        }
 
                         if (targetA->IsAlive() && targetB->IsAlive())
                             targetGUID = targetA->GetHealthPct() < targetB->GetHealthPct() ? targetA->GetGUID() : targetB->GetGUID();
