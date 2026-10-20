@@ -1700,6 +1700,29 @@ struct go_pirate_day_music : public GameObjectAI
     }
 };
 
+/// Allied race banners of the embassies: their retail spells (257927, 257928, 257989, 257990) are not in the 7.3.5 client, the server opens the window itself
+class go_allied_race_banner : public GameObjectScript
+{
+public:
+    go_allied_race_banner() : GameObjectScript("go_allied_race_banner") { }
+
+    bool OnGossipHello(Player* player, GameObject* go) override
+    {
+        uint32 raceId = 0;
+        switch (go->GetEntry())
+        {
+            case 273293: raceId = 27; break;   // Nightborne
+            case 273286: raceId = 28; break;   // Highmountain Tauren
+            case 273853: raceId = 29; break;   // Void Elf
+            case 273855: raceId = 30; break;   // Lightforged Draenei
+            default: return false;
+        }
+
+        player->GetSession()->SendOpenAlliedRaceDetails(go->GetGUID(), raceId);
+        return true;
+    }
+};
+
 void AddSC_go_scripts()
 {
     new go_cat_figurine;
@@ -1750,4 +1773,5 @@ void AddSC_go_scripts()
     RegisterGameObjectAI(go_midsummer_music);
     RegisterGameObjectAI(go_darkmoon_faire_music);
     RegisterGameObjectAI(go_pirate_day_music);
+    new go_allied_race_banner();
 }
