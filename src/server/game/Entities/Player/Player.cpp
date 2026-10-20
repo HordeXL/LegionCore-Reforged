@@ -9037,6 +9037,10 @@ void Player::RewardReputation(Unit* victim, float rate, bool killer)
             if (!factionEntry)
                 continue;
 
+            // a kill rewarding both sides (one faction each for Horde and Alliance) only rewards the player's own
+            if (!GetReputationMgr().IsOpenToPlayerRace(factionEntry))
+                continue;
+
             uint32 reputationRank = GetReputationMgr().GetRank(factionEntry);
             if (reputationRank < Rep->ReputationCap)
                 GetReputationMgr().ModifyReputation(factionEntry, donerep);

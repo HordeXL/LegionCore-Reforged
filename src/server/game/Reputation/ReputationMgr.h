@@ -94,6 +94,7 @@ class TC_GAME_API ReputationMgr
         int32 GetReputation(uint32 faction_id) const;
         int32 GetReputation(FactionEntry const* factionEntry) const;
         int32 GetBaseReputation(FactionEntry const* factionEntry) const;
+        bool IsOpenToPlayerRace(FactionEntry const* factionEntry) const;
 
         ReputationRank GetRank(FactionEntry const* factionEntry) const;
         ReputationRank GetBaseRank(FactionEntry const* factionEntry) const;
