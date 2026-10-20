@@ -1,3 +1,11 @@
+////////////////////////////////////////////
+///                                      ///
+///         LEGIONCORE REFORGED          ///
+///  Copyright 2026 LegionCore Reforged  ///
+///         All Rights Reserved.         ///
+///                                      ///
+////////////////////////////////////////////
+
 void AddSC_wod_gorgrond();
 void AddSC_wod_spires_of_arak();
 void AddSC_wod_tanaan_jungle();
@@ -12,6 +20,12 @@ void AddSC_boss_azzakel();
 void AddSC_boss_teronogor();
 void AddSC_boss_nyami();
 void AddSC_boss_kaathar();
+
+void AddSC_instance_grimrail_depot(); // Grimrail Depot
+void AddSC_grimrail_depot();
+void AddSC_boss_rocketspark_and_borka();
+void AddSC_boss_nitrogg_thundertower();
+void AddSC_boss_skylord_tovra();
 
 void AddSC_instance_blackrock_foundry(); // Raid: Blackrock Foundry
 
@@ -83,6 +97,12 @@ void AddDraenorScripts()
     AddSC_boss_teronogor();
     AddSC_boss_nyami();
     AddSC_boss_kaathar();
+
+    AddSC_instance_grimrail_depot(); // Grimrail Depot
+    AddSC_grimrail_depot();
+    AddSC_boss_rocketspark_and_borka();
+    AddSC_boss_nitrogg_thundertower();
+    AddSC_boss_skylord_tovra();
 
     AddSC_instance_blackrock_foundry(); // Raid: Blackrock Foundry
 
