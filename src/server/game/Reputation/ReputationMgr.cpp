@@ -171,6 +171,28 @@ int32 ReputationMgr::GetBaseReputation(FactionEntry const* factionEntry) const
     return 0;
 }
 
+// A faction restricted to some races (Laughing Skull Orcs for the Horde, Sha'tari Defense for the Alliance) is not open to the others;
+// one with no race restriction at all is open to everyone.
+bool ReputationMgr::IsOpenToPlayerRace(FactionEntry const* factionEntry) const
+{
+    if (!factionEntry)
+        return false;
+
+    uint64 raceMask = _player->getRaceMask();
+    bool restricted = false;
+    for (uint8 i = 0; i < 4; ++i)
+    {
+        if (!factionEntry->ReputationRaceMask[i])
+            continue;
+
+        restricted = true;
+        if (factionEntry->ReputationRaceMask[i] & raceMask)
+            return true;
+    }
+
+    return !restricted;
+}
+
 int32 ReputationMgr::GetReputation(FactionEntry const* factionEntry) const
 {
     // Faction without recorded reputation. Just ignore.
