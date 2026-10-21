@@ -1,19 +1,14 @@
-/*
- * Copyright (C) 2008-2012 TrinityCore <http://www.trinitycore.org/>
- *
- * This program is free software; you can redistribute it and/or modify it
- * under the terms of the GNU General Public License as published by the
- * Free Software Foundation; either version 2 of the License, or (at your
- * option) any later version.
- *
- * This program is distributed in the hope that it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for
- * more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program. If not, see <http://www.gnu.org/licenses/>.
- */
+////////////////////////////////////////////
+///                                      ///
+///         LEGIONCORE REFORGED          ///
+///    Copyright 2026 Titans-Project     ///
+///         All Rights Reserved.         ///
+///                                      ///
+///      Based on TrinityCore code       ///
+///   Copyright 2008-2012 TrinityCore    ///
+///   <http://www.trinitycore.org/>      ///
+///                                      ///
+////////////////////////////////////////////
 
 /* ScriptData
 Name: learn_commandscript
@@ -139,12 +134,17 @@ public:
     static bool HandleLearnAllDefaultCommand(ChatHandler* handler, char const* args)
     {
         Player* target;
-        if (!handler->extractPlayerTarget((char*)args, &target))
+        ObjectGuid targetGuid;
+        std::string targetName;
+        if (!handler->extractOnlinePlayerTarget((char*)args, &target, &targetGuid, &targetName))
             return false;
 
-        target->learnQuestRewardedSpells();
+        if (target)
+            target->learnQuestRewardedSpells();
+        else if (!handler->PostToTarget(targetGuid, [](Player* player) { player->learnQuestRewardedSpells(); }))
+            return false;
 
-        handler->PSendSysMessage(LANG_COMMAND_LEARN_ALL_DEFAULT_AND_QUEST, handler->GetNameLink(target).c_str());
+        handler->PSendSysMessage(LANG_COMMAND_LEARN_ALL_DEFAULT_AND_QUEST, handler->playerLink(targetName).c_str());
         return true;
     }
 

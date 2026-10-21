@@ -1,19 +1,14 @@
-/*
- * Copyright (C) 2008-2012 TrinityCore <http://www.trinitycore.org/>
- *
- * This program is free software; you can redistribute it and/or modify it
- * under the terms of the GNU General Public License as published by the
- * Free Software Foundation; either version 2 of the License, or (at your
- * option) any later version.
- *
- * This program is distributed in the hope that it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for
- * more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program. If not, see <http://www.gnu.org/licenses/>.
- */
+////////////////////////////////////////////
+///                                      ///
+///         LEGIONCORE REFORGED          ///
+///    Copyright 2026 Titans-Project     ///
+///         All Rights Reserved.         ///
+///                                      ///
+///      Based on TrinityCore code       ///
+///   Copyright 2008-2012 TrinityCore    ///
+///   <http://www.trinitycore.org/>      ///
+///                                      ///
+////////////////////////////////////////////
 
 /* ScriptData
 Name: reset_commandscript
@@ -52,11 +47,17 @@ public:
     {
         Player* target;
         ObjectGuid targetGuid;
-        if (!handler->extractPlayerTarget((char*)args, &target, &targetGuid))
+        std::string targetName;
+        if (!handler->extractPlayerTarget((char*)args, &target, &targetGuid, &targetName))
             return false;
 
         if (target)
             target->GetAchievementMgr()->Reset();
+        else if (ChatHandler::IsOnlineElsewhere(target, targetGuid))
+        {
+            if (!handler->PostToTarget(targetGuid, [](Player* player) { player->GetAchievementMgr()->Reset(); }, targetName.c_str()))
+                return false;
+        }
         else
             AchievementMgr<Player>::DeleteFromDB(targetGuid);
 
@@ -66,12 +67,22 @@ public:
     static bool HandleResetHonorCommand(ChatHandler* handler, char const* args)
     {
         Player* target;
-        if (!handler->extractPlayerTarget((char*)args, &target))
+        ObjectGuid targetGuid;
+        std::string targetName;
+        if (!handler->extractOnlinePlayerTarget((char*)args, &target, &targetGuid, &targetName))
             return false;
 
-        target->SetUInt32Value(PLAYER_FIELD_YESTERDAY_HONORABLE_KILLS, 0);
-        target->SetUInt32Value(PLAYER_FIELD_LIFETIME_HONORABLE_KILLS, 0);
-        target->UpdateAchievementCriteria(CRITERIA_TYPE_EARN_HONORABLE_KILL);
+        auto resetHonor = [](Player* player)
+        {
+            player->SetUInt32Value(PLAYER_FIELD_YESTERDAY_HONORABLE_KILLS, 0);
+            player->SetUInt32Value(PLAYER_FIELD_LIFETIME_HONORABLE_KILLS, 0);
+            player->UpdateAchievementCriteria(CRITERIA_TYPE_EARN_HONORABLE_KILL);
+        };
+
+        if (target)
+            resetHonor(target);
+        else if (!handler->PostToTarget(targetGuid, resetHonor, targetName.c_str()))
+            return false;
 
         return true;
     }
@@ -129,6 +140,15 @@ public:
             if (!handler->GetSession() || handler->GetSession()->GetPlayer() != target)
                 handler->PSendSysMessage(LANG_RESET_SPELLS_ONLINE, handler->GetNameLink(target).c_str());
         }
+        else if (ChatHandler::IsOnlineElsewhere(target, targetGuid))
+        {
+            handler->PSendSysMessage(LANG_RESET_SPELLS_ONLINE, handler->playerLink(targetName).c_str());
+            return handler->PostToTarget(targetGuid, [](Player* player)
+            {
+                player->resetSpells();
+                ChatHandler(player).SendSysMessage(LANG_RESET_SPELLS);
+            });
+        }
         else
         {
             CharacterDatabasePreparedStatement* stmt = CharacterDatabase.GetPreparedStatement(CHAR_UPD_ADD_AT_LOGIN_FLAG);
@@ -145,18 +165,27 @@ public:
     static bool HandleResetStatsCommand(ChatHandler* handler, char const* args)
     {
         Player* target;
-        if (!handler->extractPlayerTarget((char*)args, &target))
+        ObjectGuid targetGuid;
+        std::string targetName;
+        if (!handler->extractOnlinePlayerTarget((char*)args, &target, &targetGuid, &targetName))
             return false;
 
-        if (!HandleResetStatsOrLevelHelper(target))
-            return false;
+        auto resetStats = [](Player* player)
+        {
+            if (!HandleResetStatsOrLevelHelper(player))
+                return false;
 
-        target->InitRunes();
-        target->InitStatsForLevel(true);
-        target->InitTaxiNodesForLevel();
-        target->InitTalentForLevel();
+            player->InitRunes();
+            player->InitStatsForLevel(true);
+            player->InitTaxiNodesForLevel();
+            player->InitTalentForLevel();
+            return true;
+        };
 
-        return true;
+        if (target)
+            return resetStats(target);
+
+        return handler->PostToTarget(targetGuid, [resetStats](Player* player) { resetStats(player); }, targetName.c_str());
     }
 
     static bool HandleResetTalentsCommand(ChatHandler* handler, char const* args)
@@ -184,6 +213,20 @@ public:
             if (pet)
                 target->SendTalentsInfoData(true);
             return true;
+        }
+        if (ChatHandler::IsOnlineElsewhere(target, targetGuid))
+        {
+            handler->PSendSysMessage(LANG_RESET_TALENTS_ONLINE, handler->playerLink(targetName).c_str());
+            return handler->PostToTarget(targetGuid, [](Player* player)
+            {
+                player->ResetTalentSpecialization();
+                player->ResetTalents(true);
+                player->SendTalentsInfoData(false);
+                ChatHandler(player).SendSysMessage(LANG_RESET_TALENTS);
+
+                if (player->GetPet())
+                    player->SendTalentsInfoData(true);
+            });
         }
         if (targetGuid)
         {
@@ -225,6 +268,18 @@ public:
                 handler->PSendSysMessage(LANG_RESET_TALENTS_ONLINE, handler->GetNameLink(target).c_str());
 
             return true;
+        }
+        if (ChatHandler::IsOnlineElsewhere(target, targetGuid))
+        {
+            handler->PSendSysMessage(LANG_RESET_TALENTS_ONLINE, handler->playerLink(targetName).c_str());
+            return handler->PostToTarget(targetGuid, [](Player* player)
+            {
+                player->resetSpells();
+                player->ResetTalentSpecialization();
+                player->ResetTalents(true);
+                player->SendTalentsInfoData(false);
+                ChatHandler(player).SendSysMessage(LANG_RESET_TALENTS);
+            });
         }
         if (targetGuid)
         {

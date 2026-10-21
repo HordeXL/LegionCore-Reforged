@@ -1,19 +1,14 @@
-/*
- * Copyright (C) 2008-2012 TrinityCore <http://www.trinitycore.org/>
- *
- * This program is free software; you can redistribute it and/or modify it
- * under the terms of the GNU General Public License as published by the
- * Free Software Foundation; either version 2 of the License, or (at your
- * option) any later version.
- *
- * This program is distributed in the hope that it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for
- * more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program. If not, see <http://www.gnu.org/licenses/>.
- */
+////////////////////////////////////////////
+///                                      ///
+///         LEGIONCORE REFORGED          ///
+///    Copyright 2026 Titans-Project     ///
+///         All Rights Reserved.         ///
+///                                      ///
+///      Based on TrinityCore code       ///
+///   Copyright 2008-2012 TrinityCore    ///
+///   <http://www.trinitycore.org/>      ///
+///                                      ///
+////////////////////////////////////////////
 
 /* ScriptData
 Name: character_commandscript
@@ -27,6 +22,7 @@ EndScriptData */
 #include "Chat.h"
 #include "DatabaseEnv.h"
 #include "GlobalFunctional.h"
+#include "ObjectAccessor.h"
 #include "ObjectMgr.h"
 #include "PlayerDump.h"
 #include "ScriptMgr.h"
@@ -228,8 +224,43 @@ public:
             sWorld->AddCharacterInfo(delInfo.Guid, delInfo.accountId, delInfo.name, (*result)[2].GetUInt8(), (*result)[0].GetUInt8(), (*result)[1].GetUInt8(), (*result)[2].GetUInt8());
     }
 
+    // level of a target that may stand on another map
+    static uint32 GetTargetLevel(Player* target, ObjectGuid guid)
+    {
+        if (target)
+            return target->getLevel();
+
+        uint32 level = 0;
+        if (ObjectAccessor::WithPlayer(guid, [&level](Player* player) { level = player->getLevel(); }, ObjectAccessor::PlayerScope::InOrOutOfWorld))
+            return level;
+
+        return Player::GetLevelFromDB(guid);
+    }
+
     static void HandleCharacterLevel(Player* player, ObjectGuid playerGuid, uint32 oldLevel, uint32 newLevel, ChatHandler* handler)
     {
+        if (!player && ChatHandler::IsOnlineElsewhere(player, playerGuid))
+        {
+            // changed in the target's own thread; whether he is told is decided here, from the caller's side
+            bool const report = handler->NeedReportToElsewhere(playerGuid);
+            ObjectAccessor::PostToPlayer(playerGuid, [oldLevel, newLevel, report, gmLink = handler->GetNameLink()](Player* target)
+            {
+                target->GiveLevel(newLevel);
+                target->SetUInt32Value(PLAYER_FIELD_XP, 0);
+
+                if (report)
+                {
+                    if (oldLevel == newLevel)
+                        ChatHandler(target).PSendSysMessage(LANG_YOURS_LEVEL_PROGRESS_RESET, gmLink.c_str());
+                    else if (oldLevel < newLevel)
+                        ChatHandler(target).PSendSysMessage(LANG_YOURS_LEVEL_UP, gmLink.c_str(), newLevel);
+                    else
+                        ChatHandler(target).PSendSysMessage(LANG_YOURS_LEVEL_DOWN, gmLink.c_str(), newLevel);
+                }
+            });
+            return;
+        }
+
         if (player)
         {
             player->GiveLevel(newLevel);
@@ -261,23 +292,43 @@ public:
             return false;
 
         Player* target;
-        if (!handler->extractPlayerTarget((char*)args, &target))
+        ObjectGuid targetGuid;
+        if (!handler->extractOnlinePlayerTarget((char*)args, &target, &targetGuid))
             return false;
 
+        // a target on another map is read once, under the accessor lock
+        std::string playerName;
+        uint32 activeTitle = 0;
+        std::vector<CharTitlesEntry const*> knownTitles;
+        auto readTitles = [&](Player* player)
+        {
+            playerName = player->GetName();
+            activeTitle = player->GetUInt32Value(PLAYER_FIELD_PLAYER_TITLE);
+            for (CharTitlesEntry const* titleInfo : sCharTitlesStore)
+                if (player->HasTitle(titleInfo))
+                    knownTitles.push_back(titleInfo);
+        };
+
+        if (target)
+            readTitles(target);
+        else if (!ObjectAccessor::WithPlayer(targetGuid, readTitles, ObjectAccessor::PlayerScope::InOrOutOfWorld))
+        {
+            handler->SendSysMessage(LANG_PLAYER_NOT_FOUND);
+            handler->SetSentErrorMessage(true);
+            return false;
+        }
+
         LocaleConstant loc = handler->GetSessionDbcLocale();
-        char const* targetName = target->GetName();
+        char const* targetName = playerName.c_str();
         char const* knownStr = handler->GetTrinityString(LANG_KNOWN);
 
-        for (CharTitlesEntry const* titleInfo : sCharTitlesStore)
+        for (CharTitlesEntry const* titleInfo : knownTitles)
         {
-            if (!target->HasTitle(titleInfo))
-                continue;
-
             std::string name = titleInfo->Name->Str[sObjectMgr->GetDBCLocaleIndex()];
             if (name.empty())
                 continue;
 
-            char const* activeStr = target && target->GetUInt32Value(PLAYER_FIELD_PLAYER_TITLE) == titleInfo->MaskID
+            char const* activeStr = activeTitle == titleInfo->MaskID
                 ? handler->GetTrinityString(LANG_ACTIVE)
                 : "";
 
@@ -311,6 +362,15 @@ public:
 
             handler->PSendSysMessage(LANG_RENAME_PLAYER, handler->GetNameLink(target).c_str());
             sCharacterService->SetRename(target);
+        }
+        else if (ChatHandler::IsOnlineElsewhere(target, targetGuid))
+        {
+            if (handler->HasLowerSecurity(nullptr, targetGuid))
+                return false;
+
+            handler->PSendSysMessage(LANG_RENAME_PLAYER, handler->playerLink(targetName).c_str());
+            if (!handler->PostToTarget(targetGuid, [](Player* player) { sCharacterService->SetRename(player); }))
+                return false;
         }
         else
         {
@@ -351,7 +411,7 @@ public:
         if (!handler->extractPlayerTarget(nameStr, &target, &targetGuid, &targetName))
             return false;
 
-        int32 oldlevel = target ? target->getLevel() : Player::GetLevelFromDB(targetGuid);
+        int32 oldlevel = GetTargetLevel(target, targetGuid);
         int32 newlevel = levelStr ? atoi(levelStr) : oldlevel;
 
         if (newlevel < 1)
@@ -387,6 +447,13 @@ public:
             target->SetAtLoginFlag(AT_LOGIN_CUSTOMIZE);
             stmt->setUInt64(1, target->GetGUID().GetGUIDLow());
         }
+        else if (ChatHandler::IsOnlineElsewhere(target, targetGuid))
+        {
+            handler->PSendSysMessage(LANG_CUSTOMIZE_PLAYER, handler->playerLink(targetName).c_str());
+            // the in-memory flag is the target's own; the row below covers a logout before it is set
+            ObjectAccessor::PostToPlayer(targetGuid, [](Player* player) { player->SetAtLoginFlag(AT_LOGIN_CUSTOMIZE); });
+            stmt->setUInt64(1, targetGuid.GetGUIDLow());
+        }
         else
         {
             std::string oldNameLink = handler->playerLink(targetName);
@@ -414,6 +481,12 @@ public:
             handler->PSendSysMessage(LANG_CUSTOMIZE_PLAYER, handler->GetNameLink(target).c_str());
             target->SetAtLoginFlag(AT_LOGIN_CHANGE_FACTION);
             stmt->setUInt64(1, target->GetGUID().GetGUIDLow());
+        }
+        else if (ChatHandler::IsOnlineElsewhere(target, targetGuid))
+        {
+            handler->PSendSysMessage(LANG_CUSTOMIZE_PLAYER, handler->playerLink(targetName).c_str());
+            ObjectAccessor::PostToPlayer(targetGuid, [](Player* player) { player->SetAtLoginFlag(AT_LOGIN_CHANGE_FACTION); });
+            stmt->setUInt64(1, targetGuid.GetGUIDLow());
         }
         else
         {
@@ -443,6 +516,13 @@ public:
             target->SetAtLoginFlag(AT_LOGIN_CHANGE_RACE);
             stmt->setUInt64(1, target->GetGUID().GetGUIDLow());
         }
+        else if (ChatHandler::IsOnlineElsewhere(target, targetGuid))
+        {
+            // TODO : add text into database
+            handler->PSendSysMessage(LANG_CUSTOMIZE_PLAYER, handler->playerLink(targetName).c_str());
+            ObjectAccessor::PostToPlayer(targetGuid, [](Player* player) { player->SetAtLoginFlag(AT_LOGIN_CHANGE_RACE); });
+            stmt->setUInt64(1, targetGuid.GetGUIDLow());
+        }
         else
         {
             std::string oldNameLink = handler->playerLink(targetName);
@@ -458,18 +538,45 @@ public:
     static bool HandleCharacterReputationCommand(ChatHandler* handler, char const* args)
     {
         Player* target;
-        if (!handler->extractPlayerTarget((char*)args, &target))
+        ObjectGuid targetGuid;
+        if (!handler->extractOnlinePlayerTarget((char*)args, &target, &targetGuid))
             return false;
+
+        // a target on another map is copied once, under the accessor lock
+        struct FactionRow
+        {
+            FactionState State;
+            ReputationRank Rank;
+            int32 Reputation;
+        };
+        std::vector<FactionRow> rows;
+        auto readReputation = [&rows](Player* player)
+        {
+            ReputationMgr& mgr = player->GetReputationMgr();
+            for (FactionState const& state : mgr.GetStateList())
+            {
+                FactionEntry const* entry = sFactionStore.LookupEntry(state.ID);
+                rows.push_back({ state, mgr.GetRank(entry), mgr.GetReputation(entry) });
+            }
+        };
+
+        if (target)
+            readReputation(target);
+        else if (!ObjectAccessor::WithPlayer(targetGuid, readReputation, ObjectAccessor::PlayerScope::InOrOutOfWorld))
+        {
+            handler->SendSysMessage(LANG_PLAYER_NOT_FOUND);
+            handler->SetSentErrorMessage(true);
+            return false;
+        }
 
         LocaleConstant loc = handler->GetSessionDbcLocale();
 
-        FactionStateList const& targetFSL = target->GetReputationMgr().GetStateList();
-        for (FactionStateList::const_iterator itr = targetFSL.begin(); itr != targetFSL.end(); ++itr)
+        for (FactionRow const& row : rows)
         {
-            FactionState const& faction = *itr;
+            FactionState const& faction = row.State;
             FactionEntry const* factionEntry = sFactionStore.LookupEntry(faction.ID);
             char const* factionName = factionEntry ? factionEntry->Name->Str[LOCALE_enUS] : "#Not found#";
-            ReputationRank rank = target->GetReputationMgr().GetRank(factionEntry);
+            ReputationRank rank = row.Rank;
             std::string rankName = handler->GetTrinityString(ReputationRankStrIndex[rank]);
             std::ostringstream ss;
             if (handler->GetSession())
@@ -477,7 +584,7 @@ public:
             else
                 ss << faction.ID << " - " << factionName << ' ' << localeNames[loc];
 
-            ss << ' ' << rankName << " (" << target->GetReputationMgr().GetReputation(factionEntry) << ')';
+            ss << ' ' << rankName << " (" << row.Reputation << ')';
 
             if (faction.Flags & FACTION_FLAG_VISIBLE)
                 ss << handler->GetTrinityString(LANG_FACTION_VISIBLE);
@@ -725,7 +832,7 @@ public:
         if (!handler->extractPlayerTarget(nameStr, &target, &targetGuid, &targetName))
             return false;
 
-        int32 oldlevel = target ? target->getLevel() : Player::GetLevelFromDB(targetGuid);
+        int32 oldlevel = GetTargetLevel(target, targetGuid);
         int32 addlevel = levelStr ? atoi(levelStr) : 1;
         int32 newlevel = oldlevel + addlevel;
 

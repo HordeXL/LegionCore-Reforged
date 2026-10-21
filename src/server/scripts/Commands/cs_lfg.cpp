@@ -1,30 +1,25 @@
-/*
- * Copyright (C) 2008-2012 TrinityCore <http://www.trinitycore.org/>
- *
- * This program is free software; you can redistribute it and/or modify it
- * under the terms of the GNU General Public License as published by the
- * Free Software Foundation; either version 2 of the License, or (at your
- * option) any later version.
- *
- * This program is distributed in the hope that it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for
- * more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program. If not, see <http://www.gnu.org/licenses/>.
- */
+////////////////////////////////////////////
+///                                      ///
+///         LEGIONCORE REFORGED          ///
+///    Copyright 2026 Titans-Project     ///
+///         All Rights Reserved.         ///
+///                                      ///
+///      Based on TrinityCore code       ///
+///   Copyright 2008-2012 TrinityCore    ///
+///   <http://www.trinitycore.org/>      ///
+///                                      ///
+////////////////////////////////////////////
 
 #include "ScriptMgr.h"
 #include "Chat.h"
 #include "LFGMgr.h"
 #include "Group.h"
+#include "GroupMgr.h"
 #include "ObjectAccessor.h"
 #include "Player.h"
 
-void GetPlayerInfo(ChatHandler* handler, ObjectGuid guid, char const* name, Group* grp)
+void GetPlayerInfo(ChatHandler* handler, ObjectGuid guid, char const* name, ObjectGuid gguid)
 {
-    ObjectGuid gguid = grp->GetGUID();
     uint32 queueId = sLFGMgr->GetQueueId(gguid);
 
     lfg::LfgDungeonSet dungeons = sLFGMgr->GetSelectedDungeons(guid, queueId);
@@ -35,16 +30,13 @@ void GetPlayerInfo(ChatHandler* handler, ObjectGuid guid, char const* name, Grou
         lfg::GetRolesString(sLFGMgr->GetRoles(guid, queueId)).c_str(), "");
 }
 
-void GetPlayerInfo(ChatHandler* handler, Player* player)
+void GetPlayerInfo(ChatHandler* handler, Player* target, ObjectGuid guid, char const* name)
 {
-    if (!player)
-        return;
-
-    Group* grp = player->GetGroup();
+    Group* grp = ChatHandler::FindTargetGroup(target, guid);
     if (!grp)
         return;
 
-    GetPlayerInfo(handler, player->GetGUID(), player->GetName(), grp);
+    GetPlayerInfo(handler, guid, name, grp->GetGUID());
 }
 
 class lfg_commandscript : public CommandScript
@@ -101,22 +93,24 @@ public:
     static bool HandleLfgPlayerInfoCommand(ChatHandler* handler, char const* args)
     {
         Player* target = NULL;
+        ObjectGuid targetGuid;
         std::string playerName;
-        if (!handler->extractPlayerTarget((char*)args, &target, NULL, &playerName))
+        if (!handler->extractOnlinePlayerTarget((char*)args, &target, &targetGuid, &playerName))
             return false;
 
-        GetPlayerInfo(handler, target);
+        GetPlayerInfo(handler, target, targetGuid, playerName.c_str());
         return true;
     }
 
     static bool HandleLfgGroupInfoCommand(ChatHandler* handler, char const* args)
     {
         Player* target = NULL;
+        ObjectGuid targetGuid;
         std::string playerName;
-        if (!handler->extractPlayerTarget((char*)args, &target, NULL, &playerName))
+        if (!handler->extractOnlinePlayerTarget((char*)args, &target, &targetGuid, &playerName))
             return false;
 
-        Group* grp = target->GetGroup();
+        Group* grp = ChatHandler::FindTargetGroup(target, targetGuid);
         if (!grp)
         {
             handler->PSendSysMessage(LANG_LFG_NOT_IN_GROUP, playerName.c_str());
@@ -135,7 +129,7 @@ public:
             ObjectGuid const memberGuid = slot.Guid;
             std::string memberName;
             if (ObjectAccessor::WithPlayer(memberGuid, [&memberName](Player* member) { memberName = member->GetName(); }))
-                GetPlayerInfo(handler, memberGuid, memberName.c_str(), grp);
+                GetPlayerInfo(handler, memberGuid, memberName.c_str(), grp->GetGUID());
         }
 
         return true;
