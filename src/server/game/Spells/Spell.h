@@ -1,20 +1,14 @@
-/*
- * Copyright (C) 2008-2012 TrinityCore <http://www.trinitycore.org/>
- * Copyright (C) 2005-2009 MaNGOS <http://getmangos.com/>
- *
- * This program is free software; you can redistribute it and/or modify it
- * under the terms of the GNU General Public License as published by the
- * Free Software Foundation; either version 2 of the License, or (at your
- * option) any later version.
- *
- * This program is distributed in the hope that it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for
- * more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program. If not, see <http://www.gnu.org/licenses/>.
- */
+////////////////////////////////////////////
+///                                      ///
+///         LEGIONCORE REFORGED          ///
+///    Copyright 2026 Titans-Project     ///
+///         All Rights Reserved.         ///
+///                                      ///
+///      Based on TrinityCore code       ///
+///   Copyright 2008-2012 TrinityCore    ///
+///   <http://www.trinitycore.org/>      ///
+///                                      ///
+////////////////////////////////////////////
 
 #ifndef __SPELL_H
 #define __SPELL_H
@@ -431,8 +425,6 @@ class TC_GAME_API Spell
 
         bool CheckEffectTarget(Unit const* target, uint32 eff) const;
         bool CanAutoCast(Unit* target);
-        void CheckSrc();
-        void CheckDst();
 
         void SendCastResult(Player* caster, SpellInfo const* spellInfo, SpellCastResult result, SpellCustomErrors customError = SPELL_CUSTOM_ERROR_NONE, uint32* misc = nullptr, bool pet = false);
         void SendCastResult(SpellCastResult result);
@@ -485,6 +477,7 @@ class TC_GAME_API Spell
         WorldLocation* destTarget;
         Position visualPos;
         std::vector<Position> _positions;
+        bool _dstAddedToAuras = false;
         bool m_castedFromStealth;
         ObjectGuid m_magnetGuid;
 
@@ -545,11 +538,11 @@ class TC_GAME_API Spell
         void SetSpellDynamicObject(ObjectGuid const& dynObj) { m_spellDynObjGuid = dynObj;}
         ObjectGuid const& GetSpellDynamicObject() const { return m_spellDynObjGuid; }
         void SetEffectTargets (GuidList const& targets) { m_effect_targets = targets; }
-        GuidList GetEffectTargets() { return m_effect_targets; }
+        GuidList const& GetEffectTargets() const { return m_effect_targets; }
         void AddEffectTarget (ObjectGuid const& targetGuid) { m_effect_targets.push_back(targetGuid); }
         void RemoveEffectTarget(ObjectGuid const& targetGuid) { m_effect_targets.remove(targetGuid); }
         void ClearEffectTarget () { m_effect_targets.clear(); }
-        ObjectGuid GetRndEffectTarget () { return Trinity::Containers::SelectRandomContainerElement(m_effect_targets); }
+        ObjectGuid GetRndEffectTarget () { return m_effect_targets.empty() ? ObjectGuid::Empty : Trinity::Containers::SelectRandomContainerElement(m_effect_targets); }
         AuraEffect const* GetTriggeredAuraEff() const { return m_triggeredByAura; }
         void AddDestTarget(SpellDestination const& dest, uint32 effIndex);
         SpellDestination getDestTarget(uint32 effIndex) { return m_destTargets[effIndex]; }
