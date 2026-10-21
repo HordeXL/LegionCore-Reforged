@@ -1,0 +1,52 @@
+-- Hallow's End: the Wickerman revelers speak one at a time, in turn, alternating their two lines
+
+DELETE FROM `smart_scripts` WHERE `source_type` = 0 AND `entryorguid` IN (51699, -146728391, -146728396, -146728392, -146728397, -146728399, -146728398, -146728400, -146728393, -146728394, -146728395);
+INSERT INTO `smart_scripts` (`entryorguid`, `source_type`, `id`, `link`, `Difficulties`, `event_type`, `event_phase_mask`, `event_chance`, `event_flags`, `event_param1`, `event_param2`, `event_param3`, `event_param4`, `event_param5`, `action_type`, `action_param1`, `action_param2`, `action_param3`, `action_param4`, `action_param5`, `action_param6`, `target_type`, `target_param1`, `target_param2`, `target_param3`, `target_param4`, `target_x`, `target_y`, `target_z`, `target_o`, `comment`) VALUES
+(51699, 0, 0, 0, '', 1, 0, 100, 0, 0, 10000, 6000, 11000, 0, 10, 1, 6, 273, 274, 11, 5, 1, 0, 0, 0, 0, 0, 0, 0, 0, 'Wickerman Reveler - Out of combat - Play random chat emote'),
+(51699, 0, 1, 0, '', 1, 0, 100, 0, 15000, 40000, 25000, 45000, 0, 10, 4, 21, 11, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 'Wickerman Reveler - Out of combat - Cheer, applaud or laugh'),
+(51699, 0, 2, 0, '', 1, 0, 30, 0, 20000, 60000, 45000, 90000, 0, 11, 95958, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 'Wickerman Reveler - Out of combat - Cast Throw Torch at the effigy'),
+(-146728391, 0, 0, 0, '', 1, 0, 100, 0, 0, 10000, 6000, 11000, 0, 10, 1, 6, 273, 274, 11, 5, 1, 0, 0, 0, 0, 0, 0, 0, 0, 'Wickerman Reveler - Out of combat - Play random chat emote'),
+(-146728391, 0, 1, 0, '', 1, 0, 100, 0, 15000, 40000, 25000, 45000, 0, 10, 4, 21, 11, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 'Wickerman Reveler - Out of combat - Cheer, applaud or laugh'),
+(-146728391, 0, 2, 0, '', 1, 0, 30, 0, 20000, 60000, 45000, 90000, 0, 11, 95958, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 'Wickerman Reveler - Out of combat - Cast Throw Torch at the effigy'),
+(-146728391, 0, 3, 0, '', 1, 0, 100, 0, 20000, 20000, 400000, 400000, 0, 1, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 'Wickerman Reveler - Out of combat - Say line on its turn'),
+(-146728396, 0, 0, 0, '', 1, 0, 100, 0, 0, 10000, 6000, 11000, 0, 10, 1, 6, 273, 274, 11, 5, 1, 0, 0, 0, 0, 0, 0, 0, 0, 'Wickerman Reveler - Out of combat - Play random chat emote'),
+(-146728396, 0, 1, 0, '', 1, 0, 100, 0, 15000, 40000, 25000, 45000, 0, 10, 4, 21, 11, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 'Wickerman Reveler - Out of combat - Cheer, applaud or laugh'),
+(-146728396, 0, 2, 0, '', 1, 0, 30, 0, 20000, 60000, 45000, 90000, 0, 11, 95958, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 'Wickerman Reveler - Out of combat - Cast Throw Torch at the effigy'),
+(-146728396, 0, 3, 0, '', 1, 0, 100, 0, 60000, 60000, 400000, 400000, 0, 1, 1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 'Wickerman Reveler - Out of combat - Say line on its turn'),
+(-146728392, 0, 0, 0, '', 1, 0, 100, 0, 0, 10000, 6000, 11000, 0, 10, 1, 6, 273, 274, 11, 5, 1, 0, 0, 0, 0, 0, 0, 0, 0, 'Wickerman Reveler - Out of combat - Play random chat emote'),
+(-146728392, 0, 1, 0, '', 1, 0, 100, 0, 15000, 40000, 25000, 45000, 0, 10, 4, 21, 11, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 'Wickerman Reveler - Out of combat - Cheer, applaud or laugh'),
+(-146728392, 0, 2, 0, '', 1, 0, 30, 0, 20000, 60000, 45000, 90000, 0, 11, 95958, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 'Wickerman Reveler - Out of combat - Cast Throw Torch at the effigy'),
+(-146728392, 0, 3, 0, '', 1, 0, 100, 0, 100000, 100000, 400000, 400000, 0, 1, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 'Wickerman Reveler - Out of combat - Say line on its turn'),
+(-146728397, 0, 0, 0, '', 1, 0, 100, 0, 0, 10000, 6000, 11000, 0, 10, 1, 6, 273, 274, 11, 5, 1, 0, 0, 0, 0, 0, 0, 0, 0, 'Wickerman Reveler - Out of combat - Play random chat emote'),
+(-146728397, 0, 1, 0, '', 1, 0, 100, 0, 15000, 40000, 25000, 45000, 0, 10, 4, 21, 11, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 'Wickerman Reveler - Out of combat - Cheer, applaud or laugh'),
+(-146728397, 0, 2, 0, '', 1, 0, 30, 0, 20000, 60000, 45000, 90000, 0, 11, 95958, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 'Wickerman Reveler - Out of combat - Cast Throw Torch at the effigy'),
+(-146728397, 0, 3, 0, '', 1, 0, 100, 0, 140000, 140000, 400000, 400000, 0, 1, 1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 'Wickerman Reveler - Out of combat - Say line on its turn'),
+(-146728399, 0, 0, 0, '', 1, 0, 100, 0, 0, 10000, 6000, 11000, 0, 10, 1, 6, 273, 274, 11, 5, 1, 0, 0, 0, 0, 0, 0, 0, 0, 'Wickerman Reveler - Out of combat - Play random chat emote'),
+(-146728399, 0, 1, 0, '', 1, 0, 100, 0, 15000, 40000, 25000, 45000, 0, 10, 4, 21, 11, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 'Wickerman Reveler - Out of combat - Cheer, applaud or laugh'),
+(-146728399, 0, 2, 0, '', 1, 0, 30, 0, 20000, 60000, 45000, 90000, 0, 11, 95958, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 'Wickerman Reveler - Out of combat - Cast Throw Torch at the effigy'),
+(-146728399, 0, 3, 0, '', 1, 0, 100, 0, 180000, 180000, 400000, 400000, 0, 1, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 'Wickerman Reveler - Out of combat - Say line on its turn'),
+(-146728398, 0, 0, 0, '', 1, 0, 100, 0, 0, 10000, 6000, 11000, 0, 10, 1, 6, 273, 274, 11, 5, 1, 0, 0, 0, 0, 0, 0, 0, 0, 'Wickerman Reveler - Out of combat - Play random chat emote'),
+(-146728398, 0, 1, 0, '', 1, 0, 100, 0, 15000, 40000, 25000, 45000, 0, 10, 4, 21, 11, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 'Wickerman Reveler - Out of combat - Cheer, applaud or laugh'),
+(-146728398, 0, 2, 0, '', 1, 0, 30, 0, 20000, 60000, 45000, 90000, 0, 11, 95958, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 'Wickerman Reveler - Out of combat - Cast Throw Torch at the effigy'),
+(-146728398, 0, 3, 0, '', 1, 0, 100, 0, 220000, 220000, 400000, 400000, 0, 1, 1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 'Wickerman Reveler - Out of combat - Say line on its turn'),
+(-146728400, 0, 0, 0, '', 1, 0, 100, 0, 0, 10000, 6000, 11000, 0, 10, 1, 6, 273, 274, 11, 5, 1, 0, 0, 0, 0, 0, 0, 0, 0, 'Wickerman Reveler - Out of combat - Play random chat emote'),
+(-146728400, 0, 1, 0, '', 1, 0, 100, 0, 15000, 40000, 25000, 45000, 0, 10, 4, 21, 11, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 'Wickerman Reveler - Out of combat - Cheer, applaud or laugh'),
+(-146728400, 0, 2, 0, '', 1, 0, 30, 0, 20000, 60000, 45000, 90000, 0, 11, 95958, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 'Wickerman Reveler - Out of combat - Cast Throw Torch at the effigy'),
+(-146728400, 0, 3, 0, '', 1, 0, 100, 0, 260000, 260000, 400000, 400000, 0, 1, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 'Wickerman Reveler - Out of combat - Say line on its turn'),
+(-146728393, 0, 0, 0, '', 1, 0, 100, 0, 0, 10000, 6000, 11000, 0, 10, 1, 6, 273, 274, 11, 5, 1, 0, 0, 0, 0, 0, 0, 0, 0, 'Wickerman Reveler - Out of combat - Play random chat emote'),
+(-146728393, 0, 1, 0, '', 1, 0, 100, 0, 15000, 40000, 25000, 45000, 0, 10, 4, 21, 11, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 'Wickerman Reveler - Out of combat - Cheer, applaud or laugh'),
+(-146728393, 0, 2, 0, '', 1, 0, 30, 0, 20000, 60000, 45000, 90000, 0, 11, 95958, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 'Wickerman Reveler - Out of combat - Cast Throw Torch at the effigy'),
+(-146728393, 0, 3, 0, '', 1, 0, 100, 0, 300000, 300000, 400000, 400000, 0, 1, 1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 'Wickerman Reveler - Out of combat - Say line on its turn'),
+(-146728394, 0, 0, 0, '', 1, 0, 100, 0, 0, 10000, 6000, 11000, 0, 10, 1, 6, 273, 274, 11, 5, 1, 0, 0, 0, 0, 0, 0, 0, 0, 'Wickerman Reveler - Out of combat - Play random chat emote'),
+(-146728394, 0, 1, 0, '', 1, 0, 100, 0, 15000, 40000, 25000, 45000, 0, 10, 4, 21, 11, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 'Wickerman Reveler - Out of combat - Cheer, applaud or laugh'),
+(-146728394, 0, 2, 0, '', 1, 0, 30, 0, 20000, 60000, 45000, 90000, 0, 11, 95958, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 'Wickerman Reveler - Out of combat - Cast Throw Torch at the effigy'),
+(-146728394, 0, 3, 0, '', 1, 0, 100, 0, 340000, 340000, 400000, 400000, 0, 1, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 'Wickerman Reveler - Out of combat - Say line on its turn'),
+(-146728395, 0, 0, 0, '', 1, 0, 100, 0, 0, 10000, 6000, 11000, 0, 10, 1, 6, 273, 274, 11, 5, 1, 0, 0, 0, 0, 0, 0, 0, 0, 'Wickerman Reveler - Out of combat - Play random chat emote'),
+(-146728395, 0, 1, 0, '', 1, 0, 100, 0, 15000, 40000, 25000, 45000, 0, 10, 4, 21, 11, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 'Wickerman Reveler - Out of combat - Cheer, applaud or laugh'),
+(-146728395, 0, 2, 0, '', 1, 0, 30, 0, 20000, 60000, 45000, 90000, 0, 11, 95958, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 'Wickerman Reveler - Out of combat - Cast Throw Torch at the effigy'),
+(-146728395, 0, 3, 0, '', 1, 0, 100, 0, 380000, 380000, 400000, 400000, 0, 1, 1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 'Wickerman Reveler - Out of combat - Say line on its turn');
+
+DELETE FROM `creature_text` WHERE `CreatureID` = 51699;
+INSERT INTO `creature_text` (`CreatureID`, `GroupID`, `ID`, `Text`, `Type`, `Language`, `Probability`, `Emote`, `Duration`, `Sound`, `BroadcastTextID`, `MinTimer`, `MaxTimer`, `SpellID`, `comment`) VALUES
+(51699, 0, 0, 'Happy Hallow''s End!', 12, 0, 100, 4, 0, 0, 23284, 0, 0, 0, 'Wickerman Reveler'),
+(51699, 1, 0, 'Let the flames fly! Hallow''s End is upon us!', 12, 0, 100, 5, 0, 0, 50757, 0, 0, 0, 'Wickerman Reveler');

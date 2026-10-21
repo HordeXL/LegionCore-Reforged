@@ -1,3 +1,11 @@
+////////////////////////////////////////////
+///                                      ///
+///         LEGIONCORE REFORGED          ///
+///    Copyright 2026 Titans-Project     ///
+///         All Rights Reserved.         ///
+///                                      ///
+////////////////////////////////////////////
+
 void AddSC_garrison_general();
 void AddSC_garrison_instance();
 
@@ -15,6 +23,7 @@ void AddSC_achievement_scripts();
 void AddSC_challenge_scripts();
 void AddSC_player_special_scripts();
 void AddSC_fireworks_spectacular();
+void AddSC_hallows_end_village_fires();
 void AddSC_custom_events();
 void AddSC_scene_scripts();
 
@@ -43,6 +52,7 @@ void AddWorldScripts()
     AddSC_challenge_scripts();
     AddSC_player_special_scripts();
     AddSC_fireworks_spectacular();
+    AddSC_hallows_end_village_fires();
     AddSC_custom_events();
     AddSC_scene_scripts();
 
