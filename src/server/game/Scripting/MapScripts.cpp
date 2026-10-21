@@ -1,20 +1,14 @@
-/*
- * Copyright (C) 2008-2012 TrinityCore <http://www.trinitycore.org/>
- * Copyright (C) 2005-2009 MaNGOS <http://getmangos.com/>
- *
- * This program is free software; you can redistribute it and/or modify it
- * under the terms of the GNU General Public License as published by the
- * Free Software Foundation; either version 2 of the License, or (at your
- * option) any later version.
- *
- * This program is distributed in the hope that it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for
- * more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program. If not, see <http://www.gnu.org/licenses/>.
- */
+////////////////////////////////////////////
+///                                      ///
+///         LEGIONCORE REFORGED          ///
+///    Copyright 2026 Titans-Project     ///
+///         All Rights Reserved.         ///
+///                                      ///
+///      Based on TrinityCore code       ///
+///   Copyright 2008-2012 TrinityCore    ///
+///   <http://www.trinitycore.org/>      ///
+///                                      ///
+////////////////////////////////////////////
 
 #include "CellImpl.h"
 #include "GameTime.h"
@@ -308,25 +302,26 @@ void Map::ScriptsProcess()
             switch (step.sourceGUID.GetHigh())
             {
                 case HighGuid::Item: // as well as HIGHGUID_CONTAINER
-                    if (Player* player = HashMapHolder<Player>::Find(step.ownerGUID))
+                    // map-local lookup: a player who left this map or logged out must not be touched
+                    if (Player* player = ObjectAccessor::FindPlayer(this, step.ownerGUID))
                         source = player->GetItemByGuid(step.sourceGUID);
                     break;
                 case HighGuid::Creature:
                 case HighGuid::Vehicle:
-                    source = HashMapHolder<Creature>::Find(step.sourceGUID);
+                    source = ObjectAccessor::GetObject(this, step.sourceGUID);
                     break;
                 case HighGuid::Pet:
-                    source = HashMapHolder<Pet>::Find(step.sourceGUID);
+                    source = ObjectAccessor::GetObject(this, step.sourceGUID);
                     break;
                 case HighGuid::Player:
-                    source = HashMapHolder<Player>::Find(step.sourceGUID);
+                    source = ObjectAccessor::GetObject(this, step.sourceGUID);
                     break;
                 case HighGuid::GameObject:
                 case HighGuid::Transport:
                     source = GetGameObject(step.sourceGUID);
                     break;
                 case HighGuid::Corpse:
-                    source = HashMapHolder<Corpse>::Find(step.sourceGUID);
+                    source = ObjectAccessor::GetObject(this, step.sourceGUID);
                     break;
                 default:
                     TC_LOG_ERROR("scripts", "%s source with unsupported high guid (GUID: %s).", step.script->GetDebugInfo().c_str(), step.sourceGUID.ToString().c_str());
@@ -341,20 +336,20 @@ void Map::ScriptsProcess()
             {
                 case HighGuid::Creature:
                 case HighGuid::Vehicle:
-                    target = HashMapHolder<Creature>::Find(step.targetGUID);
+                    target = ObjectAccessor::GetObject(this, step.targetGUID);
                     break;
                 case HighGuid::Pet:
-                    target = HashMapHolder<Pet>::Find(step.targetGUID);
+                    target = ObjectAccessor::GetObject(this, step.targetGUID);
                     break;
                 case HighGuid::Player:                       // empty GUID case also
-                    target = HashMapHolder<Player>::Find(step.targetGUID);
+                    target = ObjectAccessor::GetObject(this, step.targetGUID);
                     break;
                 case HighGuid::GameObject:
                 case HighGuid::Transport:
                     target = GetGameObject(step.targetGUID);
                     break;
                 case HighGuid::Corpse:
-                    target = HashMapHolder<Corpse>::Find(step.targetGUID);
+                    target = ObjectAccessor::GetObject(this, step.targetGUID);
                     break;
                 default:
                     TC_LOG_ERROR("scripts", "%s target with unsupported high guid (GUID: %s).", step.script->GetDebugInfo().c_str(), step.targetGUID.ToString().c_str());
@@ -490,7 +485,7 @@ void Map::ScriptsProcess()
                     if (step.script->FlagToggle.FieldID <= OBJECT_FIELD_ENTRY_ID || step.script->FlagToggle.FieldID >= cSource->GetValuesCount())
                         TC_LOG_ERROR("scripts", "%s wrong field %u (max count: %u) in object (TypeId: %u, Entry: %u, GUID: %u) specified, skipping.",
                             step.script->GetDebugInfo().c_str(), step.script->FlagToggle.FieldID,
-                            source->GetValuesCount(), source->GetTypeId(), source->GetEntry(), source->GetGUIDLow());
+                            cSource->GetValuesCount(), cSource->GetTypeId(), cSource->GetEntry(), cSource->GetGUIDLow());
                     else
                         cSource->SetFlag(step.script->FlagToggle.FieldID, step.script->FlagToggle.FieldValue);
                 }
@@ -504,7 +499,7 @@ void Map::ScriptsProcess()
                     if (step.script->FlagToggle.FieldID <= OBJECT_FIELD_ENTRY_ID || step.script->FlagToggle.FieldID >= cSource->GetValuesCount())
                         TC_LOG_ERROR("scripts", "%s wrong field %u (max count: %u) in object (TypeId: %u, Entry: %u, GUID: %u) specified, skipping.",
                             step.script->GetDebugInfo().c_str(), step.script->FlagToggle.FieldID,
-                            source->GetValuesCount(), source->GetTypeId(), source->GetEntry(), source->GetGUIDLow());
+                            cSource->GetValuesCount(), cSource->GetTypeId(), cSource->GetEntry(), cSource->GetGUIDLow());
                     else
                         cSource->RemoveFlag(step.script->FlagToggle.FieldID, step.script->FlagToggle.FieldValue);
                 }
@@ -782,7 +777,7 @@ void Map::ScriptsProcess()
                     {
                         // Target must be Player.
                         player = _GetScriptPlayer(target, false, step.script);
-                        if (!target)
+                        if (!player)
                             break;
                     }
 
@@ -843,7 +838,13 @@ void Map::ScriptsProcess()
                 Creature* cTarget = nullptr;
                 if (source) //using grid searcher
                 {
-                    WorldObject* wSource = dynamic_cast <WorldObject*> (source);
+                    WorldObject* wSource = source->ToWorldObject();
+                    if (!wSource)
+                    {
+                        TC_LOG_ERROR("scripts", "%s source object is not a world object (TypeId: %u, Entry: %u, GUID: %u), skipping.",
+                            step.script->GetDebugInfo().c_str(), source->GetTypeId(), source->GetEntry(), source->GetGUIDLow());
+                        break;
+                    }
 
                     CellCoord p(Trinity::ComputeCellCoord(wSource->GetPositionX(), wSource->GetPositionY()));
                     Cell cell(p);
@@ -862,6 +863,13 @@ void Map::ScriptsProcess()
                 if (!cTarget)
                 {
                     TC_LOG_ERROR("scripts", "%s target was not found (entry: %u)", step.script->GetDebugInfo().c_str(), step.script->CallScript.CreatureEntry);
+                    break;
+                }
+
+                // the global lookup can return a creature that another map thread is updating
+                if (cTarget->GetMap() != this)
+                {
+                    TC_LOG_ERROR("scripts", "%s target (entry: %u) is on another map, skipping.", step.script->GetDebugInfo().c_str(), step.script->CallScript.CreatureEntry);
                     break;
                 }
 

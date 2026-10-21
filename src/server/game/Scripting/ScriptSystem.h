@@ -1,11 +1,16 @@
-/* Copyright (C) 2006 - 2009 ScriptDev2 <https://scriptdev2.svn.sourceforge.net/>
-* This program is free software licensed under GPL version 2
-* Please see the included DOCS/LICENSE.TXT for more information */
+////////////////////////////////////////////
+///                                      ///
+///         LEGIONCORE REFORGED          ///
+///    Copyright 2026 Titans-Project     ///
+///         All Rights Reserved.         ///
+///                                      ///
+////////////////////////////////////////////
 
 #ifndef SC_SYSTEM_H
 #define SC_SYSTEM_H
 
 #include "ScriptMgr.h"
+#include <shared_mutex>
 
 #define TEXT_SOURCE_RANGE -1000000                          //the amount of entries each text source has available
 
@@ -71,11 +76,12 @@ class TC_GAME_API SystemMgr
         void LoadScriptWaypoints();
 
         StringTextData const* GetTextData(int32 textId) const;
-        ScriptPointVector const& GetPointMoveList(uint32 creatureEntry) const;
+        ScriptPointVector GetPointMoveList(uint32 creatureEntry) const;
 
     protected:
         TextDataMap     m_mTextDataMap;                     //additional data for text strings
         PointMoveMap    m_mPointMoveMap;                    //coordinates for waypoints
+        mutable std::shared_mutex m_pointMoveLock;          //guards m_mPointMoveMap against .reload script_waypoint
 
     private:
         static ScriptPointVector const _empty;
