@@ -1,20 +1,14 @@
-/*
-* Copyright (C) 2008-2012 TrinityCore <http://www.trinitycore.org/>
-* Copyright (C) 2005-2009 MaNGOS <http://getmangos.com/>
-*
-* This program is free software; you can redistribute it and/or modify it
-* under the terms of the GNU General Public License as published by the
-* Free Software Foundation; either version 2 of the License, or (at your
-* option) any later version.
-*
-* This program is distributed in the hope that it will be useful, but WITHOUT
-* ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
-* FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for
-* more details.
-*
-* You should have received a copy of the GNU General Public License along
-* with this program. If not, see <http://www.gnu.org/licenses/>.
-*/
+////////////////////////////////////////////
+///                                      ///
+///         LEGIONCORE REFORGED          ///
+///    Copyright 2026 Titans-Project     ///
+///         All Rights Reserved.         ///
+///                                      ///
+///      Based on TrinityCore code       ///
+///   Copyright 2008-2012 TrinityCore    ///
+///   <http://www.trinitycore.org/>      ///
+///                                      ///
+////////////////////////////////////////////
 
 #include "Common.h"
 #include "Opcodes.h"
@@ -3272,16 +3266,32 @@ void Group::SetLootMethod(LootMethod method)
         return;
 
     m_lootMethod = method;
+    SaveLootSettings();
 }
 
 void Group::SetLooterGuid(ObjectGuid const& guid)
 {
     m_looterGuid = guid;
+    SaveLootSettings();
 }
 
 void Group::SetLootThreshold(ItemQualities threshold)
 {
     m_lootThreshold = threshold;
+    SaveLootSettings();
+}
+
+void Group::SaveLootSettings()
+{
+    if (isBGGroup() || isBFGroup() || !m_dbStoreId)
+        return;
+
+    CharacterDatabasePreparedStatement* stmt = CharacterDatabase.GetPreparedStatement(CHAR_UPD_GROUP_LOOT);
+    stmt->setUInt8(0, uint8(m_lootMethod));
+    stmt->setUInt64(1, m_looterGuid.GetCounter());
+    stmt->setUInt8(2, uint8(m_lootThreshold));
+    stmt->setUInt32(3, m_dbStoreId);
+    CharacterDatabase.Execute(stmt);
 }
 
 void Group::SetLfgRoles(ObjectGuid guid, const uint8 roles)
