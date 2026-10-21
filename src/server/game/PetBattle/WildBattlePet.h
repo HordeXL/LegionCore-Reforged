@@ -1,10 +1,10 @@
-////////////////////////////////////////////////////////////////////////////////
-//
-//  MILLENIUM-STUDIO
-//  Copyright 2016 Millenium-studio SARL
-//  All Rights Reserved.
-//
-////////////////////////////////////////////////////////////////////////////////
+////////////////////////////////////////////
+///                                      ///
+///         LEGIONCORE REFORGED          ///
+///    Copyright 2026 Titans-Project     ///
+///         All Rights Reserved.         ///
+///                                      ///
+////////////////////////////////////////////
 
 #pragma once
 #ifndef _WILDBATTLEPET_HEADER_
@@ -63,8 +63,7 @@ public:
     bool IsWildPet(Creature* creature);
     std::shared_ptr<BattlePetInstance> GetWildBattlePet(Creature* creature);
 
-    void EnterInBattle(Creature* creature);
-    void LeaveBattle(Creature* creature, bool p_Defeated);
+    void LeaveBattle(Creature* creature, bool defeated);
 
     WildPetPoolTemplate* GetWildPetTemplate(uint32 mapId, uint32 zoneId, uint32 entry);
     bool IsBattlePet(uint32 entry);

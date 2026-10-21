@@ -1,10 +1,10 @@
-////////////////////////////////////////////////////////////////////////////////
-//
-//  MILLENIUM-STUDIO
-//  Copyright 2016 Millenium-studio SARL
-//  All Rights Reserved.
-//
-////////////////////////////////////////////////////////////////////////////////
+////////////////////////////////////////////
+///                                      ///
+///         LEGIONCORE REFORGED          ///
+///    Copyright 2026 Titans-Project     ///
+///         All Rights Reserved.         ///
+///                                      ///
+////////////////////////////////////////////
 
 #pragma once
 
@@ -282,7 +282,6 @@ public:
     void Save(CharacterDatabaseTransaction& trans);
 
     ObjectGuid::LowType AddToPlayer(Player* player);
-    void AddToPlayer(Player* player, CharacterDatabaseTransaction& trans);
     void Remove(Player* player);
     void UpdateAbilities();
     void UpdateStats();
@@ -465,6 +464,7 @@ struct PetBattleRequest
     uint32 LocationResult = false;
     PetBattleType RequestType = PETBATTLE_TYPE_PVE;
     bool IsPvPReady[MAX_PETBATTLE_TEAM] = { };
+    uint32 RequestTime = 0;                                 ///< Set when the request is published, a challenge expires
 };
 
 class PetBattleAura
@@ -521,6 +521,7 @@ public:
     uint32 GetTeamInputFlags();
     uint32 GetTeamTrapStatus();
     std::vector<uint32> GetAvailablesPets();
+    std::shared_ptr<BattlePetInstance> GetFirstLivingPet();
 
     uint32 GetCatchAbilityID();
 
@@ -543,6 +544,7 @@ public:
     int8 CapturedPet;                                       ///< Captured pet id
 
     uint32 TrapLevel;                                       ///< Owner trap level, read in Begin so the world thread never asks the player
+    uint32 JournalPetCount = 0;                             ///< Owner journal size, read in Begin for the same reason
 
     bool Ready;                                            ///< Team is ready to process next round
     bool isRun;                                             ///< Team is ready to run
@@ -562,9 +564,14 @@ public:
     // Called from the map thread that owns the team players (handler, trainer script, delayed operation).
     // caller: the team player whose thread runs this; only players of his map are touched
     void Begin(Player* caller);
+    // A battle that cannot start (no living pet, missing player) is ended and its players released.
+    // caller: as for Begin, may be null
+    void AbortBeforeStart(Player* caller = nullptr);
     void ProceedRound();
-    void Finish(uint32 winnerTeamID, bool aborted, bool ignoreAbandonPenalty);
-    void Forfeit(ObjectGuid forfeiterGuid, bool ignoreAbandonPenalty);
+    // ignoreAbandonPenalty: no health penalty for the loser of an abandon (decided by the server, never by the client)
+    // leavingPlayer: the abandoning player when his own thread runs this during his logout, his release is done inline
+    void Finish(uint32 winnerTeamID, bool aborted, bool ignoreAbandonPenalty, Player* leavingPlayer = nullptr);
+    void Forfeit(ObjectGuid forfeiterGuid, bool ignoreAbandonPenalty, Player* leavingPlayer = nullptr);
 
     void Update(uint32 diff);
 
@@ -605,14 +612,12 @@ public:
 
     PetBattleTeam * Teams[MAX_PETBATTLE_TEAM];                              ///< Battle teams
     std::shared_ptr<BattlePetInstance> Pets[MAX_PETBATTLE_TEAM * MAX_PETBATTLE_SLOTS];      ///< All pets involved in the battle
-    uint32 TotalPetCount;                                                   ///< Battle total pet count
 
     std::list<PetBattleAura*> PetAuras;                                             ///< Current battle pets auras
     uint32 WeatherAbilityId;                                                ///< Only one weather at a time on battle
 
     int32 WinnerTeamId;
     std::map<uint8, bool> FightedPets;
-    int8 CatchedPetId;
     ObjectGuid InitialWildPetGUID;
 
     std::recursive_mutex BattleLock;
@@ -620,6 +625,10 @@ public:
 
 private:
     void RewardAndRelease(Player* player, uint32 teamID, bool aborted);
+    void ReleaseLeavingPlayer(Player* player, uint32 teamID);
+    // Unlocks the wild creatures of the battle; a defeated one is removed. team1Player: set only when the caller
+    // runs in that player's thread, otherwise the work is posted to him.
+    void ReleaseWildCreatures(bool defeated, Player* team1Player);
 
     IntervalTimer m_UpdateTimer;
 

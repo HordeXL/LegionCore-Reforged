@@ -1,13 +1,14 @@
-////////////////////////////////////////////////////////////////////////////////
-//
-//  MILLENIUM-STUDIO
-//  Copyright 2016 Millenium-studio SARL
-//  All Rights Reserved.
-//
-////////////////////////////////////////////////////////////////////////////////
+////////////////////////////////////////////
+///                                      ///
+///         LEGIONCORE REFORGED          ///
+///    Copyright 2026 Titans-Project     ///
+///         All Rights Reserved.         ///
+///                                      ///
+////////////////////////////////////////////
 
 #include "WildBattlePet.h"
- #include <random>
+#include <algorithm>
+#include "Random.h"
 #include "DatabaseEnv.h"
 #include "Creature.h"
 #include "PetBattle.h"
@@ -59,12 +60,12 @@ void WildBattlePetMgr::Load()
         uint32 zoneID = fields[0].GetUInt32();
         uint32 BattlePetEntry = fields[2].GetUInt32();
         uint32 CreatureEntry = fields[7].GetUInt32();
-        int32 mapID = 0;
+        int32 mapID = -1;
 
         if (AreaTableEntry const* areaInfo = sAreaTableStore.LookupEntry(zoneID))
             mapID = areaInfo->ContinentID;
 
-        if (mapID == -1)
+        if (mapID < 0 || size_t(mapID) >= m_PoolsByMap.size())
         {
             TC_LOG_ERROR("server.loading", "WildBattlePetMgr::Load() no map id found for zone %u", zoneID);
             continue;
@@ -100,7 +101,7 @@ void WildBattlePetMgr::Populate(WildPetPoolTemplate* wTemplate, WildBattlePetPoo
     if (availableForReplacement.empty())
         return;
 
-    std::shuffle(availableForReplacement.begin(), availableForReplacement.end(), std::mt19937(std::random_device()()));
+    std::shuffle(availableForReplacement.begin(), availableForReplacement.end(), RandomEngine::Instance());
 
     uint32 replaceCount = wTemplate->Max - pTemplate->Replaced.size();
     for (size_t y = 0; y < availableForReplacement.size() && y < replaceCount; y++)
@@ -143,7 +144,7 @@ void WildBattlePetMgr::ReplaceCreature(Creature* creature, WildPetPoolTemplate* 
     battlePetInstance->Health = 20000;
 
     // Select level
-    battlePetInstance->Level = std::max(urand(wTemplate->MinLevel, wTemplate->MaxLevel), static_cast<uint32>(1));
+    battlePetInstance->Level = std::max(urand(std::min(wTemplate->MinLevel, wTemplate->MaxLevel), std::max(wTemplate->MinLevel, wTemplate->MaxLevel)), static_cast<uint32>(1));
 
     // Select breed
     uint8 MinQuality = 0;
@@ -168,13 +169,16 @@ void WildBattlePetMgr::ReplaceCreature(Creature* creature, WildPetPoolTemplate* 
         if (speciesXAbilityInfo->BattlePetSpeciesID != battlePetInstance->Species || speciesXAbilityInfo->RequiredLevel > battlePetInstance->Level)
             continue;
 
+        if (speciesXAbilityInfo->SlotEnum < 0 || speciesXAbilityInfo->SlotEnum >= MAX_PETBATTLE_ABILITIES)
+            continue;
+
         if (l_AbilityLevels[speciesXAbilityInfo->SlotEnum])
         {
             int chance = 80;
             if (l_AbilityLevels[speciesXAbilityInfo->SlotEnum] < speciesXAbilityInfo->RequiredLevel)
                 chance = 100 - chance;
 
-            if (rand() % 100 > chance)
+            if (int(urand(0, 99)) > chance)
                 continue;
         }
 
@@ -240,6 +244,9 @@ void WildBattlePetMgr::EnableWildBattle(Creature* creature)
             maxlevel = areaInfo->WildBattlePetLevelMax;
     }
 
+    if (minlevel > maxlevel)
+        maxlevel = minlevel;
+
     // Select level
     battlePetInstance->Level = std::max(urand(minlevel, maxlevel), static_cast<uint32>(1));
 
@@ -259,13 +266,16 @@ void WildBattlePetMgr::EnableWildBattle(Creature* creature)
         if (speciesXAbilityInfo->BattlePetSpeciesID != battlePetInstance->Species || speciesXAbilityInfo->RequiredLevel > battlePetInstance->Level)
             continue;
 
+        if (speciesXAbilityInfo->SlotEnum < 0 || speciesXAbilityInfo->SlotEnum >= MAX_PETBATTLE_ABILITIES)
+            continue;
+
         if (l_AbilityLevels[speciesXAbilityInfo->SlotEnum])
         {
             int chance = 80;
             if (l_AbilityLevels[speciesXAbilityInfo->SlotEnum] < speciesXAbilityInfo->RequiredLevel)
                 chance = 100 - chance;
 
-            if (rand() % 100 > chance)
+            if (int(urand(0, 99)) > chance)
                 continue;
         }
 
@@ -333,26 +343,23 @@ std::shared_ptr<BattlePetInstance> WildBattlePetMgr::GetWildBattlePet(Creature* 
     return BattlePetInstance::CloneForBattle(creature->m_battlePetInstance);
 }
 
-void WildBattlePetMgr::EnterInBattle(Creature* creature)
+// Called in the thread of the creature's map. A pet that won or was captured is removed, any other stays where it was.
+void WildBattlePetMgr::LeaveBattle(Creature* creature, bool defeated)
 {
-    if (!IsWildPet(creature))
+    if (!defeated || !IsWildPet(creature))
         return;
 
+    // A pet that replaced a normal creature gives the place back to it
+    if (!creature->replacementFromGUID.IsEmpty())
+    {
+        Unit* unit = sObjectAccessor->FindUnit(creature->replacementFromGUID);
+        if (unit && unit->ToCreature())
+            UnreplaceCreature(unit->ToCreature());
+        return;
+    }
+
+    // A native wild pet respawns after its normal delay
     creature->ForcedDespawn();
-    creature->SetRespawnTime(MONTH);
-    creature->RemoveCorpse(false);
-}
-
-void WildBattlePetMgr::LeaveBattle(Creature* creature, bool /*p_Defeated*/)
-{
-    if (!IsWildPet(creature))
-        return;
-
-    Unit* unit = sObjectAccessor->FindUnit(creature->replacementFromGUID);
-    if (!unit || !unit->ToCreature())
-        return;
-
-    UnreplaceCreature(unit->ToCreature());
 }
 
 WildPetPoolTemplate* WildBattlePetMgr::GetWildPetTemplate(uint32 mapId, uint32 zoneId, uint32 entry)
