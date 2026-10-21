@@ -1,20 +1,14 @@
-/*
- * Copyright (C) 2008-2012 TrinityCore <http://www.trinitycore.org/>
- * Copyright (C) 2005-2009 MaNGOS <http://getmangos.com/>
- *
- * This program is free software; you can redistribute it and/or modify it
- * under the terms of the GNU General Public License as published by the
- * Free Software Foundation; either version 2 of the License, or (at your
- * option) any later version.
- *
- * This program is distributed in the hope that it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for
- * more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program. If not, see <http://www.gnu.org/licenses/>.
- */
+////////////////////////////////////////////
+///                                      ///
+///         LEGIONCORE REFORGED          ///
+///    Copyright 2026 Titans-Project     ///
+///         All Rights Reserved.         ///
+///                                      ///
+///      Based on TrinityCore code       ///
+///   Copyright 2008-2012 TrinityCore    ///
+///   <http://www.trinitycore.org/>      ///
+///                                      ///
+////////////////////////////////////////////
 
 #include "Common.h"
 #include "TicketMgr.h"
@@ -25,8 +19,6 @@
 #include "TicketPackets.h"
 #include "Chat.h"
 #include "World.h"
-
-inline float GetAge(uint64 t) { return float(GameTime::GetGameTime() - t) / static_cast<float>(DAY); }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 // GM ticket
@@ -65,14 +57,17 @@ bool GmTicket::LoadFromDB(Field* fields)
     _pos                = Position(x, y, z);
     _lastModifiedTime   = fields[++index].GetUInt32();
     int64 closedBy = fields[++index].GetInt64();
-    if (closedBy < 0)
-        _closedBy.SetRawValue(0, uint64(closedBy));
+    // 0xFFFFFFFFFF is how older versions saved a console closure (counter mask of -1)
+    if (closedBy < 0 || closedBy == int64(0xFFFFFFFFFF))
+        _closedBy.SetRawValue(0, uint64(-1));
     else if (!closedBy)
         _closedBy = ObjectGuid::Empty;
     else
         _closedBy = ObjectGuid::Create<HighGuid::Player>(uint64(closedBy));
 
-    _assignedTo         = ObjectGuid::Create<HighGuid::Player>(fields[++index].GetUInt64());
+    // a zero counter would build a non-empty guid and make every unassigned ticket look assigned
+    uint64 assignedTo   = fields[++index].GetUInt64();
+    _assignedTo         = assignedTo ? ObjectGuid::Create<HighGuid::Player>(assignedTo) : ObjectGuid::Empty;
     _comment            = fields[++index].GetString();
     _completed          = fields[++index].GetBool();
     _escalatedStatus    = GMTicketEscalationStatus(fields[++index].GetUInt8());
@@ -96,7 +91,8 @@ void GmTicket::SaveToDB(CharacterDatabaseTransaction& trans) const
     stmt->setFloat (++index, _pos.GetPositionY());
     stmt->setFloat (++index, _pos.GetPositionZ());
     stmt->setUInt32(++index, uint32(_lastModifiedTime));
-    stmt->setInt64 (++index, int64(_closedBy.GetCounter()));
+    // console closure is stored as a raw low part with no high part, see LoadFromDB
+    stmt->setInt64 (++index, _closedBy.GetHighPart() ? int64(_closedBy.GetCounter()) : int64(_closedBy.GetLowPart()));
     stmt->setUInt64(++index, _assignedTo.GetCounter());
     stmt->setString(++index, _comment);
     stmt->setBool  (++index, _completed);
@@ -193,9 +189,19 @@ void TicketMgr::Initialize() { SetStatus(sWorld->getBoolConfig(CONFIG_ALLOW_TICK
 
 void TicketMgr::ResetTickets()
 {
-    for (GmTicketList::const_iterator itr = _ticketList.begin(); itr != _ticketList.end(); ++itr)
+    std::lock_guard<std::recursive_mutex> guard(_lock);
+    for (GmTicketList::iterator itr = _ticketList.begin(); itr != _ticketList.end();)
+    {
         if (itr->second->IsClosed())
-            sTicketMgr->RemoveTicket(itr->second->GetId());
+        {
+            GmTicket* ticket = itr->second;
+            ticket->DeleteFromDB();
+            itr = _ticketList.erase(itr);
+            delete ticket;
+        }
+        else
+            ++itr;
+    }
 
     _lastTicketId = 0;
 
@@ -208,6 +214,7 @@ void TicketMgr::LoadTickets()
 {
     uint32 oldMSTime = getMSTime();
 
+    std::lock_guard<std::recursive_mutex> guard(_lock);
     for (GmTicketList::const_iterator itr = _ticketList.begin(); itr != _ticketList.end(); ++itr)
         delete itr->second;
     _ticketList.clear();
@@ -263,11 +270,31 @@ void TicketMgr::LoadSurveys()
 
 }
 
+bool TicketMgr::HasOpenTicketForAccount(uint32 accountId)
+{
+    std::vector<ObjectGuid> owners;
+    {
+        std::lock_guard<std::recursive_mutex> guard(_lock);
+        for (auto const& itr : _ticketList)
+            if (itr.second && !itr.second->IsClosed())
+                owners.push_back(itr.second->GetPlayerGUID());
+    }
+
+    for (ObjectGuid const& guid : owners)
+        if (ObjectMgr::GetPlayerAccountIdByGUID(guid) == accountId)
+            return true;
+
+    return false;
+}
+
 void TicketMgr::AddTicket(GmTicket* ticket)
 {
-    _ticketList[ticket->GetId()] = ticket;
-    if (!ticket->IsClosed())
-        ++_openTicketCount;
+    {
+        std::lock_guard<std::recursive_mutex> guard(_lock);
+        _ticketList[ticket->GetId()] = ticket;
+        if (!ticket->IsClosed())
+            ++_openTicketCount;
+    }
 
     CharacterDatabaseTransaction trans = CharacterDatabaseTransaction(nullptr);
     ticket->SaveToDB(trans);
@@ -275,6 +302,7 @@ void TicketMgr::AddTicket(GmTicket* ticket)
 
 void TicketMgr::CloseTicket(uint32 ticketId, ObjectGuid source)
 {
+    std::lock_guard<std::recursive_mutex> guard(_lock);
     if (GmTicket* ticket = GetTicket(ticketId))
     {
         CharacterDatabaseTransaction trans = CharacterDatabaseTransaction(nullptr);
@@ -287,6 +315,7 @@ void TicketMgr::CloseTicket(uint32 ticketId, ObjectGuid source)
 
 void TicketMgr::RemoveTicket(uint32 ticketId)
 {
+    std::lock_guard<std::recursive_mutex> guard(_lock);
     if (GmTicket* ticket = GetTicket(ticketId))
     {
         ticket->DeleteFromDB();
@@ -298,24 +327,42 @@ void TicketMgr::RemoveTicket(uint32 ticketId)
 void TicketMgr::ShowList(ChatHandler& handler, bool onlineOnly) const
 {
     handler.SendSysMessage(onlineOnly ? LANG_COMMAND_TICKETSHOWONLINELIST : LANG_COMMAND_TICKETSHOWLIST);
-    for (GmTicketList::const_iterator itr = _ticketList.begin(); itr != _ticketList.end(); ++itr)
-        if (!itr->second->IsClosed() && !itr->second->IsCompleted())
-            if (!onlineOnly || itr->second->GetPlayer())
-                handler.SendSysMessage(itr->second->FormatMessageString(handler).c_str());
+    std::vector<std::string> lines;
+    {
+        std::lock_guard<std::recursive_mutex> guard(_lock);
+        for (GmTicketList::const_iterator itr = _ticketList.begin(); itr != _ticketList.end(); ++itr)
+            if (!itr->second->IsClosed() && !itr->second->IsCompleted())
+                if (!onlineOnly || itr->second->GetPlayer())
+                    lines.push_back(itr->second->FormatMessageString(handler));
+    }
+    for (std::string const& line : lines)
+        handler.SendSysMessage(line.c_str());
 }
 
 void TicketMgr::ShowClosedList(ChatHandler& handler) const
 {
     handler.SendSysMessage(LANG_COMMAND_TICKETSHOWCLOSEDLIST);
-    for (GmTicketList::const_iterator itr = _ticketList.begin(); itr != _ticketList.end(); ++itr)
-        if (itr->second->IsClosed())
-            handler.SendSysMessage(itr->second->FormatMessageString(handler).c_str());
+    std::vector<std::string> lines;
+    {
+        std::lock_guard<std::recursive_mutex> guard(_lock);
+        for (GmTicketList::const_iterator itr = _ticketList.begin(); itr != _ticketList.end(); ++itr)
+            if (itr->second->IsClosed())
+                lines.push_back(itr->second->FormatMessageString(handler));
+    }
+    for (std::string const& line : lines)
+        handler.SendSysMessage(line.c_str());
 }
 
 void TicketMgr::ShowEscalatedList(ChatHandler& handler) const
 {
     handler.SendSysMessage(LANG_COMMAND_TICKETSHOWESCALATEDLIST);
-    for (GmTicketList::const_iterator itr = _ticketList.begin(); itr != _ticketList.end(); ++itr)
-        if (!itr->second->IsClosed() && itr->second->GetEscalatedStatus() == TICKET_IN_ESCALATION_QUEUE)
-            handler.SendSysMessage(itr->second->FormatMessageString(handler).c_str());
+    std::vector<std::string> lines;
+    {
+        std::lock_guard<std::recursive_mutex> guard(_lock);
+        for (GmTicketList::const_iterator itr = _ticketList.begin(); itr != _ticketList.end(); ++itr)
+            if (!itr->second->IsClosed() && itr->second->GetEscalatedStatus() == TICKET_IN_ESCALATION_QUEUE)
+                lines.push_back(itr->second->FormatMessageString(handler));
+    }
+    for (std::string const& line : lines)
+        handler.SendSysMessage(line.c_str());
 }
