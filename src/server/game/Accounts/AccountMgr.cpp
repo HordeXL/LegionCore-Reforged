@@ -1,20 +1,14 @@
-/*
- * Copyright (C) 2008-2012 TrinityCore <http://www.trinitycore.org/>
- * Copyright (C) 2005-2009 MaNGOS <http://getmangos.com/>
- *
- * This program is free software; you can redistribute it and/or modify it
- * under the terms of the GNU General Public License as published by the
- * Free Software Foundation; either version 2 of the License, or (at your
- * option) any later version.
- *
- * This program is distributed in the hope that it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for
- * more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program. If not, see <http://www.gnu.org/licenses/>.
- */
+////////////////////////////////////////////
+///                                      ///
+///         LEGIONCORE REFORGED          ///
+///    Copyright 2026 Titans-Project     ///
+///         All Rights Reserved.         ///
+///                                      ///
+///      Based on TrinityCore code       ///
+///   Copyright 2008-2012 TrinityCore    ///
+///   <http://www.trinitycore.org/>      ///
+///                                      ///
+////////////////////////////////////////////
 
 #include "AccountMgr.h"
 #include "DatabaseEnv.h"
@@ -23,8 +17,8 @@
 #include "Player.h"
 #endif
 #include "Util.h"
-#include "SHA1.h"
-#include "SHA256.h"
+#include "Argon2.h"
+#include "PasswordHash.h"
 
 namespace AccountMgr
 {
@@ -43,9 +37,13 @@ AccountOpResult CreateAccount(std::string username, std::string password, bool a
     if (GetId(username))
         return AccountOpResult::AOR_NAME_ALREADY_EXIST;     // username does already exist
 
+    std::string const passwordHash = Argon2::Hash(password);
+    if (passwordHash.empty())
+        return AccountOpResult::AOR_DB_INTERNAL_ERROR;
+
     LoginDatabasePreparedStatement* stmt = LoginDatabase.GetPreparedStatement(LOGIN_INS_ACCOUNT);
     stmt->setString(0, username);
-    stmt->setString(1, CalculateShaPassHash(username, password));
+    stmt->setString(1, passwordHash);
 
     if (async)
         LoginDatabase.Execute(stmt);
@@ -138,12 +136,15 @@ AccountOpResult ChangePassword(uint32 accountId, std::string newPassword, bool a
     if (utf8length(newPassword) > MAX_PASS_STR)
         return AccountOpResult::AOR_PASS_TOO_LONG;
 
-    Utf8ToUpperOnlyLatin(username);
     Utf8ToUpperOnlyLatin(newPassword);
+
+    std::string const passwordHash = Argon2::Hash(newPassword);
+    if (passwordHash.empty())
+        return AccountOpResult::AOR_DB_INTERNAL_ERROR;
 
     LoginDatabasePreparedStatement* stmt = LoginDatabase.GetPreparedStatement(LOGIN_UPD_PASSWORD);
 
-    stmt->setString(0, CalculateShaPassHash(username, newPassword));
+    stmt->setString(0, passwordHash);
     stmt->setUInt32(1, accountId);
 
     if (async)
@@ -207,12 +208,33 @@ bool CheckPassword(uint32 accountId, std::string password)
     Utf8ToUpperOnlyLatin(username);
     Utf8ToUpperOnlyLatin(password);
 
-    LoginDatabasePreparedStatement* stmt = LoginDatabase.GetPreparedStatement(LOGIN_SEL_CHECK_PASSWORD);
+    LoginDatabasePreparedStatement* stmt = LoginDatabase.GetPreparedStatement(LOGIN_SEL_PASS_HASH_BY_ID);
     stmt->setUInt32(0, accountId);
-    stmt->setString(1, CalculateShaPassHash(username, password));
     PreparedQueryResult result = LoginDatabase.Query(stmt);
+    if (!result)
+        return false;
 
-    return result ? true : false;
+    std::string const storedHash = (*result)[0].GetString();
+
+    bool needsUpgrade = false;
+    if (!PasswordHash::Verify(storedHash, username, password, &needsUpgrade))
+        return false;
+
+    if (needsUpgrade)
+    {
+        // Matching on the old hash keeps a password changed in the meantime from being overwritten
+        std::string const upgraded = Argon2::Hash(password);
+        if (!upgraded.empty())
+        {
+            stmt = LoginDatabase.GetPreparedStatement(LOGIN_UPD_PASS_HASH_UPGRADE);
+            stmt->setString(0, upgraded);
+            stmt->setUInt32(1, accountId);
+            stmt->setString(2, storedHash);
+            LoginDatabase.Execute(stmt);
+        }
+    }
+
+    return true;
 }
 
 uint32 GetCharactersCount(uint32 accountId)
@@ -223,21 +245,6 @@ uint32 GetCharactersCount(uint32 accountId)
     PreparedQueryResult result = CharacterDatabase.Query(stmt);
 
     return result ? (*result)[0].GetUInt64() : 0;
-}
-
-std::string CalculateShaPassHash(const std::string& name, const std::string& password)
-{
-    SHA256Hash email;
-    email.UpdateData(name);
-    email.Finalize();
-
-    SHA256Hash sha;
-    sha.UpdateData(ByteArrayToHexStr(email.GetDigest(), email.GetLength()));
-    sha.UpdateData(":");
-    sha.UpdateData(password);
-    sha.Finalize();
-
-    return ByteArrayToHexStr(sha.GetDigest(), sha.GetLength(), true);
 }
 
 bool IsPlayerAccount(uint32 gmlevel)

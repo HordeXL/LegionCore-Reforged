@@ -1,19 +1,14 @@
-/*
- * Copyright (C) 2008-2016 TrinityCore <http://www.trinitycore.org/>
- *
- * This program is free software; you can redistribute it and/or modify it
- * under the terms of the GNU General Public License as published by the
- * Free Software Foundation; either version 2 of the License, or (at your
- * option) any later version.
- *
- * This program is distributed in the hope that it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for
- * more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program. If not, see <http://www.gnu.org/licenses/>.
- */
+////////////////////////////////////////////
+///                                      ///
+///         LEGIONCORE REFORGED          ///
+///    Copyright 2026 Titans-Project     ///
+///         All Rights Reserved.         ///
+///                                      ///
+///      Based on TrinityCore code       ///
+///   Copyright 2008-2016 TrinityCore    ///
+///   <http://www.trinitycore.org/>      ///
+///                                      ///
+////////////////////////////////////////////
 
 #include "Session.h"
 #include "BattlenetRpcErrorCodes.h"
@@ -218,8 +213,15 @@ uint32 Battlenet::Session::HandleVerifyWebCredentials(authentication::v1::Verify
 {
     authentication::v1::LogonResult logonResult;
     logonResult.set_error_code(0);
-    _accountInfo = sLoginService.VerifyLoginTicket(verifyWebCredentialsRequest->web_credentials());
-    if (!_accountInfo)
+    if (_authed)
+    {
+        TC_LOG_TRACE("server.bnetserver", "%s Battlenet::Session::HandleVerifyWebCredentials ERROR_DENIED (already authenticated)", GetClientInfo().c_str());
+        return ERROR_DENIED;
+    }
+
+    // Assigned to the session only once every check below has passed
+    std::unique_ptr<AccountInfo> accountInfo = sLoginService.VerifyLoginTicket(verifyWebCredentialsRequest->web_credentials());
+    if (!accountInfo)
     {
         TC_LOG_TRACE("server.bnetserver", "%s Battlenet::Session::HandleVerifyWebCredentials ERROR_DENIED", GetClientInfo().c_str());
         return ERROR_DENIED;
@@ -228,39 +230,39 @@ uint32 Battlenet::Session::HandleVerifyWebCredentials(authentication::v1::Verify
     std::string ip_address = GetRemoteIpAddress().to_string();
 
     // If the IP is 'locked', check that the player comes indeed from the correct IP address
-    if (_accountInfo->IsLockedToIP)
+    if (accountInfo->IsLockedToIP)
     {
         TC_LOG_DEBUG("server.bnetserver", "[Session::HandleVerifyWebCredentials] Account '%s' is locked to IP - '%s' is logging in from '%s'",
-            _accountInfo->Login.c_str(), _accountInfo->LastIP.c_str(), ip_address.c_str());
+            accountInfo->Login.c_str(), accountInfo->LastIP.c_str(), ip_address.c_str());
 
-        if (_accountInfo->LastIP != ip_address)
+        if (accountInfo->LastIP != ip_address)
             return ERROR_RISK_ACCOUNT_LOCKED;
     }
     else
     {
-        TC_LOG_DEBUG("server.bnetserver", "[Session::HandleVerifyWebCredentials] Account '%s' is not locked to ip", _accountInfo->Login.c_str());
-        if (_accountInfo->LockCountry.empty() || _accountInfo->LockCountry == "00")
-            TC_LOG_DEBUG("server.bnetserver", "[Session::HandleVerifyWebCredentials] Account '%s' is not locked to country", _accountInfo->Login.c_str());
-        else if (!_accountInfo->LockCountry.empty() && !_ipCountry.empty())
+        TC_LOG_DEBUG("server.bnetserver", "[Session::HandleVerifyWebCredentials] Account '%s' is not locked to ip", accountInfo->Login.c_str());
+        if (accountInfo->LockCountry.empty() || accountInfo->LockCountry == "00")
+            TC_LOG_DEBUG("server.bnetserver", "[Session::HandleVerifyWebCredentials] Account '%s' is not locked to country", accountInfo->Login.c_str());
+        else if (!accountInfo->LockCountry.empty() && !_ipCountry.empty())
         {
             TC_LOG_DEBUG("server.bnetserver", "[Session::HandleVerifyWebCredentials] Account '%s' is locked to country: '%s' Player country is '%s'",
-                _accountInfo->Login.c_str(), _accountInfo->LockCountry.c_str(), _ipCountry.c_str());
+                accountInfo->Login.c_str(), accountInfo->LockCountry.c_str(), _ipCountry.c_str());
 
-            if (_ipCountry != _accountInfo->LockCountry)
+            if (_ipCountry != accountInfo->LockCountry)
                 return ERROR_RISK_ACCOUNT_LOCKED;
         }
     }
 
-    if (!_accountInfo->IsActivated)
+    if (!accountInfo->IsActivated)
     {
-        TC_LOG_DEBUG("server.bnetserver", "[Session::HandleVerifyWebCredentials] Account '%s' is not activate", _accountInfo->Login.c_str());
+        TC_LOG_DEBUG("server.bnetserver", "[Session::HandleVerifyWebCredentials] Account '%s' is not activate", accountInfo->Login.c_str());
         return ERROR_PARENTAL_CONTROL_RESTRICTION;
     }
     
-    if (_accountInfo->Pid > 0)
+    if (accountInfo->Pid > 0)
     {
         LoginDatabasePreparedStatement* stmt = LoginDatabase.GetPreparedStatement(LOGIN_SEL_ACCOUNT_IP_ACCESS);
-        stmt->setUInt32(0, _accountInfo->Pid);
+        stmt->setUInt32(0, accountInfo->Pid);
 
         PreparedQueryResult checkip = LoginDatabase.Query(stmt);
         if (checkip)
@@ -299,21 +301,21 @@ uint32 Battlenet::Session::HandleVerifyWebCredentials(authentication::v1::Verify
    
     
     // If the account is banned, reject the logon attempt
-    if (_accountInfo->IsBanned)
+    if (accountInfo->IsBanned)
     {
-        TC_LOG_DEBUG("server.bnetserver", "%s [Session::HandleVerifyWebCredentials] Banned account %s tried to login!", GetClientInfo().c_str(), _accountInfo->Login.c_str());
+        TC_LOG_DEBUG("server.bnetserver", "%s [Session::HandleVerifyWebCredentials] Banned account %s tried to login!", GetClientInfo().c_str(), accountInfo->Login.c_str());
         return ERROR_GAME_ACCOUNT_BANNED;
     }
-    else if (_accountInfo->IsSuspended)
+    else if (accountInfo->IsSuspended)
     {
-        TC_LOG_DEBUG("server.bnetserver", "%s [Session::HandleVerifyWebCredentials] Temporarily banned account %s tried to login!", GetClientInfo().c_str(), _accountInfo->Login.c_str());
+        TC_LOG_DEBUG("server.bnetserver", "%s [Session::HandleVerifyWebCredentials] Temporarily banned account %s tried to login!", GetClientInfo().c_str(), accountInfo->Login.c_str());
         return ERROR_GAME_ACCOUNT_SUSPENDED;
     }
 
-    logonResult.mutable_account_id()->set_low(_accountInfo->Id);
+    logonResult.mutable_account_id()->set_low(accountInfo->Id);
     logonResult.mutable_account_id()->set_high(UI64LIT(0x100000000000000));
     EntityId* gameAccountId = logonResult.add_game_account_id();
-    gameAccountId->set_low(_accountInfo->Id);
+    gameAccountId->set_low(accountInfo->Id);
     gameAccountId->set_high(UI64LIT(0x200000200576F57));
 
     if (!_ipCountry.empty())
@@ -323,6 +325,7 @@ uint32 Battlenet::Session::HandleVerifyWebCredentials(authentication::v1::Verify
     k.SetRand(8 * 64);
     logonResult.set_session_key(k.AsByteArray(64).get(), 64);
 
+    _accountInfo = std::move(accountInfo);
     _authed = true;
 
     Service<authentication::v1::AuthenticationListener>(this).OnLogonComplete(&logonResult);
@@ -663,6 +666,14 @@ bool Battlenet::Session::ReadHeaderHandler()
     Header header;
     if (!header.ParseFromArray(_headerBuffer.GetReadPointer(), _headerBuffer.GetActiveSize()))
         return false;
+
+    // Largest legitimate RPC payloads are a few KB (realm list tickets, JSON blobs); the size field is client-controlled
+    static constexpr uint32 MAX_PACKET_SIZE = 0x40000;
+    if (header.size() > MAX_PACKET_SIZE)
+    {
+        TC_LOG_DEBUG("server.bnetserver", "%s sent an oversized packet (%u bytes)", GetClientInfo().c_str(), header.size());
+        return false;
+    }
 
     _packetBuffer.Resize(header.size());
     return true;

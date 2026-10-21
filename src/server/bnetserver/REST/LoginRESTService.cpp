@@ -1,30 +1,27 @@
-/*
- * Copyright (C) 2008-2016 TrinityCore <http://www.trinitycore.org/>
- *
- * This program is free software; you can redistribute it and/or modify it
- * under the terms of the GNU General Public License as published by the
- * Free Software Foundation; either version 2 of the License, or (at your
- * option) any later version.
- *
- * This program is distributed in the hope that it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for
- * more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program. If not, see <http://www.gnu.org/licenses/>.
- */
+////////////////////////////////////////////
+///                                      ///
+///         LEGIONCORE REFORGED          ///
+///    Copyright 2026 Titans-Project     ///
+///         All Rights Reserved.         ///
+///                                      ///
+///      Based on TrinityCore code       ///
+///   Copyright 2008-2016 TrinityCore    ///
+///   <http://www.trinitycore.org/>      ///
+///                                      ///
+////////////////////////////////////////////
 
 #include "LoginRESTService.h"
+#include "Argon2.h"
 #include "Configuration/Config.h"
 #include "DatabaseEnv.h"
 #include "JSON/ProtobufJSON.h"
 #include "IpNetwork.h"
+#include "LoginThrottle.h"
+#include "PasswordHash.h"
 #include "Realm.h"
 #include "Resolver.h"
 #include "SessionManager.h"
 #include "SHA1.h"
-#include "SHA256.h"
 #include "SslContext.h"
 #include "Util.h"
 #include "httpget.h"
@@ -32,6 +29,39 @@
 #include "soapH.h"
 
 int ns1__executeCommand(soap*, char*, char**) { return SOAP_OK; }
+
+// The login form is a few hundred bytes of JSON; bundled gSOAP has no recv_maxlength, so the body is bounded by hand
+static constexpr size_t MAX_LOGIN_BODY_SIZE = 0x10000;
+
+// Seconds. The service handles the TLS handshake in its single accepting thread, so a client that stalls there must be dropped quickly
+static constexpr int LOGIN_HANDSHAKE_TIMEOUT = 2;
+static constexpr int LOGIN_SOCKET_TIMEOUT = 3;
+
+static void HandleWrongPassword(Battlenet::Session::AccountInfo const* account, std::string const& ipAddress, std::string const& loginName)
+{
+    if (account)
+    {
+        LoginDatabasePreparedStatement* stmt = LoginDatabase.GetPreparedStatement(LOGIN_UPD_FAILED_LOGINS);
+        stmt->setUInt32(0, account->Id);
+        LoginDatabase.Execute(stmt);
+    }
+
+    sLoginThrottle.RegisterFailure(ipAddress, account ? account->Login : loginName);
+}
+
+static void UpgradePasswordHash(uint32 accountId, std::string const& oldHash, std::string const& password)
+{
+    std::string const upgraded = Argon2::Hash(password);
+    if (upgraded.empty())
+        return;
+
+    // Matching on the old hash keeps a password changed in the meantime from being overwritten
+    LoginDatabasePreparedStatement* stmt = LoginDatabase.GetPreparedStatement(LOGIN_UPD_PASS_HASH_UPGRADE);
+    stmt->setString(0, upgraded);
+    stmt->setUInt32(1, accountId);
+    stmt->setString(2, oldHash);
+    LoginDatabase.Execute(stmt);
+}
 
 class AsyncLoginRequest
 {
@@ -78,6 +108,7 @@ bool LoginRESTService::Start(Trinity::Asio::IoContext* ioContext)
 {
     _ioContext = ioContext;
     _waitTime = sConfigMgr->GetIntDefault("RestWaitTime", 60);
+    sLoginThrottle.LoadConfig();
 
     _bindIP = sConfigMgr->GetStringDefault("BindIP", "0.0.0.0");
     _port = sConfigMgr->GetIntDefault("LoginREST.Port", 8081);
@@ -163,8 +194,8 @@ void LoginRESTService::Run()
 
     // check every 3 seconds if world ended
     soapServer.accept_timeout = 3;
-    soapServer.recv_timeout = 5;
-    soapServer.send_timeout = 5;
+    soapServer.recv_timeout = LOGIN_SOCKET_TIMEOUT;
+    soapServer.send_timeout = LOGIN_SOCKET_TIMEOUT;
     if (!soap_valid_socket(soap_bind(&soapServer, _bindIP.c_str(), _port, 100)))
     {
         TC_LOG_ERROR("server.rest", "Couldn't bind to %s:%d", _bindIP.c_str(), _port);
@@ -194,6 +225,8 @@ void LoginRESTService::Run()
             continue;   // ran into an accept timeout
 
         std::shared_ptr<soap> soapClient = std::make_shared<soap>(soapServer);
+        // soap_ssl_accept derives its whole handshake budget from accept_timeout (10 polls of 0.1 s per second)
+        soapClient->accept_timeout = LOGIN_HANDSHAKE_TIMEOUT;
         boost::asio::ip::address_v4 address(soapClient->ip);
         if (soap_ssl_accept(soapClient.get()) != SOAP_OK)
         {
@@ -249,9 +282,35 @@ int32 LoginRESTService::HandlePost(soap* soapClient)
         return 404;
     }
 
-    char *buf;
-    size_t len;
-    soap_http_body(soapClient, &buf, &len);
+    char *buf = nullptr;
+    size_t len = 0;
+    std::string chunkedBody;
+    if ((soapClient->mode & SOAP_IO) == SOAP_IO_CHUNK)
+    {
+        soap_wchar c;
+        while ((c = soap_getchar(soapClient)) != static_cast<soap_wchar>(EOF))
+        {
+            if (chunkedBody.size() >= MAX_LOGIN_BODY_SIZE)
+            {
+                TC_LOG_DEBUG("server.rest", "[%s:%d] Handling POST 413", ip_address.c_str(), soapClient->port);
+                return 413;
+            }
+            chunkedBody.push_back(static_cast<char>(c));
+        }
+        soap_end_recv(soapClient);
+        buf = &chunkedBody[0];
+        len = chunkedBody.size();
+    }
+    else
+    {
+        if (soapClient->length > MAX_LOGIN_BODY_SIZE)
+        {
+            TC_LOG_DEBUG("server.rest", "[%s:%d] Handling POST 413", ip_address.c_str(), soapClient->port);
+            return 413;
+        }
+
+        soap_http_body(soapClient, &buf, &len);
+    }
 
     Battlenet::JSON::Login::LoginForm loginForm;
     if (!JSON::Deserialize(buf, &loginForm))
@@ -287,35 +346,86 @@ int32 LoginRESTService::HandlePost(soap* soapClient)
 
     Utf8ToUpperOnlyLatin(login);
     Utf8ToUpperOnlyLatin(password);
-    
-    LoginDatabasePreparedStatement* stmt = LoginDatabase.GetPreparedStatement(LOGIN_SEL_BNET_ACCOUNT_INFO);
-    stmt->setString(0, login);
 
-    std::string sentPasswordHash = CalculateShaPassHash(login, password);
+    // Answered like a wrong password, without hashing anything
+    if (sLoginThrottle.IsBlocked(ip_address, login))
+    {
+        Battlenet::JSON::Login::LoginResult loginResult;
+        loginResult.set_authentication_state(Battlenet::JSON::Login::DONE);
+        return SendResponse(soapClient, loginResult);
+    }
+    
+    // The REST port is not covered by the IP ban check done when a bnet socket is accepted
+    LoginDatabasePreparedStatement* stmt = LoginDatabase.GetPreparedStatement(LOGIN_SEL_BNET_IP_BANNED);
+    stmt->setString(0, ip_address);
 
     std::shared_ptr<AsyncLoginRequest> request = std::make_shared<AsyncLoginRequest>(*reinterpret_cast<std::shared_ptr<soap>*>(soapClient->user));
     request->SetCallback(LoginDatabase.AsyncQuery(stmt)
-        .WithChainingPreparedCallback([request, login, sentPasswordHash](QueryCallback& callback, PreparedQueryResult result)
+        .WithChainingPreparedCallback([request, login](QueryCallback& callback, PreparedQueryResult bannedIp)
+    {
+        if (bannedIp)
+        {
+            Battlenet::JSON::Login::LoginResult loginResult;
+            loginResult.set_authentication_state(Battlenet::JSON::Login::DONE);
+            sLoginService.SendResponse(request->GetClient(), loginResult);
+            return;
+        }
+
+        LoginDatabasePreparedStatement* accountStmt = LoginDatabase.GetPreparedStatement(LOGIN_SEL_BNET_ACCOUNT_INFO);
+        accountStmt->setString(0, login);
+        callback.SetNextQuery(LoginDatabase.AsyncQuery(accountStmt));
+    })
+        .WithChainingPreparedCallback([request, ip_address, login, password](QueryCallback& callback, PreparedQueryResult result)
     {
         if (result)
         {
-            std::string pass_hash = result->Fetch()[12].GetString();
+            std::string const storedHash = result->Fetch()[12].GetString();
 
             request->SetResult(Trinity::make_unique<Battlenet::Session::AccountInfo>());
             request->GetResult()->LoadResult(result);
+            Battlenet::Session::AccountInfo const& account = *request->GetResult();
 
-            if (sentPasswordHash == pass_hash)
+            // The stored name is the throttle key: the database collation can match a differently spelled login
+            if (sLoginThrottle.IsBlocked(ip_address, account.Login))
             {
+                Battlenet::JSON::Login::LoginResult loginResult;
+                loginResult.set_authentication_state(Battlenet::JSON::Login::DONE);
+                sLoginService.SendResponse(request->GetClient(), loginResult);
+                return;
+            }
+
+            // A banned or suspended account is answered and counted exactly like a wrong password, so the
+            // response never tells whether the guessed password was right
+            bool needsUpgrade = false;
+            bool const passwordOk = PasswordHash::Verify(storedHash, login, password, &needsUpgrade);
+            bool const canLogin = !account.IsBanned && !account.IsSuspended;
+            if (passwordOk && canLogin)
+            {
+                if (needsUpgrade)
+                    UpgradePasswordHash(account.Id, storedHash, password);
+
+                sLoginThrottle.RegisterSuccess(ip_address, account.Login);
+
+                if (account.FailedLogins)
+                {
+                    LoginDatabasePreparedStatement* resetStmt = LoginDatabase.GetPreparedStatement(LOGIN_UPD_RESET_FAILED_LOGINS);
+                    resetStmt->setUInt32(0, account.Id);
+                    LoginDatabase.Execute(resetStmt);
+                }
+
                 LoginDatabasePreparedStatement* stmt = LoginDatabase.GetPreparedStatement(LOGIN_SEL_BNET_CHARACTER_COUNTS_BY_ACCOUNT_ID);
-                stmt->setUInt32(0, request->GetResult()->Id);
+                stmt->setUInt32(0, account.Id);
                 callback.SetNextQuery(LoginDatabase.AsyncQuery(stmt));
                 return;
             }
-            // TODO:
-            //else if (!request->GetResult()->IsBanned)
-            //{
-            // ...
-            //}
+
+            HandleWrongPassword(&account, ip_address, login);
+        }
+        else
+        {
+            // An unknown account takes as long to answer as a known one
+            PasswordHash::SpendVerifyTime(password);
+            HandleWrongPassword(nullptr, ip_address, login);
         }
 
         Battlenet::JSON::Login::LoginResult loginResult;
@@ -385,21 +495,6 @@ void LoginRESTService::HandleAsyncRequest(std::shared_ptr<AsyncLoginRequest> req
         Trinity::Asio::post(*_ioContext, [this, request] { HandleAsyncRequest(request); });
 }
 
-std::string LoginRESTService::CalculateShaPassHash(std::string const& name, std::string const& password)
-{
-    SHA256Hash email;
-    email.UpdateData(name);
-    email.Finalize();
-
-    SHA256Hash sha;
-    sha.UpdateData(ByteArrayToHexStr(email.GetDigest(), email.GetLength()));
-    sha.UpdateData(":");
-    sha.UpdateData(password);
-    sha.Finalize();
-
-    return ByteArrayToHexStr(sha.GetDigest(), sha.GetLength(), true);
-}
-
 std::unique_ptr<Battlenet::Session::AccountInfo> LoginRESTService::VerifyLoginTicket(std::string const& id)
 {
     std::unique_lock<std::mutex> lock(_loginTicketMutex);
@@ -440,6 +535,7 @@ void LoginRESTService::AddLoginTicket(std::string const& id, std::unique_ptr<Bat
 void LoginRESTService::CleanupLoginTickets()
 {
     time_t now = time(nullptr);
+    sLoginThrottle.Purge();
 
     {
         std::unique_lock<std::mutex> lock(_loginTicketMutex);

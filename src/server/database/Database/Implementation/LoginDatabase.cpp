@@ -1,19 +1,14 @@
-/*
- * Copyright (C) 2008-2018 TrinityCore <https://www.trinitycore.org/>
- *
- * This program is free software; you can redistribute it and/or modify it
- * under the terms of the GNU General Public License as published by the
- * Free Software Foundation; either version 2 of the License, or (at your
- * option) any later version.
- *
- * This program is distributed in the hope that it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for
- * more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program. If not, see <http://www.gnu.org/licenses/>.
- */
+////////////////////////////////////////////
+///                                      ///
+///         LEGIONCORE REFORGED          ///
+///    Copyright 2026 Titans-Project     ///
+///         All Rights Reserved.         ///
+///                                      ///
+///      Based on TrinityCore code       ///
+///   Copyright 2008-2018 TrinityCore    ///
+///   <http://www.trinitycore.org/>      ///
+///                                      ///
+////////////////////////////////////////////
 
 #include "LoginDatabase.h"
 #include "MySQLPreparedStatement.h"
@@ -69,8 +64,8 @@ void LoginDatabaseConnection::DoPrepareStatements()
     PrepareStatement(LOGIN_GET_GMLEVEL_BY_REALMID, "SELECT gmlevel FROM account_access WHERE id = ? AND (RealmID = ? OR RealmID = -1) ORDER BY gmlevel DESC LIMIT 1", CONNECTION_SYNCH);
     PrepareStatement(LOGIN_GET_USERNAME_BY_ID, "SELECT username FROM account WHERE id = ?", CONNECTION_SYNCH);
     PrepareStatement(LOGIN_GET_EMAIL_BY_ID_FOR_ACCOUNT_CONVERT, "SELECT email FROM account WHERE id = ?", CONNECTION_SYNCH);
-    PrepareStatement(LOGIN_SEL_CHECK_PASSWORD, "SELECT 1 FROM account WHERE id = ? AND sha_pass_hash = ?", CONNECTION_SYNCH);
-    PrepareStatement(LOGIN_SEL_CHECK_PASSWORD_BY_NAME, "SELECT 1 FROM account WHERE username = ? AND sha_pass_hash = ?", CONNECTION_SYNCH);
+    PrepareStatement(LOGIN_SEL_PASS_HASH_BY_ID, "SELECT sha_pass_hash FROM account WHERE id = ?", CONNECTION_SYNCH);
+    PrepareStatement(LOGIN_UPD_PASS_HASH_UPGRADE, "UPDATE account SET sha_pass_hash = ? WHERE id = ? AND sha_pass_hash = ?", CONNECTION_ASYNC);
     PrepareStatement(LOGIN_SEL_PINFO, "SELECT a.username, aa.gmlevel, a.email, a.last_ip, DATE_FORMAT(a.last_login, '%Y-%m-%d %T'), a.mutetime FROM account a LEFT JOIN account_access aa ON (a.id = aa.id AND (aa.RealmID = ? OR aa.RealmID = -1)) WHERE a.id = ?", CONNECTION_SYNCH);
     PrepareStatement(LOGIN_SEL_PINFO_BANS, "SELECT unbandate, bandate = unbandate, bannedby, banreason FROM account_banned WHERE id = ? AND active ORDER BY bandate ASC LIMIT 1", CONNECTION_SYNCH);
     PrepareStatement(LOGIN_SEL_GM_ACCOUNTS, "SELECT a.username, aa.gmlevel FROM account a, account_access aa WHERE a.id=aa.id AND aa.gmlevel >= ? AND (aa.realmid = -1 OR aa.realmid = ?)", CONNECTION_SYNCH);
@@ -82,6 +77,9 @@ void LoginDatabaseConnection::DoPrepareStatements()
     PrepareStatement(LOGIN_DEL_ACCOUNT, "DELETE FROM account WHERE id = ?", CONNECTION_ASYNC);
 
     PrepareStatement(LOGIN_SEL_BNET_ACCOUNT_INFO, "SELECT a.id, a.username, a.locked, a.lock_country, a.last_ip, a.failed_logins, ab.unbandate > UNIX_TIMESTAMP(), ab.unbandate = ab.bandate, a.activate, a.access_ip, ab.unbandate, aa.gmlevel, a.sha_pass_hash FROM account a LEFT JOIN account_banned ab ON a.id = ab.id AND ab.active = 1 LEFT JOIN account_access aa ON a.id = aa.id AND aa.RealmID = -1 WHERE a.username = ?", CONNECTION_ASYNC);
+    PrepareStatement(LOGIN_SEL_BNET_IP_BANNED, "SELECT 1 FROM ip_banned WHERE ip = ? AND (bandate = unbandate OR unbandate > UNIX_TIMESTAMP())", CONNECTION_ASYNC);
+    PrepareStatement(LOGIN_UPD_FAILED_LOGINS, "UPDATE account SET failed_logins = failed_logins + 1 WHERE id = ?", CONNECTION_ASYNC);
+    PrepareStatement(LOGIN_UPD_RESET_FAILED_LOGINS, "UPDATE account SET failed_logins = 0 WHERE id = ?", CONNECTION_ASYNC);
     PrepareStatement(LOGIN_UPD_LAST_LOGIN_INFO, "UPDATE account SET last_ip = ?, last_login = NOW(), locale = ?, failed_logins = 0, os = ? WHERE id = ?", CONNECTION_ASYNC);
 
     PrepareStatement(LOGIN_UPD_AT_AUTH_FLAG, "UPDATE account SET AtAuthFlag = ? WHERE id = ?", CONNECTION_ASYNC);

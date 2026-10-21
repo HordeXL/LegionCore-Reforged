@@ -1,19 +1,14 @@
-/*
- * Copyright (C) 2008-2018 TrinityCore <https://www.trinitycore.org/>
- *
- * This program is free software; you can redistribute it and/or modify it
- * under the terms of the GNU General Public License as published by the
- * Free Software Foundation; either version 2 of the License, or (at your
- * option) any later version.
- *
- * This program is distributed in the hope that it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for
- * more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program. If not, see <http://www.gnu.org/licenses/>.
- */
+////////////////////////////////////////////
+///                                      ///
+///         LEGIONCORE REFORGED          ///
+///    Copyright 2026 Titans-Project     ///
+///         All Rights Reserved.         ///
+///                                      ///
+///      Based on TrinityCore code       ///
+///   Copyright 2008-2018 TrinityCore    ///
+///   <http://www.trinitycore.org/>      ///
+///                                      ///
+////////////////////////////////////////////
 
 #ifndef _LOGINDATABASE_H
 #define _LOGINDATABASE_H
@@ -74,8 +69,8 @@ enum LoginDatabaseStatements : uint32
     LOGIN_GET_GMLEVEL_BY_REALMID,
     LOGIN_GET_USERNAME_BY_ID,
     LOGIN_GET_EMAIL_BY_ID_FOR_ACCOUNT_CONVERT,
-    LOGIN_SEL_CHECK_PASSWORD,
-    LOGIN_SEL_CHECK_PASSWORD_BY_NAME,
+    LOGIN_SEL_PASS_HASH_BY_ID,
+    LOGIN_UPD_PASS_HASH_UPGRADE,
     LOGIN_SEL_PINFO,
     LOGIN_SEL_PINFO_BANS,
     LOGIN_SEL_GM_ACCOUNTS,
@@ -88,6 +83,9 @@ enum LoginDatabaseStatements : uint32
 
     LOGIN_SEL_BNET_ACCOUNT_INFO,
     LOGIN_UPD_LAST_LOGIN_INFO,
+    LOGIN_SEL_BNET_IP_BANNED,
+    LOGIN_UPD_FAILED_LOGINS,
+    LOGIN_UPD_RESET_FAILED_LOGINS,
 
     LOGIN_UPD_AT_AUTH_FLAG,
     LOGIN_SEL_BATTLEPAY_COINS,
