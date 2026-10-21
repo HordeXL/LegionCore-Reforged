@@ -1,35 +1,30 @@
-/*
- * Copyright (C) 2008-2017 TrinityCore <http://www.trinitycore.org/>
-
- * This program is free software; you can redistribute it and/or modify it
- * under the terms of the GNU General Public License as published by the
- * Free Software Foundation; either version 2 of the License, or (at your
- * option) any later version.
- *
- * This program is distributed in the hope that it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for
- * more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program. If not, see <http://www.gnu.org/licenses/>.
- */
+////////////////////////////////////////////
+///                                      ///
+///         LEGIONCORE REFORGED          ///
+///    Copyright 2026 Titans-Project     ///
+///         All Rights Reserved.         ///
+///                                      ///
+///      Based on TrinityCore code       ///
+///   Copyright 2008-2017 TrinityCore    ///
+///   <http://www.trinitycore.org/>      ///
+///                                      ///
+////////////////////////////////////////////
 
 #include "GameTime.h"
 #include "Timer.h"
 #include "Util.h"
+#include <atomic>
 
 namespace GameTime
 {
     time_t const StartTime = time(nullptr);
 
-    time_t GameTime = time(nullptr);
-    uint32 GameMSTime = 0;
+    // written by the world thread, read by every map thread
+    std::atomic<time_t> GameTime(time(nullptr));
+    std::atomic<uint32> GameMSTime(0);
 
-    SystemTimePoint GameTimeSystemPoint = SystemTimePoint::min();
-    TimePoint GameTimeSteadyPoint = TimePoint::min();
-
-    tm DateTime;
+    std::atomic<SystemTimePoint> GameTimeSystemPoint(std::chrono::system_clock::now());
+    std::atomic<TimePoint> GameTimeSteadyPoint(std::chrono::steady_clock::now());
 
     time_t GetStartTime()
     {
@@ -70,20 +65,14 @@ namespace GameTime
 
     uint32 GetUptime()
     {
-        return uint32(GameTime - StartTime);
-    }
-
-    tm const* GetDateAndTime()
-    {
-        return &DateTime;
+        return uint32(GameTime.load(std::memory_order_relaxed) - StartTime);
     }
 
     void UpdateGameTimers()
     {
-        GameTime = time(nullptr);
-        GameMSTime = getMSTime();
-        GameTimeSystemPoint = std::chrono::system_clock::now();
-        GameTimeSteadyPoint = std::chrono::steady_clock::now();
-        localtime_r(&GameTime, &DateTime);
+        GameTime.store(time(nullptr), std::memory_order_relaxed);
+        GameMSTime.store(getMSTime(), std::memory_order_relaxed);
+        GameTimeSystemPoint.store(std::chrono::system_clock::now(), std::memory_order_relaxed);
+        GameTimeSteadyPoint.store(std::chrono::steady_clock::now(), std::memory_order_relaxed);
     }
 }
