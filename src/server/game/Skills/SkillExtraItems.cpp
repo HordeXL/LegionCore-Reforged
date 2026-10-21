@@ -1,25 +1,20 @@
-/*
- * Copyright (C) 2008-2012 TrinityCore <http://www.trinitycore.org/>
- * Copyright (C) 2005-2009 MaNGOS <http://getmangos.com/>
- *
- * This program is free software; you can redistribute it and/or modify it
- * under the terms of the GNU General Public License as published by the
- * Free Software Foundation; either version 2 of the License, or (at your
- * option) any later version.
- *
- * This program is distributed in the hope that it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for
- * more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program. If not, see <http://www.gnu.org/licenses/>.
- */
+////////////////////////////////////////////
+///                                      ///
+///         LEGIONCORE REFORGED          ///
+///    Copyright 2026 Titans-Project     ///
+///         All Rights Reserved.         ///
+///                                      ///
+///      Based on TrinityCore code       ///
+///   Copyright 2008-2012 TrinityCore    ///
+///   <http://www.trinitycore.org/>      ///
+///                                      ///
+////////////////////////////////////////////
 
 #include "SkillExtraItems.h"
 #include "DatabaseEnv.h"
 #include "Log.h"
 #include "Player.h"
+#include <shared_mutex>
 
 // some type definitions
 // no use putting them in the header file, they're only used in this .cpp
@@ -45,19 +40,26 @@ struct SkillExtraItemEntry
 // map to store the extra item creation info, the key is the spellId of the creation spell, the mapped value is the assigned SkillExtraItemEntry
 typedef std::map<uint32, SkillExtraItemEntry> SkillExtraItemMap;
 
-SkillExtraItemMap SkillExtraItemStore;
+static SkillExtraItemMap SkillExtraItemStore;
+// .reload swaps the store while the map threads read it
+static std::shared_mutex SkillExtraItemLock;
 
 // loads the extra item creation info from DB
 void LoadSkillExtraItemTable()
 {
     uint32 oldMSTime = getMSTime();
 
-    SkillExtraItemStore.clear();                            // need for reload
+    SkillExtraItemMap newStore;
 
     //                                                  0               1                       2                    3
     QueryResult result = WorldDatabase.Query("SELECT spellId, requiredSpecialization, additionalCreateChance, additionalMaxNum FROM skill_extra_item_template");
     if (!result)
     {
+        {
+            std::unique_lock<std::shared_mutex> lock(SkillExtraItemLock);
+            SkillExtraItemStore.swap(newStore);
+        }
+
         TC_LOG_ERROR("server.loading", ">> Loaded 0 spell specialization definitions. DB table `skill_extra_item_template` is empty.");
         return;
     }
@@ -97,7 +99,7 @@ void LoadSkillExtraItemTable()
             continue;
         }
 
-        SkillExtraItemEntry& skillExtraItemEntry = SkillExtraItemStore[spellId];
+        SkillExtraItemEntry& skillExtraItemEntry = newStore[spellId];
 
         skillExtraItemEntry.requiredSpecialization = requiredSpecialization;
         skillExtraItemEntry.additionalCreateChance = additionalCreateChance;
@@ -107,22 +109,25 @@ void LoadSkillExtraItemTable()
     }
     while (result->NextRow());
 
+    {
+        std::unique_lock<std::shared_mutex> lock(SkillExtraItemLock);
+        SkillExtraItemStore.swap(newStore);
+    }
+
     TC_LOG_INFO("server.loading", ">> Loaded %u spell specialization definitions in %u ms", count, GetMSTimeDiffToNow(oldMSTime));
 
 }
 
 bool canCreateExtraItems(Player* player, uint32 spellId, float &additionalChance, uint8 &additionalMax)
 {
+    std::shared_lock<std::shared_mutex> lock(SkillExtraItemLock);
+
     // get the info for the specified spell
     SkillExtraItemMap::const_iterator ret = SkillExtraItemStore.find(spellId);
     if (ret == SkillExtraItemStore.end())
         return false;
 
     SkillExtraItemEntry const* specEntry = &ret->second;
-
-    // if no entry, then no extra items can be created
-    if (!specEntry)
-        return false;
 
     // the player doesn't have the required specialization, return false
     if (!player->HasSpell(specEntry->requiredSpecialization))
