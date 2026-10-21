@@ -18563,6 +18563,10 @@ void Player::PrepareAreaQuest(uint32 area)
         if (CanCompleteQuest(quest_id))
             CompleteQuest(quest_id);
 
+        // Hidden server-side flags: the client never shows them, so no quest window either.
+        if (quest->HasFlag(QUEST_FLAGS_TRACKING))
+            continue;
+
         if ((quest->IsAutoComplete() && quest->IsRepeatable() && !quest->IsDailyOrWeekly())/* || quest->HasFlag(QUEST_FLAGS_AUTOCOMPLETE)*/)
             PlayerTalkClass->SendQuestGiverRequestItems(quest, GetGUID(), CanCompleteRepeatableQuest(quest), true);
         else
