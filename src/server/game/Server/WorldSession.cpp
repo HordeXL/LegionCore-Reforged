@@ -188,6 +188,24 @@ ObjectGuid::LowType WorldSession::GetGuidLow() const
     return GetPlayer() ? GetPlayer()->GetGUIDLow() : 0;
 }
 
+std::shared_ptr<WorldSocket> WorldSession::GetSocket(uint32 connection) const
+{
+    if (connection >= MAX_CONNECTION_TYPES)
+        return nullptr;
+
+    std::lock_guard<std::mutex> lock(m_socketLock);
+    return m_Socket[connection];
+}
+
+void WorldSession::ResetSocket(uint32 connection)
+{
+    if (connection >= MAX_CONNECTION_TYPES)
+        return;
+
+    std::lock_guard<std::mutex> lock(m_socketLock);
+    m_Socket[connection].reset();
+}
+
 /// Send a packet to the client
 void WorldSession::SendPacket(WorldPacket const* packet, bool forced /*= false*/)
 {
@@ -222,7 +240,8 @@ void WorldSession::SendPacket(WorldPacket const* packet, bool forced /*= false*/
         conIdx = packet->GetConnection();
     }
 
-    if (!m_Socket[conIdx])
+    std::shared_ptr<WorldSocket> socket = GetSocket(conIdx);
+    if (!socket)
     {
         TC_LOG_DEBUG("misc", "Prevented sending of %s to non existent socket %u to %s", GetOpcodeNameForLogging(static_cast<OpcodeServer>(opcode)).c_str(), conIdx, GetPlayerName().c_str());
         return;
@@ -238,8 +257,7 @@ void WorldSession::SendPacket(WorldPacket const* packet, bool forced /*= false*/
     uint32 start_time = getMSTime();
     const_cast<WorldPacket*>(packet)->FlushBits();
 
-    if (m_Socket[conIdx]) // http://pastebin.com/8ntVgj49
-        m_Socket[conIdx]->SendPacket(*packet);
+    socket->SendPacket(*packet);
 
     if ((getMSTime() - start_time) > 50)
         sLog->outDiff(" >> SendPacket DIFF %u player_guid %u _mapID_ %i AccountId %u opcode %u packetSize %u", getMSTime() - start_time, (_player && !_player->IsDelete()) ? _player->GetGUIDLow() : 0, (_player && !_player->IsDelete()) ? _player->GetMapId() : -1, GetAccountId(), opcode, packetSize);
@@ -270,12 +288,25 @@ void WorldSession::LogUnprocessedTail(WorldPacket const* packet)
 }
 
 /// Update the WorldSession (triggered by World update)
+namespace
+{
+    // an exception leaving Update must not leave the flag set: the session would never be updated again
+    struct SessionUpdateGuard
+    {
+        explicit SessionUpdateGuard(std::atomic<bool>& flag) : _flag(flag) { }
+        ~SessionUpdateGuard() { _flag = false; }
+
+        std::atomic<bool>& _flag;
+    };
+}
+
 bool WorldSession::Update(uint32 diff, Map* map)
 {
-    if (m_sUpdate)
+    // the world thread and the map thread can both reach a session while it changes map
+    if (m_sUpdate.exchange(true))
         return true;
 
-    m_sUpdate = true;
+    SessionUpdateGuard updateGuard(m_sUpdate);
 
     uint32 _s = getMSTime();
     /// Update Timeout timer.
@@ -285,8 +316,8 @@ bool WorldSession::Update(uint32 diff, Map* map)
     ///- Before we process anything:
     /// If necessary, kick the player from the character select screen
     if (IsConnectionIdle())
-        if (m_Socket[CONNECTION_TYPE_REALM])
-            m_Socket[CONNECTION_TYPE_REALM]->CloseSocket();
+        if (std::shared_ptr<WorldSocket> realmSocket = GetSocket(CONNECTION_TYPE_REALM))
+            realmSocket->CloseSocket();
 
     if (_warden)
         _warden->Update();
@@ -316,11 +347,17 @@ bool WorldSession::Update(uint32 diff, Map* map)
         KickPlayer();
     }
 
-    while (m_Socket[CONNECTION_TYPE_REALM] && map == m_map && _recvQueue.next(packet))
+    while (GetSocket(CONNECTION_TYPE_REALM) && map == m_map && _recvQueue.next(packet))
     {
         OpcodeClient opcode = static_cast<OpcodeClient>(packet->GetOpcode());
         uint32 packetSize = packet->size();
         ClientOpcodeHandler const* opHandle = opcodeTable[opcode];
+        if (!opHandle)
+        {
+            delete packet;
+            continue;
+        }
+
         try
         {
             switch (opHandle->Status)
@@ -333,9 +370,13 @@ bool WorldSession::Update(uint32 diff, Map* map)
                         //! the client to be in world yet. We will re-add the packets to the bottom of the queue and process them later.
                         if (!m_playerRecentlyLogout)
                         {
-                            requeuePackets.push_back(packet);
-                            deletePacket = false;
-                            TC_LOG_ERROR("network", "Re-enqueueing packet with opcode %s with with status STATUS_LOGGEDIN. Player is currently not in world yet.", GetOpcodeNameForLogging(opcode).c_str());
+                            // a client without a player can queue any number of these: keep a few, drop the rest
+                            if (requeuePackets.size() < 64)
+                            {
+                                requeuePackets.push_back(packet);
+                                deletePacket = false;
+                            }
+                            TC_LOG_DEBUG("network", "Re-enqueueing packet with opcode %s with with status STATUS_LOGGEDIN. Player is currently not in world yet.", GetOpcodeNameForLogging(opcode).c_str());
                         }
                     }
                     else if (_player->IsInWorld())
@@ -371,11 +412,12 @@ bool WorldSession::Update(uint32 diff, Map* map)
 
                     opHandle->Call(this, *packet);
                     break;
+                // a client chooses these at will: not an error line per packet
                 case STATUS_NEVER:
-                    TC_LOG_ERROR("network.opcode", "Received not allowed opcode %s from %s", GetOpcodeNameForLogging(opcode).c_str(), GetPlayerName(false).c_str());
+                    TC_LOG_DEBUG("network.opcode", "Received not allowed opcode %s from %s", GetOpcodeNameForLogging(opcode).c_str(), GetPlayerName(false).c_str());
                     break;
                 case STATUS_UNHANDLED:
-                    TC_LOG_ERROR("network.opcode", "Received not handled opcode %s from %s", GetOpcodeNameForLogging(opcode).c_str(), GetPlayerName(false).c_str());
+                    TC_LOG_DEBUG("network.opcode", "Received not handled opcode %s from %s", GetOpcodeNameForLogging(opcode).c_str(), GetPlayerName(false).c_str());
                     break;
             }
         }
@@ -389,6 +431,18 @@ bool WorldSession::Update(uint32 diff, Map* map)
             TC_LOG_ERROR("network", "WorldSession::Update ByteBufferException occured while parsing a packet (opcode: %u) from client %s, accountid=%i. Skipped packet.",
                 packet->GetOpcode(), GetRemoteAddress().c_str(), GetAccountId());
             packet->hexlike();
+        }
+        catch (std::bad_alloc const&)
+        {
+            // a forged count asking for a huge container must cost the packet, not the server
+            TC_LOG_ERROR("network", "WorldSession::Update bad_alloc while parsing a packet (opcode: %u) from client %s, accountid=%i. Skipped packet.",
+                packet->GetOpcode(), GetRemoteAddress().c_str(), GetAccountId());
+        }
+        catch (std::exception const& ex)
+        {
+            // length_error, out_of_range... from a read or a handler: the packet is lost, the session goes on
+            TC_LOG_ERROR("network", "WorldSession::Update exception '%s' while handling a packet (opcode: %u) from client %s, accountid=%i. Skipped packet.",
+                ex.what(), packet->GetOpcode(), GetRemoteAddress().c_str(), GetAccountId());
         }
 
         if (deletePacket)
@@ -417,10 +471,7 @@ bool WorldSession::Update(uint32 diff, Map* map)
     _recvQueue.readd(requeuePackets.begin(), requeuePackets.end());
 
     if (map != m_map)
-    {
-        m_sUpdate = false;
         return true;
-    }
 
     ProcessQueryCallbacks();
 
@@ -429,10 +480,7 @@ bool WorldSession::Update(uint32 diff, Map* map)
         sLog->outDiff("WorldSession::Update 2 _mapID_ %i Update time - %ums diff %u _player_guid_ %u _recvQueue %u", _mapID_, _ms, diff, _player_guid_, _recvQueue.size());
 
     if (map != m_map)
-    {
-        m_sUpdate = false;
         return true;
-    }
 
     //check if we are safe to proceed with logout
     //logout procedure should happen only in World::UpdateSessions() method!!!
@@ -455,36 +503,35 @@ bool WorldSession::Update(uint32 diff, Map* map)
         }
 
         ///- Cleanup socket pointer if need
-        if ((m_Socket[CONNECTION_TYPE_REALM] && !m_Socket[CONNECTION_TYPE_REALM]->IsOpen()) || (m_Socket[CONNECTION_TYPE_INSTANCE] && !m_Socket[CONNECTION_TYPE_INSTANCE]->IsOpen()))
+        std::shared_ptr<WorldSocket> realmSocket = GetSocket(CONNECTION_TYPE_REALM);
+        std::shared_ptr<WorldSocket> instanceSocket = GetSocket(CONNECTION_TYPE_INSTANCE);
+        if ((realmSocket && !realmSocket->IsOpen()) || (instanceSocket && !instanceSocket->IsOpen()))
         {
             expireTime -= expireTime > diff ? diff : expireTime;
             if (expireTime < diff || forceExit || !GetPlayer())
             {
-                if (m_Socket[CONNECTION_TYPE_REALM])
+                if (realmSocket)
                 {
-                    m_Socket[CONNECTION_TYPE_REALM]->CloseSocket();
-                    m_Socket[CONNECTION_TYPE_REALM].reset();
+                    realmSocket->CloseSocket();
+                    ResetSocket(CONNECTION_TYPE_REALM);
+                    realmSocket.reset();
                 }
-                if (m_Socket[CONNECTION_TYPE_INSTANCE])
+                if (instanceSocket)
                 {
-                    m_Socket[CONNECTION_TYPE_INSTANCE]->CloseSocket();
-                    m_Socket[CONNECTION_TYPE_INSTANCE].reset();
+                    instanceSocket->CloseSocket();
+                    ResetSocket(CONNECTION_TYPE_INSTANCE);
                 }
             }
         }
 
-        if (!m_Socket[CONNECTION_TYPE_REALM])
-        {
-            m_sUpdate = false;
+        if (!realmSocket)
             return false;                                       //Will remove this session from the world session map
-        }
     }
 
     _ms = GetMSTimeDiffToNow(_s);
     if (_ms > 200)
         sLog->outDiff("WorldSession::Update 3 _mapID_ %i Update time - %ums diff %u _player_guid_ %u _recvQueue %u", _mapID_, _ms, diff, _player_guid_, _recvQueue.size());
 
-    m_sUpdate = false;
     return true;
 }
 
@@ -730,7 +777,7 @@ void WorldSession::LogoutPlayer(bool Save)
         //! Send the 'logout complete' packet to the client
         //! Client will respond by sending 3x CMSG_CANCEL_TRADE, which we currently dont handle
         //! Send before delete. As need guid.
-        if (m_Socket[CONNECTION_TYPE_REALM])
+        if (GetSocket(CONNECTION_TYPE_REALM))
             SendPacket(WorldPackets::Character::LogoutComplete().Write());
 
         if (Map* _map = _player->FindMap())
@@ -752,10 +799,10 @@ void WorldSession::LogoutPlayer(bool Save)
         CharacterDatabase.Execute(stmt);
     }
 
-    if (m_Socket[CONNECTION_TYPE_INSTANCE])
+    if (std::shared_ptr<WorldSocket> instanceSocket = GetSocket(CONNECTION_TYPE_INSTANCE))
     {
-        m_Socket[CONNECTION_TYPE_INSTANCE]->CloseSocket();
-        m_Socket[CONNECTION_TYPE_INSTANCE].reset();
+        instanceSocket->CloseSocket();
+        ResetSocket(CONNECTION_TYPE_INSTANCE);
     }
 
     // SetMap(NULL);
@@ -772,11 +819,11 @@ void WorldSession::LogoutPlayer(bool Save)
 /// Kick a player out of the World
 void WorldSession::KickPlayer()
 {
-    for (auto & i : m_Socket)
+    for (uint32 i = 0; i < MAX_CONNECTION_TYPES; ++i)
     {
-        if (i)
+        if (std::shared_ptr<WorldSocket> socket = GetSocket(i))
         {
-            i->CloseSocket();
+            socket->CloseSocket();
             forceExit = true;
         }
     }
@@ -899,6 +946,16 @@ void WorldSession::LoadAccountData(PreparedQueryResult const& result, uint32 mas
 
 void WorldSession::SetAccountData(AccountDataType type, time_t tm /*= time_t(0)*/, std::string const& data /*= ""*/)
 {
+    if (type >= NUM_ACCOUNT_DATA_TYPES)
+        return;
+
+    // an unchanged blob costs no write: the client can resend it as often as it likes
+    if (m_accountData[type].Data == data)
+    {
+        m_accountData[type].Time = tm;
+        return;
+    }
+
     if ((1 << type) & GLOBAL_CACHE_MASK)
     {
         auto stmt = CharacterDatabase.GetPreparedStatement(CHAR_REP_ACCOUNT_DATA);
@@ -1277,10 +1334,13 @@ void WorldSession::ProcessAnticheatAction(const char* detector, const char* reas
 {
     // Dry run keeps the report and drops the sanction, so thresholds can be tuned against real
     // play before anyone is kicked over a lift or a lag spike.
+    // the report can concern a session that has no player any more
+    std::string const playerName = _player ? std::string(_player->GetName()) : GetAccountName();
+
     if (sAnticheatMgr->DryRun() && (cheatAction & ~(CHEAT_ACTION_LOG | CHEAT_ACTION_REPORT_GMS)))
     {
         sLog->outAnticheat("[DryRun] %s would have applied action 0x%x to %s: %s",
-            detector, cheatAction, _player ? _player->GetName() : "<no player>", reason);
+            detector, cheatAction, playerName.c_str(), reason);
         cheatAction &= (CHEAT_ACTION_LOG | CHEAT_ACTION_REPORT_GMS);
     }
 
@@ -1291,9 +1351,9 @@ void WorldSession::ProcessAnticheatAction(const char* detector, const char* reas
         if (GetSecurity() == SEC_PLAYER)
         {
             std::string _reason = std::string("CHEAT") + ": " + reason;
-            sWorld->BanAccount(BAN_ACCOUNT, _player->GetName(), secsToTimeString(banSeconds, true), _reason, detector);
+            sWorld->BanAccount(BAN_ACCOUNT, playerName, secsToTimeString(banSeconds, true), _reason, detector);
             std::stringstream banIpReason;
-            banIpReason << "Cf account " << _player->GetName();
+            banIpReason << "Cf account " << playerName;
             sWorld->BanAccount(BAN_IP, GetRemoteAddress(), secsToTimeString(banSeconds, true), banIpReason.str().c_str(), detector);
         }
     }
@@ -1302,7 +1362,7 @@ void WorldSession::ProcessAnticheatAction(const char* detector, const char* reas
         action = "Banned.";
         std::string _reason = std::string("CHEAT") + ": " + reason;
         if (GetSecurity() == SEC_PLAYER)
-            sWorld->BanAccount(BAN_ACCOUNT, _player->GetName(), secsToTimeString(banSeconds, true), _reason, detector);
+            sWorld->BanAccount(BAN_ACCOUNT, playerName, secsToTimeString(banSeconds, true), _reason, detector);
     }
     else if (cheatAction & CHEAT_ACTION_KICK)
     {
@@ -1322,7 +1382,7 @@ void WorldSession::ProcessAnticheatAction(const char* detector, const char* reas
         if (Player* p = GetPlayer())
             pguid = p->GetGUID();
         else
-            oss << "[Account " << _player->GetName() << "]";
+            oss << "[Account " << playerName << "]";
         oss << reason;
         if (cheatAction >= CHEAT_ACTION_KICK)
             oss << " " << action;
@@ -1336,7 +1396,7 @@ void WorldSession::ProcessAnticheatAction(const char* detector, const char* reas
     else
     {
         std::stringstream oss;
-        oss << "<None> [" << _player->GetName() << ":" << GetAccountId() << "@" << GetRemoteAddress().c_str() << "]";
+        oss << "<None> [" << playerName << ":" << GetAccountId() << "@" << GetRemoteAddress().c_str() << "]";
         playerDesc = oss.str();
     }
     sLog->outAnticheat("%s %s: %s %s", playerDesc.c_str(), detector, reason, action);

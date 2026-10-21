@@ -1,20 +1,14 @@
-/*
- * Copyright (C) 2008-2012 TrinityCore <http://www.trinitycore.org/>
- * Copyright (C) 2005-2009 MaNGOS <http://getmangos.com/>
- *
- * This program is free software; you can redistribute it and/or modify it
- * under the terms of the GNU General Public License as published by the
- * Free Software Foundation; either version 2 of the License, or (at your
- * option) any later version.
- *
- * This program is distributed in the hope that it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for
- * more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program. If not, see <http://www.gnu.org/licenses/>.
- */
+////////////////////////////////////////////
+///                                      ///
+///         LEGIONCORE REFORGED          ///
+///    Copyright 2026 Titans-Project     ///
+///         All Rights Reserved.         ///
+///                                      ///
+///      Based on TrinityCore code       ///
+///   Copyright 2008-2012 TrinityCore    ///
+///   <http://www.trinitycore.org/>      ///
+///                                      ///
+////////////////////////////////////////////
 
 /// \addtogroup u2w
 /// @{
@@ -35,6 +29,7 @@
 #include "World.h"
 #include "WorldPacket.h"
 #include "DatabaseEnvFwd.h"
+#include <mutex>
 
 class PetBattle;
 class BattlePet;
@@ -1080,7 +1075,11 @@ class TC_GAME_API WorldSession
         bool IsAddonRegistered(std::string const& prefix);
 
         void SendPacket(WorldPacket const* packet, bool forced = false);
-        void AddInstanceConnection(std::shared_ptr<WorldSocket> sock) { m_Socket[CONNECTION_TYPE_INSTANCE] = sock; }
+        void AddInstanceConnection(std::shared_ptr<WorldSocket> sock)
+        {
+            std::lock_guard<std::mutex> lock(m_socketLock);
+            m_Socket[CONNECTION_TYPE_INSTANCE] = std::move(sock);
+        }
         void SendNotification(const char *format, ...) ATTR_PRINTF(2, 3);
         void SendNotification(uint32 string_id, ...);
         void SendPetNameInvalid(uint32 error, ObjectGuid const& guid, std::string const& name, Optional<DeclinedName> const& declinedName);
@@ -2129,6 +2128,10 @@ class TC_GAME_API WorldSession
         ObjectGuid::LowType m_GUIDLow;                                   // set loggined or recently logout player (while m_playerRecentlyLogout set)
         Player* _player;
         std::shared_ptr<WorldSocket> m_Socket[MAX_CONNECTION_TYPES];
+        // the world thread, the map threads and the network thread all reach the sockets: read a copy, write under the lock
+        mutable std::mutex m_socketLock;
+        std::shared_ptr<WorldSocket> GetSocket(uint32 connection) const;
+        void ResetSocket(uint32 connection);
         std::string m_Address;
         Map* m_map;
 
@@ -2139,7 +2142,7 @@ class TC_GAME_API WorldSession
         std::string _accountName;
         std::string _os;
 
-        std::array<uint8, 32> _realmListSecret;
+        std::array<uint8, 32> _realmListSecret{};
         std::unordered_map<uint32 /*realmAddress*/, uint8> _realmCharacterCounts;
         std::unordered_map<uint32, std::function<void(MessageBuffer)>> _battlenetResponseCallbacks;
         uint32 _battlenetRequestToken;
