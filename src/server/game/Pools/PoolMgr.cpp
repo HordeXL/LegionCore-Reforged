@@ -1,20 +1,14 @@
-/*
- * Copyright (C) 2008-2012 TrinityCore <http://www.trinitycore.org/>
- * Copyright (C) 2005-2009 MaNGOS <http://getmangos.com/>
- *
- * This program is free software; you can redistribute it and/or modify it
- * under the terms of the GNU General Public License as published by the
- * Free Software Foundation; either version 2 of the License, or (at your
- * option) any later version.
- *
- * This program is distributed in the hope that it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for
- * more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program. If not, see <http://www.gnu.org/licenses/>.
- */
+////////////////////////////////////////////
+///                                      ///
+///         LEGIONCORE REFORGED          ///
+///    Copyright 2026 Titans-Project     ///
+///         All Rights Reserved.         ///
+///                                      ///
+///      Based on TrinityCore code       ///
+///   Copyright 2008-2012 TrinityCore    ///
+///   <http://www.trinitycore.org/>      ///
+///                                      ///
+////////////////////////////////////////////
 
 #include "PoolMgr.h"
 #include "ContributionMgr.h"
@@ -32,6 +26,7 @@
 // Method that tell amount spawned objects/subpools
 uint32 ActivePoolData::GetActiveObjectCount(uint32 pool_id) const
 {
+    std::lock_guard<std::mutex> guard(_lock);
     ActivePoolPools::const_iterator itr = mSpawnedPools.find(pool_id);
     return itr != mSpawnedPools.end() ? itr->second : 0;
 }
@@ -40,6 +35,7 @@ uint32 ActivePoolData::GetActiveObjectCount(uint32 pool_id) const
 template<>
 TC_GAME_API bool ActivePoolData::IsActiveObject<Creature>(uint64 db_guid) const
 {
+    std::lock_guard<std::mutex> guard(_lock);
     return mSpawnedCreatures.find(db_guid) != mSpawnedCreatures.end();
 }
 
@@ -47,6 +43,7 @@ TC_GAME_API bool ActivePoolData::IsActiveObject<Creature>(uint64 db_guid) const
 template<>
 TC_GAME_API bool ActivePoolData::IsActiveObject<GameObject>(uint64 db_guid) const
 {
+    std::lock_guard<std::mutex> guard(_lock);
     return mSpawnedGameobjects.find(db_guid) != mSpawnedGameobjects.end();
 }
 
@@ -54,6 +51,7 @@ TC_GAME_API bool ActivePoolData::IsActiveObject<GameObject>(uint64 db_guid) cons
 template<>
 TC_GAME_API bool ActivePoolData::IsActiveObject<Pool>(uint64 sub_pool_id) const
 {
+    std::lock_guard<std::mutex> guard(_lock);
     return mSpawnedPools.find(sub_pool_id) != mSpawnedPools.end();
 }
 
@@ -61,12 +59,14 @@ TC_GAME_API bool ActivePoolData::IsActiveObject<Pool>(uint64 sub_pool_id) const
 template<>
 TC_GAME_API bool ActivePoolData::IsActiveObject<Quest>(uint64 quest_id) const
 {
+    std::lock_guard<std::mutex> guard(_lock);
     return mActiveQuests.find(quest_id) != mActiveQuests.end();
 }
 
 template<>
 void ActivePoolData::ActivateObject<Creature>(uint64 db_guid, uint32 pool_id)
 {
+    std::lock_guard<std::mutex> guard(_lock);
     mSpawnedCreatures.insert(db_guid);
     ++mSpawnedPools[pool_id];
 }
@@ -74,6 +74,7 @@ void ActivePoolData::ActivateObject<Creature>(uint64 db_guid, uint32 pool_id)
 template<>
 void ActivePoolData::ActivateObject<GameObject>(uint64 db_guid, uint32 pool_id)
 {
+    std::lock_guard<std::mutex> guard(_lock);
     mSpawnedGameobjects.insert(db_guid);
     ++mSpawnedPools[pool_id];
 }
@@ -81,6 +82,7 @@ void ActivePoolData::ActivateObject<GameObject>(uint64 db_guid, uint32 pool_id)
 template<>
 void ActivePoolData::ActivateObject<Pool>(uint64 sub_pool_id, uint32 pool_id)
 {
+    std::lock_guard<std::mutex> guard(_lock);
     mSpawnedPools[sub_pool_id] = 0;
     ++mSpawnedPools[pool_id];
 }
@@ -88,6 +90,7 @@ void ActivePoolData::ActivateObject<Pool>(uint64 sub_pool_id, uint32 pool_id)
 template<>
 void ActivePoolData::ActivateObject<Quest>(uint64 quest_id, uint32 pool_id)
 {
+    std::lock_guard<std::mutex> guard(_lock);
     mActiveQuests.insert(quest_id);
     ++mSpawnedPools[pool_id];
 }
@@ -95,6 +98,7 @@ void ActivePoolData::ActivateObject<Quest>(uint64 quest_id, uint32 pool_id)
 template<>
 void ActivePoolData::RemoveObject<Creature>(uint64 db_guid, uint32 pool_id)
 {
+    std::lock_guard<std::mutex> guard(_lock);
     mSpawnedCreatures.erase(db_guid);
     uint32& val = mSpawnedPools[pool_id];
     if (val > 0)
@@ -104,6 +108,7 @@ void ActivePoolData::RemoveObject<Creature>(uint64 db_guid, uint32 pool_id)
 template<>
 void ActivePoolData::RemoveObject<GameObject>(uint64 db_guid, uint32 pool_id)
 {
+    std::lock_guard<std::mutex> guard(_lock);
     mSpawnedGameobjects.erase(db_guid);
     uint32& val = mSpawnedPools[pool_id];
     if (val > 0)
@@ -113,6 +118,7 @@ void ActivePoolData::RemoveObject<GameObject>(uint64 db_guid, uint32 pool_id)
 template<>
 void ActivePoolData::RemoveObject<Pool>(uint64 sub_pool_id, uint32 pool_id)
 {
+    std::lock_guard<std::mutex> guard(_lock);
     mSpawnedPools.erase(sub_pool_id);
     uint32& val = mSpawnedPools[pool_id];
     if (val > 0)
@@ -122,6 +128,7 @@ void ActivePoolData::RemoveObject<Pool>(uint64 sub_pool_id, uint32 pool_id)
 template<>
 void ActivePoolData::RemoveObject<Quest>(uint64 quest_id, uint32 pool_id)
 {
+    std::lock_guard<std::mutex> guard(_lock);
     mActiveQuests.erase(quest_id);
     uint32& val = mSpawnedPools[pool_id];
     if (val > 0)
@@ -150,7 +157,8 @@ bool PoolGroup<T>::CheckPool() const
         float chance = 0;
         for (size_t i = 0; i < ExplicitlyChanced.size(); ++i)
             chance += ExplicitlyChanced[i].chance;
-        if (chance != 100 && chance != 0)
+        // decimal chances (33.3 + 33.3 + 33.4) never sum to exactly 100.0 in float
+        if (fabs(chance - 100.0f) > 0.01f && fabs(chance) > 0.0001f)
             return false;
     }
     return true;
@@ -193,6 +201,14 @@ static Map* GetTriggerInstance(WorldObject* trigger, uint32 mapId)
         return nullptr;
 
     return map;
+}
+
+// A creature whose template has a vehicle kit is created with a Vehicle high guid, not a Creature one
+static Creature* FindPooledCreature(CreatureData const* data, uint64 guid)
+{
+    if (Creature* creature = ObjectAccessor::GetObjectInWorld(ObjectGuid::Create<HighGuid::Creature>(data->mapid, data->id, guid), (Creature*)nullptr))
+        return creature;
+    return ObjectAccessor::GetObjectInWorld(ObjectGuid::Create<HighGuid::Vehicle>(data->mapid, data->id, guid), (Creature*)nullptr);
 }
 
 // Main method to despawn a creature or gameobject in a pool
@@ -245,7 +261,7 @@ void PoolGroup<Creature>::Despawn1Object(uint64 const& guid, WorldObject* trigge
             if (creature && creature->GetDBTableGUIDLow() == guid)
                 creature->AddObjectToRemoveList();   // deferred: the trigger is in the middle of its own Respawn
         }
-        else if (Creature* creature = ObjectAccessor::GetObjectInWorld(ObjectGuid::Create<HighGuid::Creature>(data->mapid, data->id, guid), (Creature*)nullptr))
+        else if (Creature* creature = FindPooledCreature(data, guid))
             creature->AddObjectToRemoveList();
     }
 }
@@ -352,7 +368,7 @@ uint64 PoolGroup<T>::GetFirstEqualChancedObjectId()
 template <class T>
 void PoolGroup<T>::SpawnObject(ActivePoolData& spawns, uint32 limit, uint64 triggerFrom, WorldObject* trigger)
 {
-    uint32 lastDespawned = 0;
+    uint64 lastDespawned = 0;
     int count = limit - spawns.GetActiveObjectCount(poolId);
 
     // If triggered from some object respawn this object is still marked as spawned
@@ -425,11 +441,12 @@ void PoolGroup<Creature>::Spawn1Object(PoolObject* obj, WorldObject* trigger)
         {
             Creature* creature = new Creature;
             //TC_LOG_DEBUG("pool", "Spawning creature %u", guid);
-            if (!creature->LoadCreatureFromDB(obj->guid, map))
+            if (!creature->LoadCreatureFromDB(obj->guid, map, false))
             {
                 delete creature;
                 return;
             }
+            map->AddToMapWait(creature);   // added by the map's own thread: this can run on the world thread or inside another map's update
         }
     }
 }
@@ -525,8 +542,12 @@ void PoolGroup<Quest>::SpawnObject(ActivePoolData& spawns, uint32 limit, uint64 
         }
     }
 
-    ActivePoolObjects currentQuests = spawns.GetActiveQuests();
+    // only this pool's own quests can be recycled: the active set holds the quests of every pool
+    ActivePoolObjects currentQuests;
     ActivePoolObjects newQuests;
+    for (PoolObjectList::iterator itr = EqualChanced.begin(); itr != EqualChanced.end(); ++itr)
+        if (spawns.IsActiveObject<Quest>(itr->guid))
+            currentQuests.insert(itr->guid);
 
     // always try to select different quests
     for (PoolObjectList::iterator itr = EqualChanced.begin(); itr != EqualChanced.end(); ++itr)
@@ -577,7 +598,7 @@ void PoolGroup<Creature>::ReSpawn1Object(PoolObject* obj)
     {
         if (data->mapid == 1220)
             sContributionMgr.OnPoolSpawn(data->id, true);
-        if (Creature* creature = ObjectAccessor::GetObjectInWorld(ObjectGuid::Create<HighGuid::Creature>(data->mapid, data->id, obj->guid), (Creature*)nullptr))
+        if (Creature* creature = FindPooledCreature(data, obj->guid))
             creature->GetMap()->AddToMapWait(creature);
     }
 }
@@ -617,6 +638,7 @@ PoolMgr* PoolMgr::instance()
 void PoolMgr::Initialize()
 {
     mQuestSearchMap.clear();
+    mPoolSearchMap.clear();
     mGameobjectSearchMap.clear();
     mCreatureSearchMap.clear();
 }
@@ -1011,6 +1033,7 @@ void PoolMgr::LoadQuestPools()
 
 void PoolMgr::SaveQuestsToDB()
 {
+    std::lock_guard<std::mutex> saveGuard(_saveLock);
     CharacterDatabaseTransaction trans = CharacterDatabase.BeginTransaction();
 
     for (PoolGroupQuestMap::iterator itr = mPoolQuestGroups.begin(); itr != mPoolQuestGroups.end(); ++itr)
@@ -1023,6 +1046,9 @@ void PoolMgr::SaveQuestsToDB()
     }
 
     CharacterDatabase.CommitTransaction(trans);
+
+    // a committed transaction is queued for the async worker: the inserts need a new one
+    trans = CharacterDatabase.BeginTransaction();
 
     for (SearchMap::iterator itr = mQuestSearchMap.begin(); itr != mQuestSearchMap.end(); ++itr)
     {

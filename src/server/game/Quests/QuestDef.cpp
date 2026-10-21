@@ -1,20 +1,14 @@
-/*
- * Copyright (C) 2008-2012 TrinityCore <http://www.trinitycore.org/>
- * Copyright (C) 2005-2009 MaNGOS <http://getmangos.com/>
- *
- * This program is free software; you can redistribute it and/or modify it
- * under the terms of the GNU General Public License as published by the
- * Free Software Foundation; either version 2 of the License, or (at your
- * option) any later version.
- *
- * This program is distributed in the hope that it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for
- * more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program. If not, see <http://www.gnu.org/licenses/>.
- */
+////////////////////////////////////////////
+///                                      ///
+///         LEGIONCORE REFORGED          ///
+///    Copyright 2026 Titans-Project     ///
+///         All Rights Reserved.         ///
+///                                      ///
+///      Based on TrinityCore code       ///
+///   Copyright 2008-2012 TrinityCore    ///
+///   <http://www.trinitycore.org/>      ///
+///                                      ///
+////////////////////////////////////////////
 
 #include "QuestDef.h"
 #include "Player.h"
@@ -136,9 +130,6 @@ Quest::Quest(Field* questRecord)
 
     StartScript             = questRecord[index++].GetUInt32();
     CompleteScript          = questRecord[index++].GetUInt32();
-
-    if (SpecialFlags & QUEST_SPECIAL_FLAGS_AUTO_ACCEPT)
-        Flags |= QUEST_FLAGS_AUTO_ACCEPT;
 
     m_rewItemsCount = 0;
     m_rewChoiceItemsCount = 0;
@@ -307,6 +298,9 @@ uint32 Quest::XPValue(Player* player) const
 
 uint32 Quest::MoneyValue(uint8 playerLevel) const
 {
+    if (RewardMoneyDifficulty >= 10)   // Difficulty has 10 slots, the value comes straight from the database
+        return 0;
+
     if (QuestMoneyRewardEntry const* money = sQuestMoneyRewardStore.LookupEntry(GetScaledQuestLevel(playerLevel)))
         return money->Difficulty[RewardMoneyDifficulty] * RewardMoneyMultiplier;
     

@@ -1,20 +1,14 @@
-/*
- * Copyright (C) 2008-2012 TrinityCore <http://www.trinitycore.org/>
- * Copyright (C) 2005-2009 MaNGOS <http://www.mangosproject.org/>
- *
- * This program is free software; you can redistribute it and/or modify it
- * under the terms of the GNU General Public License as published by the
- * Free Software Foundation; either version 2 of the License, or (at your
- * option) any later version.
- *
- * This program is distributed in the hope that it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for
- * more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program. If not, see <http://www.gnu.org/licenses/>.
- */
+////////////////////////////////////////////
+///                                      ///
+///         LEGIONCORE REFORGED          ///
+///    Copyright 2026 Titans-Project     ///
+///         All Rights Reserved.         ///
+///                                      ///
+///      Based on TrinityCore code       ///
+///   Copyright 2008-2012 TrinityCore    ///
+///   <http://www.trinitycore.org/>      ///
+///                                      ///
+////////////////////////////////////////////
 
 #ifndef TRINITY_POOLHANDLER_H
 #define TRINITY_POOLHANDLER_H
@@ -22,6 +16,7 @@
 #include "Creature.h"
 #include "GameObject.h"
 #include "QuestDef.h"
+#include <mutex>
 
 struct PoolTemplateData
 {
@@ -56,8 +51,10 @@ class TC_GAME_API ActivePoolData
         template<typename T>
         void RemoveObject(uint64 db_guid_or_pool_id, uint32 pool_id);
 
-        ActivePoolObjects GetActiveQuests() const { return mActiveQuests; } // a copy of the set
+        ActivePoolObjects GetActiveQuests() const { std::lock_guard<std::mutex> guard(_lock); return mActiveQuests; } // a copy of the set
     private:
+        // One instance is shared by every map thread and the world thread; each accessor only touches the sets under it
+        mutable std::mutex _lock;
         ActivePoolObjects mSpawnedCreatures;
         ActivePoolObjects mSpawnedGameobjects;
         ActivePoolObjects mActiveQuests;
@@ -156,6 +153,9 @@ class TC_GAME_API PoolMgr
 
         // dynamic data
         ActivePoolData mSpawnedData;
+
+        // Two saves at once would interleave their DELETE and INSERT batches
+        std::mutex _saveLock;
 };
 
 #define sPoolMgr PoolMgr::instance()
