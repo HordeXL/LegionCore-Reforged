@@ -1,19 +1,14 @@
-/*
- * Copyright (C) 2008-2015 TrinityCore <http://www.trinitycore.org/>
- *
- * This program is free software; you can redistribute it and/or modify it
- * under the terms of the GNU General Public License as published by the
- * Free Software Foundation; either version 2 of the License, or (at your
- * option) any later version.
- *
- * This program is distributed in the hope that it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for
- * more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program. If not, see <http://www.gnu.org/licenses/>.
- */
+////////////////////////////////////////////
+///                                      ///
+///         LEGIONCORE REFORGED          ///
+///    Copyright 2026 Titans-Project     ///
+///         All Rights Reserved.         ///
+///                                      ///
+///      Based on TrinityCore code       ///
+///   Copyright 2008-2015 TrinityCore    ///
+///   <http://www.trinitycore.org/>      ///
+///                                      ///
+////////////////////////////////////////////
 
 #include "Garrison.h"
 #include "Mail.h"
@@ -3223,25 +3218,25 @@ void Garrison::CompleteShipments(GameObject *go)
             //Mine Shipment
             case 116055:
             {
-                loot->AddOrReplaceItem(109119, data.second, false);
-                loot->AddOrReplaceItem(109118, data.second, false);
+                loot->AddOrReplaceItem(109119, 0, data.second);
+                loot->AddOrReplaceItem(109118, 0, data.second);
                 break;
             }
             //Garden Shipment
             case 116054:
-                loot->AddOrReplaceItem(109125, data.second, false);
-                loot->AddOrReplaceItem(109124, data.second, false);
+                loot->AddOrReplaceItem(109125, 0, data.second);
+                loot->AddOrReplaceItem(109124, 0, data.second);
                 break;
             case 114677:
             case 118111:
-                loot->AddOrReplaceItem(CURRENCY_TYPE_GARRISON_RESOURCES, data.second * 30, true);
+                loot->AddOrReplaceItem(CURRENCY_TYPE_GARRISON_RESOURCES, CURRENCY_TYPE_GARRISON_RESOURCES, data.second * 30, true);
                 break;
             //WarMill
             case 120204:
-                loot->AddOrReplaceItem(113681, data.second, false);
+                loot->AddOrReplaceItem(113681, 0, data.second);
                 break;
             default:
-                loot->AddOrReplaceItem(data.first, data.second, false);
+                loot->AddOrReplaceItem(data.first, 0, data.second);
                 break;
         }
     }

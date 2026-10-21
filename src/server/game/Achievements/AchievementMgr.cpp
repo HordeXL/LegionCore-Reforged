@@ -4345,6 +4345,12 @@ void AchievementGlobalMgr::LoadCriteriaList()
         // Load modifier tree nodes
         for (ModifierTreeEntry const* tree : sModifierTreeStore)
         {
+            if (tree->ID >= MAX_MODIFIER_TREE)
+            {
+                TC_LOG_ERROR("server.loading", "ModifierTree %u is past MAX_MODIFIER_TREE (%u): raise the limit", tree->ID, MAX_MODIFIER_TREE);
+                continue;
+            }
+
             auto node = new ModifierTreeNode();
             node->Entry = tree;
             _criteriaModifiers[node->Entry->ID] = node;
@@ -4353,7 +4359,7 @@ void AchievementGlobalMgr::LoadCriteriaList()
         // Build tree
         for (auto & _criteriaModifier : _criteriaModifiers)
         {
-            if (_criteriaModifier == nullptr || !_criteriaModifier->Entry->Parent)
+            if (_criteriaModifier == nullptr || !_criteriaModifier->Entry->Parent || _criteriaModifier->Entry->Parent >= MAX_MODIFIER_TREE)
                 continue;
 
             auto parent = _criteriaModifiers[_criteriaModifier->Entry->Parent];
@@ -4375,6 +4381,12 @@ void AchievementGlobalMgr::LoadCriteriaList()
             Field* fields = result->Fetch();
             uint32 treeID = fields[0].GetUInt32();
             uint32 QuestID = fields[1].GetUInt32();
+            if (treeID >= MAX_CRITERIA_TREE)
+            {
+                TC_LOG_ERROR("sql.sql", "quest_objectives: quest %u has criteria tree %u past MAX_CRITERIA_TREE", QuestID, treeID);
+                continue;
+            }
+
             //! if no achieve - add to list
             _criteriaTreeForQuest[treeID] = QuestID;
 
@@ -4382,14 +4394,21 @@ void AchievementGlobalMgr::LoadCriteriaList()
             {
                 for (auto child : *data)
                 {
+                    if (child->ID >= MAX_CRITERIA_TREE)
+                        continue;
+
                     _criteriaTreeForQuest[child->ID] = QuestID;
                     if (std::vector<CriteriaTreeEntry const*> const* data2 = sDB2Manager.GetCriteriaTreeList(child->ID))
                         for (auto child2 : *data2)
                         {
+                            if (child2->ID >= MAX_CRITERIA_TREE)
+                                continue;
+
                             _criteriaTreeForQuest[child2->ID] = QuestID;
                             if (std::vector<CriteriaTreeEntry const*> const* data3 = sDB2Manager.GetCriteriaTreeList(child2->ID))
                                 for (auto child3 : *data3)
-                                    _criteriaTreeForQuest[child3->ID] = QuestID;
+                                    if (child3->ID < MAX_CRITERIA_TREE)
+                                        _criteriaTreeForQuest[child3->ID] = QuestID;
                         }
                 }
             }
@@ -4414,6 +4433,12 @@ void AchievementGlobalMgr::LoadCriteriaList()
     // Load criteria tree nodes
     for (CriteriaTreeEntry const* tree : sCriteriaTreeStore)
     {
+        if (tree->ID >= MAX_CRITERIA_TREE)
+        {
+            TC_LOG_ERROR("server.loading", "CriteriaTree %u is past MAX_CRITERIA_TREE (%u): raise the limit", tree->ID, MAX_CRITERIA_TREE);
+            continue;
+        }
+
         // Find linked achievement
         AchievementEntry const* achievement = GetEntry(achievementCriteriaTreeIds, tree);
         ScenarioStepEntry const* scenarioStep = GetEntry(scenarioCriteriaTreeIds, tree);
@@ -4451,7 +4476,7 @@ void AchievementGlobalMgr::LoadCriteriaList()
     // Build tree
     for (auto & _criteriaTree : _criteriaTrees)
     {
-        if (_criteriaTree == nullptr || !_criteriaTree->Entry->Parent)
+        if (_criteriaTree == nullptr || !_criteriaTree->Entry->Parent || _criteriaTree->Entry->Parent >= MAX_CRITERIA_TREE)
             continue;
 
         auto parent = _criteriaTrees[_criteriaTree->Entry->Parent];
@@ -4462,10 +4487,16 @@ void AchievementGlobalMgr::LoadCriteriaList()
     // Load criteria
     for (CriteriaEntry const* criteriaEntry : sCriteriaStore)
     {
+        if (criteriaEntry->ID >= MAX_CRITERIA)
+        {
+            TC_LOG_ERROR("server.loading", "Criteria %u is past MAX_CRITERIA (%u): raise the limit", criteriaEntry->ID, MAX_CRITERIA);
+            continue;
+        }
+
         auto criteria = new Criteria();
         criteria->ID = criteriaEntry->ID;
         criteria->Entry = criteriaEntry;
-        auto mod = _criteriaModifiers[criteriaEntry->ModifierTreeId];
+        auto mod = criteriaEntry->ModifierTreeId < MAX_MODIFIER_TREE ? _criteriaModifiers[criteriaEntry->ModifierTreeId] : nullptr;
         if (mod != nullptr)
             criteria->Modifier = mod;
 
