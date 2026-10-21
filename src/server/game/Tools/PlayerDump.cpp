@@ -1,20 +1,14 @@
-/*
- * Copyright (C) 2008-2012 TrinityCore <http://www.trinitycore.org/>
- * Copyright (C) 2005-2009 MaNGOS <http://getmangos.com/>
- *
- * This program is free software; you can redistribute it and/or modify it
- * under the terms of the GNU General Public License as published by the
- * Free Software Foundation; either version 2 of the License, or (at your
- * option) any later version.
- *
- * This program is distributed in the hope that it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for
- * more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program. If not, see <http://www.gnu.org/licenses/>.
- */
+////////////////////////////////////////////
+///                                      ///
+///         LEGIONCORE REFORGED          ///
+///    Copyright 2026 Titans-Project     ///
+///         All Rights Reserved.         ///
+///                                      ///
+///      Based on TrinityCore code       ///
+///   Copyright 2008-2012 TrinityCore    ///
+///   <http://www.trinitycore.org/>      ///
+///                                      ///
+////////////////////////////////////////////
 
 /*
 playerdump.cpp if you get pdump
@@ -62,9 +56,9 @@ static DumpTable dumpTables[DUMP_TABLE_COUNT] =
     { "character_spell_cooldown",         DTT_CHAR_TABLE, "`guid`, `spell`, `item`, `time`"},
     { "character_talent",                 DTT_CHAR_TABLE, "`guid`, `talent`, `spec`"},
     { "character_void_storage",           DTT_VS_TABLE,   "`itemId`, `playerGuid`, `itemEntry`, `slot`, `creatorGuid`, `randomProperty`, `suffixFactor`, `randomPropertyType`, `itemGuid`"},
-    { "item_instance",                    DTT_ITEM,       "`guid`, `itemEntry`, `owner_guid`, `creatorGuid`, `giftCreatorGuid`, `count`, `duration`, `charges`, `flags`, `enchantments`, `randomPropertyType`, `randomPropertyId`, `durability`, `playedTime`, `text`, `upgradeId`, `battlePetSpeciesId`, `battlePetBreedData`, `battlePetLevel`, `battlePetDisplayId`, `bonusListIDs`, `itemLevel`, `dungeonEncounterID`, `contextID`, `createdTime`"},
     { "mail",                             DTT_MAIL,       "`id`, `messageType`, `stationery`, `mailTemplateId`, `sender`, `receiver`, `subject`, `body`, `has_items`, `expire_time`, `deliver_time`, `money`, `cod`, `checked`"},
     { "mail_items",                       DTT_MAIL_ITEM,  "`mail_id`, `item_guid`, `receiver`"},
+    { "item_instance",                    DTT_ITEM,       "`guid`, `itemEntry`, `owner_guid`, `creatorGuid`, `giftCreatorGuid`, `count`, `duration`, `charges`, `flags`, `enchantments`, `randomPropertyType`, `randomPropertyId`, `durability`, `playedTime`, `text`, `upgradeId`, `battlePetSpeciesId`, `battlePetBreedData`, `battlePetLevel`, `battlePetDisplayId`, `bonusListIDs`, `itemLevel`, `dungeonEncounterID`, `contextID`, `createdTime`"},
     { "pet_spell",                        DTT_PET_TABLE,  "`guid`, `spell`, `active`"},
     { "pet_spell_cooldown",               DTT_PET_TABLE,  "`guid`, `spell`, `time`"},
     { "character_archaeology",            DTT_CHAR_TABLE, "`guid`, `sites`, `counts`, `projects`"},
@@ -83,32 +77,11 @@ static DumpTable dumpTables[DUMP_TABLE_COUNT] =
 };
 
 // Low level functions
-static bool FindTokNth(std::string &str, int n, std::string::size_type &s, std::string::size_type &e)
-{
-    int i; s = e = 0;
-    std::string::size_type size = str.size();
-    for (i = 1; s < size && i < n; s++) if (str[s] == ' ') ++i;
-    if (i < n)
-        return false;
-
-    e = str.find(' ', s);
-
-    return e != std::string::npos;
-}
-
-std::string GetTokNth(std::string &str, int n)
-{
-    std::string::size_type s = 0, e = 0;
-    if (!FindTokNth(str, n, s, e))
-        return "";
-
-    return str.substr(s, e-s);
-}
-
 bool FindNth(std::string &str, int n, std::string::size_type &s, std::string::size_type &e)
 {
-    s = str.find("VALUES ('")+9;
+    s = str.find("VALUES ('");
     if (s == std::string::npos) return false;
+    s += 9;
 
     do
     {
@@ -131,6 +104,9 @@ bool FindNth(std::string &str, int n, std::string::size_type &s, std::string::si
 std::string GetTableName(std::string &str)
 {
     std::string::size_type const s = 13;
+    if (str.compare(0, s, "INSERT INTO `") != 0)
+        return "";
+
     std::string::size_type e = str.find('`', s);
     if (e == std::string::npos)
         return "";
@@ -163,19 +139,47 @@ std::string GetNth(std::string &str, int n)
     return str.substr(s, e-s);
 }
 
-bool ChangeTokNth(std::string &str, int n, const char *with, bool insert = false, bool nonzero = false)
+// lines are executed as raw SQL: only the single quoted-values INSERT written by CreateDumpString is accepted
+static bool IsPlainInsertLine(std::string const& line)
 {
-    std::string::size_type s = 0, e = 0;
-    if (!FindTokNth(str, n, s, e))
+    if (line.compare(0, 13, "INSERT INTO `") != 0)
         return false;
-    if (nonzero && str.substr(s, e-s) == "0")
-        return true;                                        // not an error
-    if (!insert)
-        str.replace(s, e-s, with);
-    else
-        str.insert(s, with);
 
-    return true;
+    std::string::size_type pos = line.find(") VALUES (");
+    if (pos == std::string::npos)
+        return false;
+
+    for (std::string::size_type i = 13; i < pos; ++i)
+    {
+        unsigned char c = line[i];
+        if (!isalnum(c) && c != '_' && c != '`' && c != ',' && c != ' ' && c != '(')
+            return false;
+    }
+
+    pos += 10;
+    for (;;)
+    {
+        if (pos >= line.size() || line[pos] != '\'')
+            return false;
+
+        for (++pos; pos < line.size() && line[pos] != '\''; ++pos)
+            if (line[pos] == '\\')
+                ++pos;
+
+        if (pos >= line.size())
+            return false;
+
+        ++pos;
+        if (line.compare(pos, 2, ", ") == 0)
+            pos += 2;
+        else
+            break;
+    }
+
+    if (line.compare(pos, 2, ");") != 0)
+        return false;
+
+    return line.find_first_not_of(" \t\r\n", pos + 2) == std::string::npos;
 }
 
 uint64 RegisterNewGuid(uint64 oldGuid, std::map<uint64, uint64> &guidMap, uint64 hiGuid)
@@ -230,7 +234,7 @@ std::string PlayerDumpWriter::GenerateWhereStr(char const* field, ObjectGuid::Lo
     return wherestr.str();
 }
 
-std::string PlayerDumpWriter::GenerateWhereStr(char const* field, GUIDs const& guids, GUIDs::const_iterator& itr)
+std::string PlayerDumpWriter::GenerateWhereStr(char const* field, GUIDs const& guids, GUIDs::const_iterator& itr, size_t maxLen)
 {
     std::ostringstream wherestr;
     wherestr << field << " IN ('";
@@ -238,7 +242,7 @@ std::string PlayerDumpWriter::GenerateWhereStr(char const* field, GUIDs const& g
     {
         wherestr << *itr;
 
-        if (wherestr.str().size() > MAX_QUERY_LEN - 50)      // near to max query
+        if (size_t(wherestr.tellp()) > maxLen)               // near to max query
         {
             ++itr;
             break;
@@ -256,15 +260,6 @@ void StoreGUID(QueryResult result, uint32 field, std::set<uint32>& guids)
 {
     Field* fields = result->Fetch();
     ObjectGuid::LowType guid = fields[field].GetUInt64();
-    if (guid)
-        guids.insert(guid);
-}
-
-void StoreGUID(QueryResult result, uint32 data, uint32 field, std::set<uint32>& guids)
-{
-    Field* fields = result->Fetch();
-    std::string dataStr = fields[data].GetString();
-    ObjectGuid::LowType guid = strtoull(GetTokNth(dataStr, field).c_str(), nullptr, 10);
     if (guid)
         guids.insert(guid);
 }
@@ -294,6 +289,9 @@ bool PlayerDumpWriter::DumpTable(std::string& dump, ObjectGuid::LowType guid, ch
     if (guids && guids->empty())
         return true;                                        // nothing to do
 
+    // PQuery truncates at MAX_QUERY_LEN: what the SELECT itself takes is not available to the IN list
+    size_t const maxWhereLen = MAX_QUERY_LEN - 50 - strlen(tableSelect) - strlen(tableFrom) - 32;
+
     // setup for guids case start position
     GUIDs::const_iterator guids_itr;
     if (guids)
@@ -304,13 +302,18 @@ bool PlayerDumpWriter::DumpTable(std::string& dump, ObjectGuid::LowType guid, ch
         std::string wherestr;
 
         if (guids)                                           // set case, get next guids string
-            wherestr = GenerateWhereStr(fieldname, *guids, guids_itr);
+            wherestr = GenerateWhereStr(fieldname, *guids, guids_itr, maxWhereLen);
         else                                                // not set case, get single guid string
             wherestr = GenerateWhereStr(fieldname, guid);
 
         QueryResult result = CharacterDatabase.PQuery("SELECT %s FROM %s WHERE %s", tableSelect, tableFrom, wherestr.c_str());
         if (!result)
-            return true;
+        {
+            if (type == DTT_CHARACTER)
+                return false;                               // no such character
+
+            continue;                                       // an empty chunk must not drop the following ones
+        }
 
         do
         {
@@ -408,7 +411,7 @@ DumpReturn PlayerDumpReader::LoadDump(std::string const& file, uint32 account, s
     if (!fin)
         return DUMP_FILE_OPEN_ERROR;
 
-    char newguid[20], chraccount[20], newpetid[20], currpetid[20], lastpetid[20], lastfollowerid[20];
+    char newguid[20], chraccount[20], newpetid[20], currpetid[20], lastfollowerid[20];
 
     // make sure the same guid doesn't already exist and is safe to use
     bool incHighest = true;
@@ -445,7 +448,6 @@ DumpReturn PlayerDumpReader::LoadDump(std::string const& file, uint32 account, s
     snprintf(newguid, 20, "%llu", guid);
     snprintf(chraccount, 20, "%u", account);
     snprintf(newpetid, 20, "%u", sObjectMgr->GeneratePetNumber());
-    snprintf(lastpetid, 20, "%s", "");
     snprintf(lastfollowerid, 20, "%llu", sGarrisonMgr.GenerateFollowerDbId());
 
     std::map<uint64, uint64> items;
@@ -483,6 +485,12 @@ DumpReturn PlayerDumpReader::LoadDump(std::string const& file, uint32 account, s
             (line.substr(nw_pos, 15) == "IMPORTANT NOTE:") ||
             (line.substr(nw_pos, 14) == "== END DUMP =="))
             continue;
+
+        if (!IsPlainInsertLine(line))
+        {
+            TC_LOG_ERROR("network", "LoadPlayerDump: line is not a plain INSERT: '%s'!", line.c_str());
+            ROLLBACK(DUMP_FILE_BROKEN);
+        }
 
         // determine table name and load type
         std::string tn = GetTableName(line);
@@ -534,7 +542,7 @@ DumpReturn PlayerDumpReader::LoadDump(std::string const& file, uint32 account, s
                     PreparedQueryResult result = CharacterDatabase.Query(stmt);
 
                     if (result)
-                        if (!ChangeNth(line, 48, "1"))       // characters.at_login set to "rename on login"
+                        if (!ChangeNth(line, 49, "1"))       // characters.at_login set to "rename on login"
                             ROLLBACK(DUMP_FILE_BROKEN);
                 }
                 else if (!ChangeNth(line, 3, name.c_str())) // characters.name
@@ -545,6 +553,10 @@ DumpReturn PlayerDumpReader::LoadDump(std::string const& file, uint32 account, s
             {
                 if (!ChangeNth(line, 1, newguid))           // character_*.guid update
                     ROLLBACK(DUMP_FILE_BROKEN);
+
+                if (tn == "character_queststatus" || tn == "character_queststatus_rewarded" || tn == "character_queststatus_objectives")
+                    if (!ChangeNth(line, 2, chraccount))    // account column follows the new owner
+                        ROLLBACK(DUMP_FILE_BROKEN);
                 break;
             }
             case DTT_EQSET_TABLE:
@@ -556,6 +568,10 @@ DumpReturn PlayerDumpReader::LoadDump(std::string const& file, uint32 account, s
                 snprintf(newSetGuid, 24, UI64FMTD, sObjectMgr->GenerateEquipmentSetGuid());
                 if (!ChangeNth(line, 2, newSetGuid))
                     ROLLBACK(DUMP_FILE_BROKEN);             // character_equipmentsets.setguid
+
+                for (int itemColumn = 7; itemColumn <= 25; ++itemColumn)    // item0..item18 follow the remapped item guids
+                    if (!ChangeGuid(line, itemColumn, items, sObjectMgr->GetGenerator<HighGuid::Item>()->GetNextAfterMaxUsed(), true))
+                        ROLLBACK(DUMP_FILE_BROKEN);
                 break;
             }
             case DTT_INVENTORY:
@@ -622,24 +638,21 @@ DumpReturn PlayerDumpReader::LoadDump(std::string const& file, uint32 account, s
             {
                 //store a map of old pet id to new inserted pet id for use by type 5 tables
                 snprintf(currpetid, 20, "%s", GetNth(line, 1).c_str());
-                if (*lastpetid == '\0')
-                    snprintf(lastpetid, 20, "%s", currpetid);
-                if (strcmp(lastpetid, currpetid) != 0)
-                {
-                    snprintf(newpetid, 20, "%d", sObjectMgr->GeneratePetNumber());
-                    snprintf(lastpetid, 20, "%s", currpetid);
-                }
 
+                // rows of a pet are not always contiguous (character_pet_declinedname comes after every character_pet)
                 std::map<uint32, uint32> :: const_iterator petids_iter = petids.find(atoi(currpetid));
-
-                if (petids_iter == petids.end())
+                if (petids_iter != petids.end())
+                    snprintf(newpetid, 20, "%u", petids_iter->second);
+                else
                 {
+                    if (!petids.empty())                    // the first pet takes the number reserved above
+                        snprintf(newpetid, 20, "%u", sObjectMgr->GeneratePetNumber());
                     petids.insert(PetIdsPair(atoi(currpetid), atoi(newpetid)));
                 }
 
                 if (!ChangeNth(line, 1, newpetid))          // character_pet.id update
                     ROLLBACK(DUMP_FILE_BROKEN);
-                if (!ChangeNth(line, 3, newguid))           // character_pet.owner update
+                if (!ChangeNth(line, tn == "character_pet_declinedname" ? 2 : 3, newguid))  // owner update
                     ROLLBACK(DUMP_FILE_BROKEN);
 
                 break;
@@ -671,429 +684,29 @@ DumpReturn PlayerDumpReader::LoadDump(std::string const& file, uint32 account, s
                 {
                     TC_LOG_ERROR("network", "LoadPlayerDump: character_garrison_followers.dbId update line: '%s'!", line.c_str());
                     ROLLBACK(DUMP_FILE_BROKEN);
-                }
-                break;
-            }
-            default:
-                TC_LOG_ERROR("network", "Unknown dump table type: %u", type);
-                break;
-        }
-
-        fixNULLfields(line);
-
-        trans->Append(line.c_str());
-    }
-
-    CharacterDatabase.CommitTransaction(trans);
-
-    // in case of name conflict player has to rename at login anyway
-    sWorld->AddCharacterInfo(ObjectGuid::Create<HighGuid::Player>(guid), account, name, gender, race, playerClass, level);
-
-    sObjectMgr->GetGenerator<HighGuid::Item>()->Set(sObjectMgr->GetGenerator<HighGuid::Item>()->GetNextAfterMaxUsed() + items.size());
-    sObjectMgr->_mailId     += mails.size();
-
-    if (incHighest)
-        sObjectMgr->GetGenerator<HighGuid::Player>()->Generate();
-
-    fclose(fin);
-
-    return DUMP_SUCCESS;
-}
-
-DumpReturn PlayerDumpReader::LoadDump(uint32 account, std::string& dump, std::string name, uint32& guid)
-{
-    uint32 charcount = AccountMgr::GetCharactersCount(account);
-    if (charcount >= sWorld->getIntConfig(CONFIG_CHARACTERS_PER_REALM))
-        return DUMP_TOO_MANY_CHARS;
-
-    char newguid[20], chraccount[20], newpetid[20], currpetid[20], lastpetid[20], lastfollowerid[20];
-
-    // make sure the same guid doesn't already exist and is safe to use
-    bool incHighest = true;
-    if (guid != 0 && guid < sObjectMgr->GetGenerator<HighGuid::Player>()->GetNextAfterMaxUsed())
-    {
-        CharacterDatabasePreparedStatement* stmt = CharacterDatabase.GetPreparedStatement(CHAR_SEL_CHECK_GUID);
-        stmt->setUInt32(0, guid);
-        PreparedQueryResult result = CharacterDatabase.Query(stmt);
-        if (result)
-            guid = sObjectMgr->GetGenerator<HighGuid::Player>()->GetNextAfterMaxUsed();                     // use first free if exists
-        else incHighest = false;
-    }
-    else
-        guid = sObjectMgr->GetGenerator<HighGuid::Player>()->GetNextAfterMaxUsed();
-
-    // normalize the name if specified and check if it exists
-    if (!normalizePlayerName(name))
-        name = "";
-
-    if (sCharacterDataStore->CheckPlayerName(name, sWorld->GetDefaultDbcLocale(), true) == CHAR_NAME_SUCCESS)
-    {
-        CharacterDatabasePreparedStatement* stmt = CharacterDatabase.GetPreparedStatement(CHAR_SEL_CHECK_NAME);
-        stmt->setString(0, name);
-        PreparedQueryResult result = CharacterDatabase.Query(stmt);
-        if (result)
-            name = "";                                      // use the one from the dump
-    }
-    else
-        name = "";
-
-    // name encoded or empty
-
-    snprintf(newguid, 20, "%u", guid);
-    snprintf(chraccount, 20, "%u", account);
-    snprintf(newpetid, 20, "%u", sObjectMgr->GeneratePetNumber());
-    snprintf(lastpetid, 20, "%s", "");
-    snprintf(lastfollowerid, 20, "%llu", sGarrisonMgr.GenerateFollowerDbId());
-
-    std::map<uint64, uint64> items;
-    std::map<uint64, uint64> mails;
-
-    typedef std::map<uint32, uint32> PetIds;                // old->new petid relation
-    typedef PetIds::value_type PetIdsPair;
-    PetIds petids;
-
-    uint8 gender = GENDER_NONE;
-    uint8 race = RACE_NONE;
-    uint8 playerClass = 0;
-    uint8 level = 0;
-    uint64 money = 0;
-
-    CharacterDatabaseTransaction trans = CharacterDatabase.BeginTransaction();
-    LoginDatabaseTransaction loginTrans = LoginDatabase.BeginTransaction();
-
-    dump += "INSERT INTO";
-    std::string insertString(";INSERT INTO");
-    size_t lestpos = 0;
-    size_t pos = dump.find(insertString);
-    while (pos != std::string::npos)
-    {
-        std::string line = dump.substr(lestpos, (pos - lestpos) + 1);
-        lestpos = pos + 1;
-        pos = dump.find(insertString, lestpos);
-
-        // skip empty strings
-        size_t nw_pos = line.find_first_not_of(" \t\n\r\7");
-        if (nw_pos == std::string::npos)
-            continue;
-
-        // determine table name and load type
-        std::string tn = GetTableName(line);
-        if (tn.empty())
-        {
-            TC_LOG_ERROR("network", "LoadPlayerDump: Can't extract table name from line: '%s'!", line.c_str());
-            return DUMP_FILE_BROKEN;
-        }
-
-        DumpTableType type = DumpTableType(0);
-        uint8 i;
-        for (i = 0; i < DUMP_TABLE_COUNT; ++i)
-        {
-            if (tn == dumpTables[i].name)
-            {
-                type = dumpTables[i].type;
-                break;
-            }
-        }
-
-        if (i == DUMP_TABLE_COUNT)
-        {
-            TC_LOG_ERROR("network", "LoadPlayerDump: Unknown table: '%s'!", tn.c_str());
-            continue;
-        }
-
-        // change the data to server values
-        switch (type)
-        {
-            case DTT_CHARACTER:
-            {
-                if (!ChangeNth(line, 1, newguid))           // characters.guid update
-                {
-                    TC_LOG_ERROR("network", "LoadPlayerDump: characters.guid update line: '%s'!", line.c_str());
-                    return DUMP_FILE_BROKEN;
-                }
-
-                if (!ChangeNth(line, 2, chraccount))        // characters.account update
-                {
-                    TC_LOG_ERROR("network", "LoadPlayerDump: characters.account update line: '%s'!", line.c_str());
-                    return DUMP_FILE_BROKEN;
-                }
-
-                race = uint8(atol(GetNth(line, 5).c_str()));
-                playerClass = uint8(atol(GetNth(line, 6).c_str()));
-                gender = uint8(atol(GetNth(line, 7).c_str()));
-                level = uint8(atol(GetNth(line, 8).c_str()));
-                money = uint64(atol(GetNth(line, 10).c_str()));
-                if(money > sWorld->getIntConfig(CONFIG_TRANSFER_GOLD_LIMIT))
-                {
-                    char golddata[50];
-                    sprintf(golddata, "%u", sWorld->getIntConfig(CONFIG_TRANSFER_GOLD_LIMIT));
-                    ChangeNth(line, 10, golddata);
-                }
-                if (name == "")
-                {
-                    // check if the original name already exists
-                    name = GetNth(line, 3);
-
-                    CharacterDatabasePreparedStatement* stmt = CharacterDatabase.GetPreparedStatement(CHAR_SEL_CHECK_NAME);
-                    stmt->setString(0, name);
-                    PreparedQueryResult result = CharacterDatabase.Query(stmt);
-
-                    if (result)
-                        if (!ChangeNth(line, 48, "1"))       // characters.at_login set to "rename on login"
-                        {
-                            TC_LOG_ERROR("network", "LoadPlayerDump: characters.at_login set to rename on login line: '%s'!", line.c_str());
-                            return DUMP_FILE_BROKEN;
-                        }
-                }
-                else if (!ChangeNth(line, 3, name.c_str())) // characters.name
-                {
-                    TC_LOG_ERROR("network", "LoadPlayerDump: characters.name line: '%s'!", line.c_str());
-                    return DUMP_FILE_BROKEN;
-                }
-                break;
-            }
-            case DTT_CHAR_TABLE:
-            {
-                if (!ChangeNth(line, 1, newguid))           // character_*.guid update
-                {
-                    TC_LOG_ERROR("network", "LoadPlayerDump: character_.guid line: '%s'!", line.c_str());
-                    return DUMP_FILE_BROKEN;
-                }
-                break;
-            }
-            case DTT_EQSET_TABLE:
-            {
-                if (!ChangeNth(line, 1, newguid))
-                {
-                    TC_LOG_ERROR("network", "LoadPlayerDump: character_equipmentsets.guid line: '%s'!", line.c_str());
-                    return DUMP_FILE_BROKEN;
-                }
-
-                char newSetGuid[24];
-                snprintf(newSetGuid, 24, UI64FMTD, sObjectMgr->GenerateEquipmentSetGuid());
-                if (!ChangeNth(line, 2, newSetGuid))
-                {
-                    TC_LOG_ERROR("network", "LoadPlayerDump: character_equipmentsets.setguid line: '%s'!", line.c_str());
-                    return DUMP_FILE_BROKEN;
-                }
-                break;
-            }
-            case DTT_INVENTORY:
-            {
-                if (!ChangeNth(line, 1, newguid))           // character_inventory.guid update
-                {
-                    TC_LOG_ERROR("network", "LoadPlayerDump: character_inventory.guid line: '%s'!", line.c_str());
-                    return DUMP_FILE_BROKEN;
-                }
-
-                if (!ChangeGuid(line, 2, items, sObjectMgr->GetGenerator<HighGuid::Item>()->GetNextAfterMaxUsed(), true))
-                {
-                    TC_LOG_ERROR("network", "LoadPlayerDump: character_inventory.bag line: '%s'!", line.c_str());
-                    return DUMP_FILE_BROKEN;
-                }
-                if (!ChangeGuid(line, 4, items, sObjectMgr->GetGenerator<HighGuid::Item>()->GetNextAfterMaxUsed()))
-                {
-                    TC_LOG_ERROR("network", "LoadPlayerDump: character_inventory.item line: '%s'!", line.c_str());
-                    return DUMP_FILE_BROKEN;
-                }
-                break;
-            }
-            case DTT_VS_TABLE:
-            {
-                uint64 newItemIdNum = sObjectMgr->GenerateVoidStorageItemId();
-                char newItemId[20];
-                snprintf(newItemId, 20, "%llu", newItemIdNum);
-
-                if (!ChangeNth(line, 1, newItemId))           // character_void_storage.itemId update
-                {
-                    TC_LOG_ERROR("network", "LoadPlayerDump: character_void_storage.itemId line: '%s'!", line.c_str());
-                    return DUMP_FILE_BROKEN;
-                }
-                if (!ChangeNth(line, 2, newguid))           // character_void_storage.playerGuid update
-                {
-                    TC_LOG_ERROR("network", "LoadPlayerDump: character_void_storage.playerGuid line: '%s'!", line.c_str());
-                    return DUMP_FILE_BROKEN;
-                }            // character_void_storage.itemGuid update
-                if (!ChangeGuid(line, 9, items, sObjectMgr->GetGenerator<HighGuid::Item>()->GetNextAfterMaxUsed()))
-                {
-                    TC_LOG_ERROR("network", "LoadPlayerDump: character_void_storage.itemGuid line: '%s'!", line.c_str());
-                    return DUMP_FILE_BROKEN;
-                }
-                break;
-            }
-            case DTT_MAIL:                                  // mail
-            {
-                if (!ChangeGuid(line, 1, mails, sObjectMgr->_mailId))
-                {
-                    TC_LOG_ERROR("network", "LoadPlayerDump: mail.id line: '%s'!", line.c_str());
-                    return DUMP_FILE_BROKEN;
-                }
-                if (!ChangeNth(line, 6, newguid))           // mail.receiver update
-                {
-                    TC_LOG_ERROR("network", "LoadPlayerDump: mail.receiver line: '%s'!", line.c_str());
-                    return DUMP_FILE_BROKEN;
-                }
-                break;
-            }
-            case DTT_MAIL_ITEM:                             // mail_items
-            {
-                if (!ChangeGuid(line, 1, mails, sObjectMgr->_mailId))
-                {
-                    TC_LOG_ERROR("network", "LoadPlayerDump: mail_items.id line: '%s'!", line.c_str());
-                    return DUMP_FILE_BROKEN;
-                }
-                if (!ChangeGuid(line, 2, items, sObjectMgr->GetGenerator<HighGuid::Item>()->GetNextAfterMaxUsed()))
-                {
-                    TC_LOG_ERROR("network", "LoadPlayerDump: mail_items.item_guid line: '%s'!", line.c_str());
-                    return DUMP_FILE_BROKEN;
-                }
-                if (!ChangeNth(line, 3, newguid))           // mail_items.receiver
-                {
-                    TC_LOG_ERROR("network", "LoadPlayerDump: mail_items.receiver line: '%s'!", line.c_str());
-                    return DUMP_FILE_BROKEN;
-                }
-                break;
-            }
-            case DTT_ITEM:
-            {
-                // item, owner, data field:item, owner guid
-                if (!ChangeGuid(line, 1, items, sObjectMgr->GetGenerator<HighGuid::Item>()->GetNextAfterMaxUsed()))
-                {
-                    TC_LOG_ERROR("network", "LoadPlayerDump: item_instance.guid line: '%s'!", line.c_str());
-                    return DUMP_FILE_BROKEN;
-                }
-                if (!ChangeNth(line, 3, newguid))           // item_instance.owner_guid update
-                {
-                    TC_LOG_ERROR("network", "LoadPlayerDump: item_instance.owner_guid line: '%s'!", line.c_str());
-                    return DUMP_FILE_BROKEN;
-                }
-                break;
-            }
-            case DTT_ITEM_GIFT:
-            {
-                if (!ChangeNth(line, 1, newguid))           // character_gifts.guid update
-                {
-                    TC_LOG_ERROR("network", "LoadPlayerDump: character_gifts.guid line: '%s'!", line.c_str());
-                    return DUMP_FILE_BROKEN;
-                }
-                if (!ChangeGuid(line, 2, items, sObjectMgr->GetGenerator<HighGuid::Item>()->GetNextAfterMaxUsed()))
-                {
-                    TC_LOG_ERROR("network", "LoadPlayerDump: character_gifts.item_guid line: '%s'!", line.c_str());
-                    return DUMP_FILE_BROKEN;
-                }
-                break;
-            }
-            case DTT_PET:
-            {
-                //store a map of old pet id to new inserted pet id for use by type 5 tables
-                snprintf(currpetid, 20, "%s", GetNth(line, 1).c_str());
-                if (*lastpetid == '\0')
-                    snprintf(lastpetid, 20, "%s", currpetid);
-                if (strcmp(lastpetid, currpetid) != 0)
-                {
-                    snprintf(newpetid, 20, "%d", sObjectMgr->GeneratePetNumber());
-                    snprintf(lastpetid, 20, "%s", currpetid);
-                }
-
-                std::map<uint32, uint32> :: const_iterator petids_iter = petids.find(atoi(currpetid));
-
-                if (petids_iter == petids.end())
-                {
-                    petids.insert(PetIdsPair(atoi(currpetid), atoi(newpetid)));
-                }
-
-                if (!ChangeNth(line, 1, newpetid))          // character_pet.id update
-                {
-                    TC_LOG_ERROR("network", "LoadPlayerDump: character_pet.id line: '%s'!", line.c_str());
-                    return DUMP_FILE_BROKEN;
-                }
-                if (!ChangeNth(line, 3, newguid))           // character_pet.owner update
-                {
-                    TC_LOG_ERROR("network", "LoadPlayerDump: character_pet.owne line: '%s'!", line.c_str());
-                    return DUMP_FILE_BROKEN;
-                }
-
-                break;
-            }
-            case DTT_PET_TABLE:                             // pet_aura, pet_spell, pet_spell_cooldown
-            {
-                snprintf(currpetid, 20, "%s", GetNth(line, 1).c_str());
-
-                // lookup currpetid and match to new inserted pet id
-                std::map<uint32, uint32> :: const_iterator petids_iter = petids.find(atoi(currpetid));
-                if (petids_iter == petids.end())             // couldn't find new inserted id
-                {
-                    TC_LOG_ERROR("network", "LoadPlayerDump: pet line: '%s'!", line.c_str());
-                    return DUMP_FILE_BROKEN;
-                }
-
-                snprintf(newpetid, 20, "%d", petids_iter->second);
-
-                if (!ChangeNth(line, 1, newpetid))
-                {
-                    TC_LOG_ERROR("network", "LoadPlayerDump: pet line: '%s'!", line.c_str());
-                    return DUMP_FILE_BROKEN;
-                }
-                break;
-            }
-            case DTT_CHAR_VS_FOLLOW:
-            {
-                if (!ChangeNth(line, 2, newguid))           // character_*.guid update
-                {
-                    TC_LOG_ERROR("network", "LoadPlayerDump: character_garrison_followers.guid line: '%s'!", line.c_str());
-                    return DUMP_FILE_BROKEN;
-                }
-                if (!ChangeNth(line, 1, lastfollowerid))
-                {
-                    TC_LOG_ERROR("network", "LoadPlayerDump: character_garrison_followers.dbId update line: '%s'!", line.c_str());
-                    return DUMP_FILE_BROKEN;
                 }
                 break;
             }
             case DTT_ITEM_TABLE:
             {
                 if (!ChangeGuid(line, 1, items, sObjectMgr->GetGenerator<HighGuid::Item>()->GetNextAfterMaxUsed()))
-                {
-                    TC_LOG_ERROR("network", "LoadPlayerDump: item_instance_*.guid line: '%s'!", line.c_str());
-                    return DUMP_FILE_BROKEN;
-                }
-                break;
-            }
-            case DTT_ARTI_TABLE:
-            {
-                // item, owner, data field:item, owner guid
-                if (!ChangeGuid(line, 1, items, sObjectMgr->GetGenerator<HighGuid::Item>()->GetNextAfterMaxUsed()))
-                {
-                    TC_LOG_ERROR("network", "LoadPlayerDump: item_instance_artifact.itemGuid line: '%s'!", line.c_str());
-                    return DUMP_FILE_BROKEN;
-                }
-                if (!ChangeNth(line, 2, newguid))
-                {
-                    TC_LOG_ERROR("network", "LoadPlayerDump: item_instance_artifact.char_guid line: '%s'!", line.c_str());
-                    return DUMP_FILE_BROKEN;
-                }
+                    ROLLBACK(DUMP_FILE_BROKEN);             // item_instance_*.itemGuid update
                 break;
             }
             case DTT_CHAR_TRANSMOG:
             {
-                if (!ChangeNth(line, 1, newguid))
-                {
-                    TC_LOG_ERROR("network", "LoadPlayerDump: character_transmog_outfits.guid line: '%s'!", line.c_str());
-                    return DUMP_FILE_BROKEN;
-                }
+                if (!ChangeNth(line, 1, newguid))           // character_transmog_outfits.guid update
+                    ROLLBACK(DUMP_FILE_BROKEN);
 
                 char newSetGuid[24];
                 snprintf(newSetGuid, 24, UI64FMTD, sObjectMgr->GenerateEquipmentSetGuid());
                 if (!ChangeNth(line, 2, newSetGuid))
-                {
-                    TC_LOG_ERROR("network", "LoadPlayerDump: character_transmog_outfits.setguid line: '%s'!", line.c_str());
-                    return DUMP_FILE_BROKEN;
-                }
+                    ROLLBACK(DUMP_FILE_BROKEN);             // character_transmog_outfits.setguid
                 break;
             }
             default:
                 TC_LOG_ERROR("network", "Unknown dump table type: %u", type);
-                break;
+                ROLLBACK(DUMP_FILE_BROKEN);                 // an unremapped row would keep the original guids
         }
 
         fixNULLfields(line);
@@ -1101,8 +714,14 @@ DumpReturn PlayerDumpReader::LoadDump(uint32 account, std::string& dump, std::st
         trans->Append(line.c_str());
     }
 
-    CharacterDatabase.CommitTransaction(trans);
-    LoginDatabase.CommitTransaction(loginTrans);
+    fclose(fin);
+
+    // the transaction runs on a database thread: wait for it, a failed insert must not be reported as success
+    if (!CharacterDatabase.AsyncCommitTransaction(trans).m_future.get())
+    {
+        TC_LOG_ERROR("network", "LoadPlayerDump: the transaction failed, nothing was imported.");
+        return DUMP_DATABASE_ERROR;
+    }
 
     // in case of name conflict player has to rename at login anyway
     sWorld->AddCharacterInfo(ObjectGuid::Create<HighGuid::Player>(guid), account, name, gender, race, playerClass, level);

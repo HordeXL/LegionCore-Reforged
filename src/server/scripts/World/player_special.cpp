@@ -1,3 +1,11 @@
+////////////////////////////////////////////
+///                                      ///
+///         LEGIONCORE REFORGED          ///
+///    Copyright 2026 Titans-Project     ///
+///         All Rights Reserved.         ///
+///                                      ///
+////////////////////////////////////////////
+
 #include "Timewalking.h"
 #include "ScriptPCH.h"
 #include <ScriptMgr.h>
@@ -137,8 +145,8 @@ public:
     
     void OnWhoListCall(Player* player, const std::set<ObjectGuid>& playersGuids) override
     {
-        PlayerFloodInfo& info = sWordFilterMgr->GetFloodInfo(player->GetSession()->GetAccountId());
-        info.players.insert(playersGuids.begin(), playersGuids.end());
+        FloodInfoRef info = sWordFilterMgr->GetFloodInfo(player->GetSession()->GetAccountId());
+        info->players.insert(playersGuids.begin(), playersGuids.end());
     }
  
     void OnChat(Player* player, uint32 type, uint32 lang, std::string& msg) override
@@ -352,7 +360,7 @@ public:
             return{ 0, 0 };
 
 
-        PlayerFloodInfo& info = sWordFilterMgr->GetFloodInfo(player->GetSession()->GetAccountId());
+        FloodInfoRef info = sWordFilterMgr->GetFloodInfo(player->GetSession()->GetAccountId());
 
 
         //< Lfg and "often write" part
@@ -410,11 +418,11 @@ public:
             if (!isPotentialBadZone)
                 return{ 0, 0 };
         }        
-        else if(receiver.IsEmpty() || (type != CHAT_MSG_BN_WHISPER && info.players.find(receiver) == info.players.end()) || (type != CHAT_MSG_WHISPER && type != CHAT_MSG_BN_WHISPER) || msg.size() <= 10)
+        else if(receiver.IsEmpty() || (type != CHAT_MSG_BN_WHISPER && info->players.find(receiver) == info->players.end()) || (type != CHAT_MSG_WHISPER && type != CHAT_MSG_BN_WHISPER) || msg.size() <= 10)
             return{ 0,0 };
 
         if (!receiver.IsEmpty())
-            info.players.erase(receiver);
+            info->players.erase(receiver);
 
         if (sWordFilterMgr->GetPenaltyForBadSentence(hash) && sWordFilterMgr->GetSourceMaskForBadSentence(hash) & reqMask) // just exist this phrase ?
             return{ sWordFilterMgr->GetIdOfBadSentence(hash), sWordFilterMgr->GetPenaltyForBadSentence(hash) };
@@ -423,21 +431,21 @@ public:
         if (type == CHAT_MSG_BN_WHISPER)
         {
             if (msg.size() >= 10)
-                info.mailPhrases.insert(msg);
+                info->mailPhrases.insert(msg);
         }
         else if (type == CHAT_MSG_YELL)
             mod = 3;
 
         bool needPenalty = false;
 
-        if (++info.phrasesCheck[hash] >= sWorld->getIntConfig(CONFIG_ANTI_FLOOD_COUNT_OF_MESSAGES) * mod)
+        if (++info->phrasesCheck[hash] >= sWorld->getIntConfig(CONFIG_ANTI_FLOOD_COUNT_OF_MESSAGES) * mod)
         {
             needPenalty = true;
         }
-        else if (type == CHAT_MSG_BN_WHISPER && info.mailPhrases.size() >= sWorld->getIntConfig(CONFIG_ANTI_FLOOD_COUNT_OF_MESSAGES))
+        else if (type == CHAT_MSG_BN_WHISPER && info->mailPhrases.size() >= sWorld->getIntConfig(CONFIG_ANTI_FLOOD_COUNT_OF_MESSAGES))
         {
             std::multiset<size_t> wordsCount{}; // try find similar words on another phareses
-            for (const auto& text : info.mailPhrases)
+            for (const auto& text : info->mailPhrases)
             {
                 Tokenizer tokens(text, ' ', 0, false);
                 for (auto& word : tokens)
@@ -448,7 +456,7 @@ public:
                     size_t wordHash = sWordFilterMgr->FilterMsgAndGetHash(word, player->GetSession()->GetSessionDbLocaleIndex());
                     if (wordHash)
                     {
-                        if (info.mailFoundedBadWords.find(wordHash) != info.mailFoundedBadWords.end())
+                        if (info->mailFoundedBadWords.find(wordHash) != info->mailFoundedBadWords.end())
                         {
                             needPenalty = true;
                             break;
@@ -465,13 +473,13 @@ public:
             {
                 uint32 similarWords = 0;
                 for (auto& val : wordsCount)
-                    if (wordsCount.count(val) >= info.mailPhrases.size()) // on ever phrase
+                    if (wordsCount.count(val) >= info->mailPhrases.size()) // on ever phrase
                     {
                         ++similarWords;
-                        info.mailFoundedBadWords.insert(val);
+                        info->mailFoundedBadWords.insert(val);
                     }
 
-                uint8 requiredSimilarWords = ceil(3.0f * float(sWorld->getIntConfig(CONFIG_ANTI_FLOOD_COUNT_OF_MESSAGES)) / float(info.mailPhrases.size())); // if there are so many phrases, then one word in each phrase will be enough
+                uint8 requiredSimilarWords = ceil(3.0f * float(sWorld->getIntConfig(CONFIG_ANTI_FLOOD_COUNT_OF_MESSAGES)) / float(info->mailPhrases.size())); // if there are so many phrases, then one word in each phrase will be enough
                 if (requiredSimilarWords == 0)
                     requiredSimilarWords = 1;
 
@@ -545,11 +553,11 @@ public:
 
     bool IsOftenSay(Player* player, Channel* channel)
     {
-        PlayerFloodInfo& info = sWordFilterMgr->GetFloodInfo(player->GetSession()->GetAccountId());
+        FloodInfoRef info = sWordFilterMgr->GetFloodInfo(player->GetSession()->GetAccountId());
 
         uint32 now = getMSTime();
 
-        uint32& lastSayTime = (channel && channel->IsLFG()) ? info.lastSayTimeLFG : info.lastSayTimeGeneral;
+        uint32& lastSayTime = (channel && channel->IsLFG()) ? info->lastSayTimeLFG : info->lastSayTimeGeneral;
 
         if (lastSayTime)
         {

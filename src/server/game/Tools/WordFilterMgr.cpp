@@ -1,25 +1,21 @@
-/*
- * Copyright (C) 2008-2012 TrinityCore <http://www.trinitycore.org/>
- *
- * This program is free software; you can redistribute it and/or modify it
- * under the terms of the GNU General Public License as published by the
- * Free Software Foundation; either version 2 of the License, or (at your
- * option) any later version.
- *
- * This program is distributed in the hope that it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for
- * more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program. If not, see <http://www.gnu.org/licenses/>.
- */
+////////////////////////////////////////////
+///                                      ///
+///         LEGIONCORE REFORGED          ///
+///    Copyright 2026 Titans-Project     ///
+///         All Rights Reserved.         ///
+///                                      ///
+///      Based on TrinityCore code       ///
+///   Copyright 2008-2012 TrinityCore    ///
+///   <http://www.trinitycore.org/>      ///
+///                                      ///
+////////////////////////////////////////////
 
 #include "WordFilterMgr.h"
 #include "DatabaseEnv.h"
 #include "Chat.h"
 #include "ObjectMgr.h"
 #include <boost/locale/encoding_utf.hpp>
+#include <cwctype>
 
 #define MAX_SIZE_SENTENCE 27
 
@@ -72,49 +68,51 @@ void WordFilterMgr::LoadBadWords()
 {
     uint32 oldMSTime = getMSTime();
 
-    m_badWords.clear();
-    m_badWordsMail.clear();
-
-    QueryResult result = WorldDatabase.Query("SELECT `bad_word`, `convert` FROM bad_word");
-    if (!result)
     {
-        TC_LOG_INFO("server.loading",">> Loaded 0 bad words. DB table `bad_word` is empty!");
-        return;
+        std::unique_lock<std::shared_mutex> lock(m_lock);
+        m_badWords.clear();
+        m_badWordsMail.clear();
     }
 
     uint32 count = 0;
-    do
+
+    QueryResult result = WorldDatabase.Query("SELECT `bad_word`, `convert` FROM bad_word");
+    if (!result)
+        TC_LOG_INFO("server.loading",">> Loaded 0 bad words. DB table `bad_word` is empty!");
+    else
     {
-        Field* fields = result->Fetch();
-        std::string analog = fields[0].GetString();
-        std::string convert = fields[1].GetString();
+        do
+        {
+            Field* fields = result->Fetch();
+            std::string analog = fields[0].GetString();
+            std::string convert = fields[1].GetString();
 
-        if (convert.empty())
-            AddBadWord(analog);
-        else
-            AddConvert(convert);
+            if (convert.empty())
+                AddBadWord(analog);
+            else
+                AddConvert(convert);
 
-        ++count;
+            ++count;
+        }
+        while (result->NextRow());
     }
-    while (result->NextRow());
 
     result = WorldDatabase.Query("SELECT bad_word FROM bad_word_mail");
     if (!result)
-    {
         TC_LOG_INFO("server.loading",">> Loaded 0 bad words. DB table `bad_word_mail` is empty!");
-        return;
-    }
-
-    do
+    else
     {
-        Field* fields = result->Fetch();
-        std::string analog = fields[0].GetString();
+        do
+        {
+            Field* fields = result->Fetch();
+            std::string analog = fields[0].GetString();
 
-        AddBadWordMail(analog);
+            AddBadWordMail(analog);
 
-        ++count;
+            ++count;
+        }
+        while (result->NextRow());
     }
-    while (result->NextRow());
 
     TC_LOG_INFO("server.loading",">> Loaded %u bad words in %u ms", count, GetMSTimeDiffToNow(oldMSTime));
 }
@@ -123,12 +121,22 @@ void WordFilterMgr::LoadBadSentences()
 {
     uint32 oldMSTime = getMSTime();
 
-    m_badSentences.clear();
-    hashById.clear();
+    BadSentences sentences;
+    std::map<uint32, size_t> idToHash;
+    uint32 lastId = 0;
+
+    auto install = [&]()
+    {
+        std::unique_lock<std::shared_mutex> lock(m_lock);
+        m_badSentences = std::move(sentences);
+        hashById = std::move(idToHash);
+        lastIdBadSentences = lastId;
+    };
 
     QueryResult result = CharacterDatabase.Query("SELECT hash, sentence, id, penalty, sourceMask, output FROM bad_sentences order by id");
     if (!result)
     {
+        install();
         TC_LOG_INFO("server.loading", ">> Loaded 0 bad sentences. DB table `bad_sentences` is empty!");
         return;
     }
@@ -142,20 +150,22 @@ void WordFilterMgr::LoadBadSentences()
                
         size_t hash = FilterMsgAndGetHash(fields[1].GetString());
 
-        if (m_badSentences.find(hash) != m_badSentences.end())
+        // only the first characters are hashed: a later sentence sharing them is left out of memory, its row stays
+        auto sameHash = sentences.find(hash);
+        if (sameHash != sentences.end())
         {
-            CharacterDatabase.PExecute("DELETE FROM bad_sentences where id = %u", fields[2].GetUInt32());
+            TC_LOG_WARN("sql.sql", "bad_sentences: id %u shares its normalized prefix with id %u and is ignored.", fields[2].GetUInt32(), sameHash->second.id);
             continue;
         }
-        
+
         if (hash != hash_bd)
             CharacterDatabase.PExecute("UPDATE bad_sentences set hash = " UI64FMTD " where id = %u", hash, fields[2].GetUInt32());
-        
-        
-        BadSentenceInfo & info = m_badSentences[hash];
+
+
+        BadSentenceInfo & info = sentences[hash];
         info.text = fields[1].GetString();
         info.id = fields[2].GetUInt32();
-        lastIdBadSentences = info.id;
+        lastId = std::max(lastId, info.id);
         info.penalty = fields[3].GetInt32();
         info.sourceMask = fields[4].GetUInt32();
         if (fields[5].GetString().empty())
@@ -169,10 +179,12 @@ void WordFilterMgr::LoadBadSentences()
             CharacterDatabase.PExecute("UPDATE bad_sentences set output = '%s' where id = %u", _badWordEsc.c_str(), info.id);
         }
 
-        hashById[info.id] = hash;
+        idToHash[info.id] = hash;
 
         ++count;
     } while (result->NextRow());
+
+    install();
 
     TC_LOG_INFO("server.loading", ">> Loaded %u bad sentences in %u ms", count, GetMSTimeDiffToNow(oldMSTime));
 }
@@ -183,7 +195,7 @@ void WordFilterMgr::LoadComplaints()
 
     m_complaints.clear();
 
-    QueryResult result = CharacterDatabase.Query("SELECT ID, ReportPlayer, SpammerGuid, MessageLog FROM report_complaints where JustBanned = 0 and (UNIX_TIMESTAMP() - (ReportTime-TimeSinceOffence)) <= 86400");
+    QueryResult result = CharacterDatabase.Query("SELECT ID, ReportPlayer, SpammerGuid, MessageLog FROM report_complaints where JustBanned = 0 and (CAST(ReportTime AS SIGNED) - CAST(TimeSinceOffence AS SIGNED)) >= CAST(UNIX_TIMESTAMP() AS SIGNED) - 86400");
     if (!result)
     {
         TC_LOG_INFO("server.loading", ">> Loaded 0 report_complaints. DB table `report_complaints` is empty!");
@@ -210,6 +222,8 @@ std::string WordFilterMgr::FindBadWord(std::string const& text, bool mail)
     std::wstring _text = boost::locale::conv::utf_to_utf<wchar_t>(text);
     
     GeneralFilterWstring(_text);
+
+    std::shared_lock<std::shared_mutex> lock(m_lock);
 
     if (_text.empty() || m_badWords.empty())
         return "";
@@ -241,19 +255,31 @@ bool WordFilterMgr::AddBadWord(std::string const& badWord, bool toDB)
 
     GeneralFilterWstring(_badWord);
 
-    // is already exist
-    if (m_badWords.find(_badWord) != m_badWords.end())
-    {
-        WorldDatabase.PQuery("DELETE FROM bad_word WHERE bad_word = '%s'", badWord.c_str());
+    // a word made only of ignored characters would match every text
+    if (_badWord.empty())
         return false;
+
+    std::string escapedWord = badWord;
+    WorldDatabase.EscapeString(escapedWord);
+    std::string escapedConvert = boost::locale::conv::utf_to_utf<char>(_badWord);
+    WorldDatabase.EscapeString(escapedConvert);
+
+    {
+        std::unique_lock<std::shared_mutex> lock(m_lock);
+
+        // is already exist
+        if (!m_badWords.insert(_badWord).second)
+        {
+            lock.unlock();
+            WorldDatabase.PExecute("DELETE FROM bad_word WHERE bad_word = '%s'", escapedWord.c_str());
+            return false;
+        }
     }
 
-    m_badWords.insert(_badWord);
-
     if (toDB)
-        WorldDatabase.PQuery("REPLACE INTO bad_word VALUES ('%s', '%s')", badWord.c_str(), boost::locale::conv::utf_to_utf<char>(_badWord).c_str());
+        WorldDatabase.PExecute("REPLACE INTO bad_word VALUES ('%s', '%s')", escapedWord.c_str(), escapedConvert.c_str());
     else
-        WorldDatabase.PQuery("UPDATE bad_word SET `convert` = '%s' WHERE bad_word = '%s'", boost::locale::conv::utf_to_utf<char>(_badWord).c_str(), badWord.c_str());
+        WorldDatabase.PExecute("UPDATE bad_word SET `convert` = '%s' WHERE bad_word = '%s'", escapedConvert.c_str(), escapedWord.c_str());
 
     return true;
 }
@@ -261,11 +287,10 @@ bool WordFilterMgr::AddBadWord(std::string const& badWord, bool toDB)
 void WordFilterMgr::AddConvert(std::string const& badWord)
 {
     std::wstring _badWord = boost::locale::conv::utf_to_utf<wchar_t>(badWord);
-
-    // is already exist
-    if (m_badWords.find(_badWord) != m_badWords.end())
+    if (_badWord.empty())
         return;
 
+    std::unique_lock<std::shared_mutex> lock(m_lock);
     m_badWords.insert(_badWord);
 }
 
@@ -274,14 +299,24 @@ bool WordFilterMgr::AddBadWordMail(std::string const& badWord, bool toDB)
     std::wstring _badWord = boost::locale::conv::utf_to_utf<wchar_t>(badWord);
     GeneralFilterWstring(_badWord);
 
-    // is already exist
-    if (m_badWordsMail.find(_badWord) != m_badWordsMail.end())
+    // a word made only of ignored characters would match every text
+    if (_badWord.empty())
         return false;
 
-    m_badWordsMail.insert(_badWord);
+    {
+        std::unique_lock<std::shared_mutex> lock(m_lock);
+
+        // is already exist
+        if (!m_badWordsMail.insert(_badWord).second)
+            return false;
+    }
 
     if (toDB)
-        WorldDatabase.PQuery("REPLACE INTO bad_word_mail VALUES ('%s')", badWord.c_str());
+    {
+        std::string escapedWord = badWord;
+        WorldDatabase.EscapeString(escapedWord);
+        WorldDatabase.PExecute("REPLACE INTO bad_word_mail VALUES ('%s')", escapedWord.c_str());
+    }
 
     return true;
 }
@@ -291,39 +326,50 @@ bool WordFilterMgr::RemoveBadWord(std::string const& badWord, bool fromDB)
     std::wstring _badWord = boost::locale::conv::utf_to_utf<wchar_t>(badWord);
     GeneralFilterWstring(_badWord);
 
-    // is not exist
-    BadWordMap::iterator it = m_badWords.find(_badWord);
-    if (it == m_badWords.end())
-        return false;
+    {
+        std::unique_lock<std::shared_mutex> lock(m_lock);
 
-    m_badWords.erase(it);
+        // is not exist
+        BadWordMap::iterator it = m_badWords.find(_badWord);
+        if (it == m_badWords.end())
+            return false;
+
+        m_badWords.erase(it);
+    }
 
     if (fromDB)
-        WorldDatabase.PExecute("DELETE FROM bad_word WHERE `bad_word` = '%s'", badWord.c_str());
+    {
+        std::string escapedWord = badWord;
+        WorldDatabase.EscapeString(escapedWord);
+        WorldDatabase.PExecute("DELETE FROM bad_word WHERE `bad_word` = '%s'", escapedWord.c_str());
+    }
 
     return true;
 }
 
 bool WordFilterMgr::AddBadSentence(std::string badSentence, size_t hash, uint32 mask, int32 penalty /* = 10 */)
 {
-    if(m_badSentences[hash].id != 0 && mask == m_badSentences[hash].sourceMask && penalty == m_badSentences[hash].penalty)
+    std::unique_lock<std::shared_mutex> lock(m_lock);
+
+    BadSentenceInfo& info = m_badSentences[hash];
+    if (info.id != 0 && mask == info.sourceMask && penalty == info.penalty)
         return false;
 
-    m_badSentences[hash].text = badSentence;
-    m_badSentences[hash].id = (m_badSentences[hash].id == 0 ? ++lastIdBadSentences : m_badSentences[hash].id);
-    m_badSentences[hash].penalty = penalty;
-    m_badSentences[hash].sourceMask = m_badSentences[hash].sourceMask | mask;
+    info.text = badSentence;
+    info.id = (info.id == 0 ? ++lastIdBadSentences : info.id);
+    info.penalty = penalty;
+    info.sourceMask = info.sourceMask | mask;
 
-    hashById[m_badSentences[hash].id] = hash;
+    hashById[info.id] = hash;
 
     CharacterDatabasePreparedStatement* stmt = CharacterDatabase.GetPreparedStatement(CHAR_REP_BAD_SENTENCES);
-    stmt->setUInt32(0, m_badSentences[hash].id);
-    stmt->setString(1, m_badSentences[hash].text);
+    stmt->setUInt32(0, info.id);
+    stmt->setString(1, info.text);
     stmt->setUInt64(2, hash);
     stmt->setInt32(3, penalty);
     stmt->setUInt32(4, mask);
 
-    std::wstring _badWord = boost::locale::conv::utf_to_utf<wchar_t>(m_badSentences[hash].text);
+    std::wstring _badWord = boost::locale::conv::utf_to_utf<wchar_t>(info.text);
 
     GeneralFilterWstring(_badWord);
 
@@ -339,8 +385,16 @@ bool WordFilterMgr::AddBadSentence(std::string badSentence, size_t hash, uint32 
 
 void WordFilterMgr::UpdatePenaltyForBadSentenceById(uint32 id, int32 penalty)
 {
-    size_t hash = hashById[id];
-    m_badSentences[hash].penalty = penalty;
+    {
+        std::unique_lock<std::shared_mutex> lock(m_lock);
+        auto hashItr = hashById.find(id);
+        if (hashItr != hashById.end())
+        {
+            auto sentenceItr = m_badSentences.find(hashItr->second);
+            if (sentenceItr != m_badSentences.end())
+                sentenceItr->second.penalty = penalty;
+        }
+    }
 
     CharacterDatabasePreparedStatement* stmt = CharacterDatabase.GetPreparedStatement(CHAR_UPD_BAD_SENTENCES);
     stmt->setInt32(0, penalty);
@@ -350,8 +404,6 @@ void WordFilterMgr::UpdatePenaltyForBadSentenceById(uint32 id, int32 penalty)
 
 size_t WordFilterMgr::FilterMsgAndGetHash(std::string lowedMsg, LocaleConstant locale /*= LOCALE_enUS*/, bool* isValid /*= nullptr*/)
 {
-    std::wstring letters = boost::locale::conv::utf_to_utf<wchar_t>(sObjectMgr->GetTrinityString(20087, LOCALE_ruRU)); // all eng + all rus chars
-
     std::wstring wstrLowed = boost::locale::conv::utf_to_utf<wchar_t>(lowedMsg);
 
     GeneralFilterWstring(wstrLowed, locale, isValid);
@@ -376,7 +428,8 @@ void WordFilterMgr::GeneralFilterWstring(std::wstring& _text, LocaleConstant loc
     if (_text.empty())
         return;
 
-    std::transform(_text.begin(), _text.end(), _text.begin(), ::tolower);
+    // ::tolower is undefined above 255 and a wchar_t holds more than that
+    std::transform(_text.begin(), _text.end(), _text.begin(), [](wchar_t c) -> wchar_t { return wchar_t(std::towlower(wint_t(c))); });
 
     std::wstring letters = boost::locale::conv::utf_to_utf<wchar_t>(sObjectMgr->GetTrinityString(20087, LOCALE_ruRU)); // all eng + all rus chars
     for (uint16 i = 0; i < _text.size(); ++i)
@@ -406,7 +459,8 @@ void WordFilterMgr::GeneralFilterWstring(std::wstring& _text, LocaleConstant loc
 
     bool tempValid = true;
     uint8 rusSymbols = 0;
-    for (uint8 i = 0; i < _text.size() && i < 50;)
+    uint8 i = 0;
+    for (; i < _text.size() && i < 50;)
     {
         
      /*   auto it = m_letterAnalogs.find(_text[i]);
@@ -437,41 +491,62 @@ void WordFilterMgr::GeneralFilterWstring(std::wstring& _text, LocaleConstant loc
 
     if (!tempValid && (float(rusSymbols) / std::min(float(_text.size()), 50.0f)) >= 0.9f)
         *isValid = false;
+
+    // the checks above only look at the first 50 kept characters, but ignored characters are dropped everywhere
+    // so that a forbidden word cannot be hidden behind filler
+    for (size_t j = i; j < _text.size();)
+    {
+        if (letters.find(_text[j]) == letters.npos)
+            _text.erase(j, 1);
+        else
+            ++j;
+    }
 }
 
 WordFilterMgr::BadWordMap WordFilterMgr::GetBadWords() const
 {
+    std::shared_lock<std::shared_mutex> lock(m_lock);
     return m_badWords;
 }
 
 
+// find, not operator[]: every checked message would otherwise insert an empty entry
 uint32 WordFilterMgr::GetIdOfBadSentence(size_t hash)
 {
-    return m_badSentences[hash].id;
+    std::shared_lock<std::shared_mutex> lock(m_lock);
+    auto itr = m_badSentences.find(hash);
+    return itr != m_badSentences.end() ? itr->second.id : 0;
 }
 
 int32 WordFilterMgr::GetPenaltyForBadSentence(size_t hash)
 {
-    if (m_badSentences[hash].id)
-        return m_badSentences[hash].penalty;
-    else
-        return 0;
+    std::shared_lock<std::shared_mutex> lock(m_lock);
+    auto itr = m_badSentences.find(hash);
+    return itr != m_badSentences.end() && itr->second.id ? itr->second.penalty : 0;
 }
 
 uint32 WordFilterMgr::GetSourceMaskForBadSentence(size_t hash)
 {
-    if (m_badSentences[hash].id)
-        return m_badSentences[hash].sourceMask;
-    else
-        return 0;
+    std::shared_lock<std::shared_mutex> lock(m_lock);
+    auto itr = m_badSentences.find(hash);
+    return itr != m_badSentences.end() && itr->second.id ? itr->second.sourceMask : 0;
 }
 
 std::vector<BadSentenceInfo> WordFilterMgr::GetBadSentenceList(uint32 page)
 {
+    std::shared_lock<std::shared_mutex> lock(m_lock);
+
     std::vector<BadSentenceInfo> list{};
     for (uint32 i = 1 + (page - 1) * 25; i <= page * 25 && i <= lastIdBadSentences; ++i)
-        if (hashById[i])
-            list.push_back(m_badSentences[hashById[i]]);
+    {
+        auto hashItr = hashById.find(i);
+        if (hashItr == hashById.end())
+            continue;
+
+        auto sentenceItr = m_badSentences.find(hashItr->second);
+        if (sentenceItr != m_badSentences.end())
+            list.push_back(sentenceItr->second);
+    }
 
     return list;
 }
@@ -526,11 +601,17 @@ bool WordFilterMgr::AddComplaintForUser(const ObjectGuid & offender, const Objec
         std::stringstream ss;
         ss << "Complaints: " << complaintIds.c_str() << " Text: " << text.c_str();
 
+        // at load time the character info may not be there yet: nothing is applied then, so nothing is marked as done
+        bool applied = false;
+
         if (sWorld->getIntConfig(config) < 0)
         {
             std::string name;
             if (ObjectMgr::GetPlayerNameByGUID(offender, name))
+            {
                 sWorld->BanCharacter(name, "-1", ss.str().c_str(), "Server");
+                applied = true;
+            }
             else if (uint32 accountid = ObjectMgr::GetPlayerAccountIdByGUID(offender))
             {
                 LoginDatabasePreparedStatement* stmt = LoginDatabase.GetPreparedStatement(LOGIN_SEL_PINFO);
@@ -545,6 +626,7 @@ bool WordFilterMgr::AddComplaintForUser(const ObjectGuid & offender, const Objec
 
                     sWorld->BanAccount(BAN_ACCOUNT, accountName.c_str(), "-1", ss.str().c_str(), "Server");
                     info.m_muteTime = 4294967295;
+                    applied = true;
                 }
             }
         }
@@ -553,12 +635,16 @@ bool WordFilterMgr::AddComplaintForUser(const ObjectGuid & offender, const Objec
             sWorld->MuteAccount(accountid, sWorld->getIntConfig(config), ss.str().c_str(), "Server");
 
             info.m_muteTime = GameTime::GetGameTime() + sWorld->getIntConfig(config)*MINUTE;
+            applied = true;
         }
 
-        ++info.m_muteCount;
+        if (applied)
+        {
+            ++info.m_muteCount;
 
-        CharacterDatabase.PExecute("UPDATE report_complaints set JustBanned = 1 where ID in (%s)", complaintIds.c_str());
-        info.m_complaintsByUsers.clear();
+            CharacterDatabase.PExecute("UPDATE report_complaints set JustBanned = 1 where ID in (%s)", complaintIds.c_str());
+            info.m_complaintsByUsers.clear();
+        }
     }
 
     return true;
