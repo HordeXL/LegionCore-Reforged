@@ -20637,14 +20637,12 @@ void Player::GroupEventHappens(uint32 questId, WorldObject const* pEventObject)
 {
     if (Group* group = GetGroup())
     {
-        for (GroupReference* itr = group->GetFirstMember(); itr != NULL; itr = itr->next())
+        group->ForEachMemberInMap(GetMap(), [&](Player* player)
         {
-            Player* player = itr->getSource();
-
             // for any leave or dead (with not released body) group member at appropriate distance
-            if (player && player->IsAtGroupRewardDistance(pEventObject) && !player->GetCorpse())
+            if (player->IsAtGroupRewardDistance(pEventObject) && !player->GetCorpse())
                 player->AreaExploredOrEventHappens(questId);
-        }
+        });
     }
     else
         AreaExploredOrEventHappens(questId);
@@ -31702,22 +31700,22 @@ float Player::GetsAFriendBonus(bool /*forXP*/)
     uint32 const accountId = GetSession()->GetAccountId();
     uint32 const recruiterId = GetSession()->GetRecruiterId();
 
-    for (GroupReference* itr = group->GetFirstMember(); itr != nullptr; itr = itr->next())
+    bool linked = false;
+    group->ForEachLinkedMember([&](Player* member)
     {
-        Player* member = itr->getSource();
-        if (!member || member == this)
-            continue;
+        if (member == this)
+            return;
 
         WorldSession* session = member->GetSession();
         if (!session)
-            continue;
+            return;
 
         // Either direction of the link counts: recruiter and recruit both get the bonus.
         if (session->GetRecruiterId() == accountId || recruiterId == session->GetAccountId())
-            return RECRUIT_A_FRIEND_BONUS_RATE;
-    }
+            linked = true;
+    });
 
-    return 0.0f;
+    return linked ? RECRUIT_A_FRIEND_BONUS_RATE : 0.0f;
 }
 
 void Player::RewardPlayerAndGroupAtKill(Unit* victim, bool isBattleGround)
@@ -31737,19 +31735,18 @@ void Player::RewardPlayerAndGroupAtEvent(uint32 creatureID, WorldObject* pReward
     // prepare data for near group iteration
     if (Group* group = GetGroup())
     {
-        for (GroupReference* itr = group->GetFirstMember(); itr != nullptr; itr = itr->next())
+        group->ForEachMemberInMap(GetMap(), [&](Player* player)
         {
-            Player* player = itr->getSource();
-            if (!player || !player->IsInWorld())
-                continue;
+            if (!player->IsInWorld())
+                return;
 
             if (!player->IsAtGroupRewardDistance(pRewardSource))
-                continue; // member (alive or dead) or his corpse at req. distance
+                return; // member (alive or dead) or his corpse at req. distance
 
             // quest objectives updated only for alive group member or dead but with not released body
             if (player->IsAlive() || !player->GetCorpse())
                 player->KilledMonsterCredit(creatureID, creatureGUID);
-        }
+        });
     }
     else // if (!group)
         KilledMonsterCredit(creatureID, creatureGUID);
@@ -32164,15 +32161,13 @@ Player* Player::GetNextRandomRaidMember(float radius)
     std::vector<Player*> nearMembers;
     nearMembers.reserve(group->GetMembersCount());
 
-    for (GroupReference* itr = group->GetFirstMember(); itr != NULL; itr = itr->next())
+    group->ForEachMemberInMap(GetMap(), [&](Player* Target)
     {
-        Player* Target = itr->getSource();
-
         // IsHostileTo check duel and controlled by enemy
-        if (Target && Target != this && IsWithinDistInMap(Target, radius) &&
+        if (Target != this && IsWithinDistInMap(Target, radius) &&
             !Target->HasInvisibilityAura() && !IsHostileTo(Target))
             nearMembers.push_back(Target);
-    }
+    });
 
     if (nearMembers.empty())
         return NULL;
@@ -32211,9 +32206,14 @@ PartyResult Player::CanUninviteFromGroup() const
             return ERR_PARTY_LFG_BOOT_LOOT_ROLLS;
 
         // TODO: Should also be sent when anyone has recently left combat, with an aprox ~5 seconds timer.
-        for (GroupReference const* itr = grp->GetFirstMember(); itr != NULL; itr = itr->next())
-            if (itr->getSource() && itr->getSource()->isInCombat())
-                return ERR_PARTY_LFG_BOOT_IN_COMBAT;
+        bool anyInCombat = false;
+        grp->ForEachLinkedMember([&anyInCombat](Player* member)
+        {
+            if (member->isInCombat())
+                anyInCombat = true;
+        });
+        if (anyInCombat)
+            return ERR_PARTY_LFG_BOOT_IN_COMBAT;
 
         /* Missing support for these types
             return ERR_PARTY_LFG_BOOT_COOLDOWN_S;

@@ -1,20 +1,14 @@
-/*
- * Copyright (C) 2008-2012 TrinityCore <http://www.trinitycore.org/>
- * Copyright (C) 2005-2009 MaNGOS <http://getmangos.com/>
- *
- * This program is free software; you can redistribute it and/or modify it
- * under the terms of the GNU General Public License as published by the
- * Free Software Foundation; either version 2 of the License, or (at your
- * option) any later version.
- *
- * This program is distributed in the hope that it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for
- * more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program. If not, see <http://www.gnu.org/licenses/>.
- */
+////////////////////////////////////////////
+///                                      ///
+///         LEGIONCORE REFORGED          ///
+///    Copyright 2026 Titans-Project     ///
+///         All Rights Reserved.         ///
+///                                      ///
+///      Based on TrinityCore code       ///
+///   Copyright 2008-2012 TrinityCore    ///
+///   <http://www.trinitycore.org/>      ///
+///                                      ///
+////////////////////////////////////////////
 
 #include "AchievementMgr.h"
 #include "AchievementPackets.h"
@@ -2789,10 +2783,14 @@ void AchievementMgr<Guild>::CompletedAchievement(AchievementEntry const* achieve
                 ca->guids.insert(player->GetGUID());
 
             if (Group const* group = player->GetGroup())
-                for (GroupReference const* ref = group->GetFirstMember(); ref != nullptr; ref = ref->next())
-                    if (Player const* groupMember = ref->getSource())
-                        if (groupMember->GetGuildId() == GetOwner()->GetGUID().GetGUIDLow())
-                            ca->guids.insert(groupMember->GetGUID());
+            {
+                uint32 const ownerGuildId = GetOwner()->GetGUID().GetGUIDLow();
+                group->ForEachLinkedMember([&](Player* groupMember)
+                {
+                    if (groupMember->GetGuildId() == ownerGuildId)
+                        ca->guids.insert(groupMember->GetGUID());
+                });
+            }
         }
     }
 
@@ -3853,14 +3851,11 @@ bool AchievementMgr<T>::AdditionalRequirementsSatisfied(ModifierTreeNode const* 
                 }
 
                 uint32 counter = 0;
-                for (GroupReference* groupRef = group->GetFirstMember(); groupRef != nullptr; groupRef = groupRef->next())
+                group->ForEachLinkedMember([&](Player* player)
                 {
-                    if (Player* player = groupRef->getSource())
-                    {
-                        if (player->GetGuildId() == guildId)
-                            ++counter;
-                    }
-                }
+                    if (player->GetGuildId() == guildId)
+                        ++counter;
+                });
 
                 if (counter < reqValue)
                     check = false;

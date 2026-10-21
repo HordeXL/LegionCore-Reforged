@@ -1,19 +1,14 @@
-/*
- * Copyright (C) 2008-2015 TrinityCore <http://www.trinitycore.org/>
- *
- * This program is free software; you can redistribute it and/or modify it
- * under the terms of the GNU General Public License as published by the
- * Free Software Foundation; either version 2 of the License, or (at your
- * option) any later version.
- *
- * This program is distributed in the hope that it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for
- * more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program. If not, see <http://www.gnu.org/licenses/>.
- */
+////////////////////////////////////////////
+///                                      ///
+///         LEGIONCORE REFORGED          ///
+///    Copyright 2026 Titans-Project     ///
+///         All Rights Reserved.         ///
+///                                      ///
+///      Based on TrinityCore code       ///
+///   Copyright 2008-2015 TrinityCore    ///
+///   <http://www.trinitycore.org/>      ///
+///                                      ///
+////////////////////////////////////////////
 
 #include "Creature.h"
 #include "Formulas.h"
@@ -100,27 +95,29 @@ inline void KillRewarder::_InitGroupData()
     }
 
     // 2. In case when player is in group, initialize variables necessary for group calculations:
-    for (GroupReference* itr = _group->GetFirstMember(); itr != nullptr; itr = itr->next())
-        if (Player* member = itr->getSource())
-            if (member->IsAtGroupRewardDistance(_victim))
-            {
-                ++_countForRep;
-                if (!member->IsAlive())
-                    continue;
+    // only the members of the victim's map: the others belong to another map's thread
+    _group->ForEachMemberInMap(_victim->GetMap(), [this](Player* member)
+    {
+        if (member->IsAtGroupRewardDistance(_victim))
+        {
+            ++_countForRep;
+            if (!member->IsAlive())
+                return;
 
-                const uint8 lvl = member->getLevel();
-                // 2.1. _count - number of alive group members within reward distance;
-                ++_count;
-                // 2.2. _sumLevel - sum of levels of alive group members within reward distance;
-                _sumLevel += lvl;
-                // 2.3. _maxLevel - maximum level of alive group member within reward distance;
-                if (_maxLevel < lvl)
-                    _maxLevel = lvl;
-                // 2.4. _maxNotGrayMember - maximum level of alive group member within reward distance, for whom victim is not gray;
-                uint32 grayLevel = Trinity::XP::GetGrayLevel(lvl);
-                if (_victim->GetLevelForTarget(member) > grayLevel && (!_maxNotGrayMember || _maxNotGrayMember->getLevel() < lvl))
-                    _maxNotGrayMember = member;
-            }
+            const uint8 lvl = member->getLevel();
+            // 2.1. _count - number of alive group members within reward distance;
+            ++_count;
+            // 2.2. _sumLevel - sum of levels of alive group members within reward distance;
+            _sumLevel += lvl;
+            // 2.3. _maxLevel - maximum level of alive group member within reward distance;
+            if (_maxLevel < lvl)
+                _maxLevel = lvl;
+            // 2.4. _maxNotGrayMember - maximum level of alive group member within reward distance, for whom victim is not gray;
+            uint32 grayLevel = Trinity::XP::GetGrayLevel(lvl);
+            if (_victim->GetLevelForTarget(member) > grayLevel && (!_maxNotGrayMember || _maxNotGrayMember->getLevel() < lvl))
+                _maxNotGrayMember = member;
+        }
+    });
     // 2.5. _isFullXP - flag identifying that for all group members victim is not gray, so 100% XP will be rewarded (50% otherwise).
     _isFullXP = _maxNotGrayMember && (_maxLevel == _maxNotGrayMember->getLevel());
 }
@@ -254,10 +251,11 @@ void KillRewarder::_RewardGroup()
                 _groupRate = Trinity::XP::xp_in_group_rate(_countForRep, !_isPvP && sMapStore.LookupEntry(_killer->GetMapId())->IsRaid() && _group->isRaidGroup());
 
             // 3.1.3. Reward each group member (even dead or corpse) within reward distance.
-            for (GroupReference* itr = _group->GetFirstMember(); itr != nullptr; itr = itr->next())
-                if (Player* member = itr->getSource())
-                    if (member->IsAtGroupRewardDistance(_victim) && member->CanContact())
-                        _RewardPlayer(member, isDungeon);
+            _group->ForEachMemberInMap(_victim->GetMap(), [this, isDungeon](Player* member)
+            {
+                if (member->IsAtGroupRewardDistance(_victim) && member->CanContact())
+                    _RewardPlayer(member, isDungeon);
+            });
         }
     }
 }
