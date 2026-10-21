@@ -1,20 +1,14 @@
-/*
- * Copyright (C) 2008-2012 TrinityCore <http://www.trinitycore.org/>
- * Copyright (C) 2005-2009 MaNGOS <http://getmangos.com/>
- *
- * This program is free software; you can redistribute it and/or modify it
- * under the terms of the GNU General Public License as published by the
- * Free Software Foundation; either version 2 of the License, or (at your
- * option) any later version.
- *
- * This program is distributed in the hope that it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for
- * more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program. If not, see <http://www.gnu.org/licenses/>.
- */
+////////////////////////////////////////////
+///                                      ///
+///         LEGIONCORE REFORGED          ///
+///    Copyright 2026 Titans-Project     ///
+///         All Rights Reserved.         ///
+///                                      ///
+///      Based on TrinityCore code       ///
+///   Copyright 2008-2012 TrinityCore    ///
+///   <http://www.trinitycore.org/>      ///
+///                                      ///
+////////////////////////////////////////////
 
 #include "RandomMovementGenerator.h"
 #include "Creature.h"
@@ -53,20 +47,21 @@ void RandomMovementGenerator<T>::DoInitialize(T&) { }
 template<>
 void RandomMovementGenerator<Creature>::DoInitialize(Creature& owner)
 {
-    if (!owner.IsAlive() || owner.isDead(true) || !owner.CanFreeMove())
-        return;
-
-    owner.AddUnitState(UNIT_STATE_ROAMING);
+    // Set before the early return: a unit freed later would otherwise wander towards the map origin
     _reference = owner.GetPosition();
-    owner.StopMoving();
-
-    _wanderDistance = std::max<float>(owner.GetRespawnRadius(), 0.1f);
+    _wanderDistance = _requestedDistance > 0.0f ? _requestedDistance : std::max<float>(owner.GetRespawnRadius(), 0.1f);
 
     // Retail seems to let a creature walk 2 up to 10 splines before triggering a pause
     _wanderSteps = urand(2, 10);
 
     _timer.Reset(0);
     _path = nullptr;
+
+    if (!owner.IsAlive() || owner.isDead(true) || !owner.CanFreeMove())
+        return;
+
+    owner.AddUnitState(UNIT_STATE_ROAMING);
+    owner.StopMoving();
 }
 
 template<class T>
@@ -97,7 +92,6 @@ void RandomMovementGenerator<Creature>::SetRandomLocation(Creature& owner)
 {
     if (owner.HasUnitState(UNIT_STATE_NOT_MOVE) || owner.IsMovementPreventedByCasting())
     {
-        _interrupt = true;
         owner.StopMoving();
         _path = nullptr;
         return;
@@ -177,16 +171,13 @@ bool RandomMovementGenerator<Creature>::DoUpdate(Creature& owner, const uint32 d
 
     if (owner.HasUnitState(UNIT_STATE_NOT_MOVE) || owner.IsMovementPreventedByCasting() || _stalled)
     {
-        _interrupt = true;
         owner.StopMoving();
         _path = nullptr;
         return true;
     }
-    else
-        _interrupt = false;
 
     _timer.Update(diff);
-    if (!_interrupt && _timer.Passed() && owner.movespline->Finalized())
+    if (_timer.Passed() && owner.movespline->Finalized())
         SetRandomLocation(owner);
 
     return true;

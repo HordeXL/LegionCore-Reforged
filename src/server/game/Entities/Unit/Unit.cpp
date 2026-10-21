@@ -4809,7 +4809,8 @@ void Unit::_UnapplyAura(AuraApplicationMap::iterator &i, AuraRemoveMode removeMo
         }
     }
 
-    if (hasGravityEffect)
+    // another gravity aura, or a creature that flies without gravity by template, keeps the flag
+    if (hasGravityEffect && !HasAuraType(SPELL_AURA_DISABLE_GRAVITY) && !(IsCreature() && ToCreature()->GetMovementTemplate().Flight == CreatureFlightMovementType::DisableGravity))
         SetDisableGravity(false);
 
     m_aura_lock.unlock();

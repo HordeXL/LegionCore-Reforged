@@ -1,20 +1,14 @@
-/*
- * Copyright (C) 2008-2015 TrinityCore <http://www.trinitycore.org/>
- * Copyright (C) 2005-2009 MaNGOS <http://getmangos.com/>
- *
- * This program is free software; you can redistribute it and/or modify it
- * under the terms of the GNU General Public License as published by the
- * Free Software Foundation; either version 2 of the License, or (at your
- * option) any later version.
- *
- * This program is distributed in the hope that it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for
- * more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program. If not, see <http://www.gnu.org/licenses/>.
- */
+////////////////////////////////////////////
+///                                      ///
+///         LEGIONCORE REFORGED          ///
+///    Copyright 2026 Titans-Project     ///
+///         All Rights Reserved.         ///
+///                                      ///
+///      Based on TrinityCore code       ///
+///   Copyright 2008-2015 TrinityCore    ///
+///   <http://www.trinitycore.org/>      ///
+///                                      ///
+////////////////////////////////////////////
 
 #include "WaypointMovementGenerator.h"
 #include "Creature.h"
@@ -32,19 +26,13 @@
 
 void WaypointMovementGenerator<Creature>::LoadPath(Creature& creature)
 {
-    if (_loadedFromDB)
+    if (!_pathId)
     {
-        if (!_pathId)
-        {
-            _pathId = creature.GetWaypointPath();
-            _path = sWaypointMgr->GetPath(_pathId);
-        }
-        else
-            _path = sWaypointMgr->GetPathScript(_pathId);
-
-        if (creature.GetEntry() == 120132 || creature.GetEntry() == 120131) // hack
-            _forceTPToStart = true;
+        _pathId = creature.GetWaypointPath();
+        _path = sWaypointMgr->GetPath(_pathId);
     }
+    else
+        _path = sWaypointMgr->GetPathScript(_pathId);
 
     if (!_path)
     {
@@ -70,6 +58,9 @@ void WaypointMovementGenerator<Creature>::DoFinalize(Creature& creature)
 
 void WaypointMovementGenerator<Creature>::DoReset(Creature& creature)
 {
+    if (_pathEnded)
+        return;
+
     // Clear any pending delay/stall so the generator can resume
     _stalled = false;
     _pauseTime = 0;
@@ -81,7 +72,7 @@ void WaypointMovementGenerator<Creature>::DoReset(Creature& creature)
 
 void WaypointMovementGenerator<Creature>::OnArrived(Creature& creature)
 {
-    if (!_path || _path->empty())
+    if (!_path || _path->empty() || _currentNode >= _path->size())
         return;
 
     WaypointData const &waypoint = _path->at(_currentNode);
@@ -120,7 +111,6 @@ bool WaypointMovementGenerator<Creature>::StartMove(Creature& creature)
 
     bool transportPath = creature.HasUnitMovementFlag(MOVEMENTFLAG_ONTRANSPORT) && !creature.GetTransGUID().IsEmpty();
 
-    bool waitingInLast = false;
     if (_isArrivalDone)
     {
         if ((_currentNode == _path->size() - 1) && !_repeating) // If that's our last waypoint
@@ -148,43 +138,23 @@ bool WaypointMovementGenerator<Creature>::StartMove(Creature& creature)
                 // else if (vehicle) - this should never happen, vehicle offsets are const
             }
 
-            //creature.GetMotionMaster()->Initialize();
+            // Without this flag every following tick would see the finished spline and report the last node again
+            _pathEnded = true;
             return false;
         }
 
-//        if (_currentNode == 0 && _goBack)
-//        {
-//            _goBack = false;
-//            waitingInLast = true;
-//        }
-//
-//        if (_goBack)
-//            _currentNode = (_currentNode-1) % _path->size();
-//        else
-//            _currentNode = (_currentNode+1) % _path->size();
-//
-//        // Revers go
-//        if ((_currentNode == _path->size() - 1) && !_goBack)
-//        {
-//            if (!_forceTPToStart)
-//                _goBack = true;
-//            else
-//            {
-//                _currentNode = 0;
-//                WaypointData const* node = _path->at(_currentNode);
-//                creature.NearTeleportTo(node->x, node->y, node->z, 0.0f);
-//                return true;
-//            }
-//        }
-
         _currentNode = (_currentNode + 1) % _path->size();
     }
+
+    if (_currentNode >= _path->size())
+        _currentNode = 0;
 
     WaypointData const &waypoint = _path->at(_currentNode);
     Position formationDest(waypoint.x, waypoint.y, waypoint.z, (waypoint.orientation && waypoint.delay) ? waypoint.orientation : 0.0f);
 
     _isArrivalDone = false;
     _recalculateSpeed = false;
+    _movementInterrupted = false;
 
     creature.AddUnitState(UNIT_STATE_ROAMING_MOVE);
 
@@ -264,8 +234,15 @@ bool WaypointMovementGenerator<Creature>::DoUpdate(Creature& creature, uint32 di
     if (_pauseTime > 0)
         _pauseTime -= diff;
 
+    if (_pathEnded)
+        return true;
+
     if (_stalled || _pauseTime > 0 || creature.HasUnitState(UNIT_STATE_NOT_MOVE) || creature.IsMovementPreventedByCasting())
     {
+        // A stopped spline looks like an arrival once movement resumes: remember it was cut short
+        if (!creature.movespline->Finalized())
+            _movementInterrupted = true;
+
         creature.StopMoving();
         return true;
     }
@@ -285,6 +262,9 @@ bool WaypointMovementGenerator<Creature>::DoUpdate(Creature& creature, uint32 di
         // Set home position at place on waypoint movement.
         if (!creature.HasUnitMovementFlag(MOVEMENTFLAG_ONTRANSPORT) || creature.GetTransGUID().IsEmpty())
             creature.SetHomePosition(creature.GetPosition());
+
+        if (_movementInterrupted)
+            return StartMove(creature); // same node again, not an arrival
 
         if (creature.movespline->Finalized())
         {
@@ -307,7 +287,7 @@ bool WaypointMovementGenerator<Creature>::DoUpdate(Creature& creature, uint32 di
 
 void WaypointMovementGenerator<Creature>::MovementInform(Creature &creature)
 {
-    if (creature.AI())
+    if (creature.AI() && _path)
     {
         creature.AI()->MovementInform(WAYPOINT_MOTION_TYPE, _currentNode);
 
@@ -320,7 +300,7 @@ void WaypointMovementGenerator<Creature>::MovementInform(Creature &creature)
 bool WaypointMovementGenerator<Creature>::GetResetPosition(Unit&, float& x, float& y, float& z)
 {
     // prevent a crash at empty waypoint path.
-    if (!_path || _path->empty())
+    if (!_path || _path->empty() || _currentNode >= _path->size())
         return false;
 
     WaypointData const &waypoint = _path->at(_currentNode);

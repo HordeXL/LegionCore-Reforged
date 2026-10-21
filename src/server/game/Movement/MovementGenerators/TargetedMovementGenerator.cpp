@@ -1,20 +1,14 @@
-/*
- * Copyright (C) 2008-2012 TrinityCore <http://www.trinitycore.org/>
- * Copyright (C) 2005-2009 MaNGOS <http://getmangos.com/>
- *
- * This program is free software; you can redistribute it and/or modify it
- * under the terms of the GNU General Public License as published by the
- * Free Software Foundation; either version 2 of the License, or (at your
- * option) any later version.
- *
- * This program is distributed in the hope that it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for
- * more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program. If not, see <http://www.gnu.org/licenses/>.
- */
+////////////////////////////////////////////
+///                                      ///
+///         LEGIONCORE REFORGED          ///
+///    Copyright 2026 Titans-Project     ///
+///         All Rights Reserved.         ///
+///                                      ///
+///      Based on TrinityCore code       ///
+///   Copyright 2008-2012 TrinityCore    ///
+///   <http://www.trinitycore.org/>      ///
+///                                      ///
+////////////////////////////////////////////
 
 #include "TargetedMovementGenerator.h"
 #include "Creature.h"
@@ -23,7 +17,19 @@
 #include "MoveSplineInit.h"
 #include "Player.h"
 #include "Spell.h"
+#include "ObjectAccessor.h"
 #include "World.h"
+
+TargetedMovementGeneratorBase::TargetedMovementGeneratorBase(Unit& target) : _targetGuid(target.GetGUID())
+{
+    _target.link(&target, this);
+}
+
+bool TargetedMovementGeneratorBase::IsTargetInMapOf(WorldObject const& owner) const
+{
+    Unit* target = GetTarget();
+    return target && ObjectAccessor::GetUnit(owner, _targetGuid) == target;
+}
 
 template<class T, typename D>
 TargetedMovementGenerator<T, D>::~TargetedMovementGenerator()
@@ -34,7 +40,7 @@ TargetedMovementGenerator<T, D>::~TargetedMovementGenerator()
 template<class T, typename D>
 bool TargetedMovementGenerator<T, D>::DoUpdate(T& owner, uint32 diff)
 {
-    if (!IsTargetValid() || !GetTarget()->IsInWorld())
+    if (!IsTargetValid() || !IsTargetInMapOf(owner) || !GetTarget()->IsInWorld())
         return false;
 
     if (!owner.IsAlive())
@@ -50,6 +56,12 @@ bool TargetedMovementGenerator<T, D>::DoUpdate(T& owner, uint32 diff)
 
     if (_interrupt || _recalculateTravel)
     {
+        if (!_interrupt && !_retryTimer.Passed())
+        {
+            _retryTimer.Update(diff);
+            return true;
+        }
+
         _interrupt = false;
         SetTargetLocation(owner, true);
         return true;
@@ -123,7 +135,7 @@ bool TargetedMovementGenerator<T, D>::DoUpdate(T& owner, uint32 diff)
 template<class T, typename D>
 void TargetedMovementGenerator<T, D>::SetTargetLocation(T& owner, bool updateDestination)
 {
-    if (!IsTargetValid() || !GetTarget()->IsInWorld())
+    if (!IsTargetValid() || !IsTargetInMapOf(owner) || !GetTarget()->IsInWorld())
         return;
 
     if (!owner.IsInWorld() || !owner.IsAlive())
@@ -142,7 +154,7 @@ void TargetedMovementGenerator<T, D>::SetTargetLocation(T& owner, bool updateDes
     {
         case 52498: // Beth'tilac
             if ((&owner)->GetMapId() == 720)
-                if ((&owner)->GetAI()->GetData(2) == 0 && GetTarget()->GetPositionZ() < 100.0f)
+                if ((&owner)->GetAI() && (&owner)->GetAI()->GetData(2) == 0 && GetTarget()->GetPositionZ() < 100.0f)
                 {
                     _recalculateTravel = false;
                     return;
@@ -214,6 +226,7 @@ void TargetedMovementGenerator<T, D>::SetTargetLocation(T& owner, bool updateDes
     {
         // can't reach target
         _recalculateTravel = true;
+        _retryTimer.Reset(500);
         if (owner.GetTypeId() == TYPEID_UNIT)
             owner.ToCreature()->SetCannotReachTarget(true);
         return;
@@ -221,6 +234,7 @@ void TargetedMovementGenerator<T, D>::SetTargetLocation(T& owner, bool updateDes
 
     _targetReached = false;
     _recalculateTravel = false;
+    _retryTimer.Reset(0);
 
     AddUnitStateMove(owner);
 
@@ -318,7 +332,7 @@ void ChaseMovementGenerator<Creature>::MovementInform(Creature& owner)
 {
     // Pass back the GUIDLow of the target. If it is pet's owner then PetAI will handle
     if (owner.AI())
-        owner.AI()->MovementInform(CHASE_MOTION_TYPE, GetTarget()->GetGUID().GetCounter());
+        owner.AI()->MovementInform(CHASE_MOTION_TYPE, GetTargetGuid().GetCounter());
 }
 
 //---- FollowMovementGenerator
@@ -334,7 +348,7 @@ void FollowMovementGenerator<Creature>::UpdateSpeed(Creature& owner)
 {
     // Pet only sync speed with owner
     // Make sure we are not in the process of a map change (IsInWorld)
-    if (!owner.isPet() || !owner.IsInWorld() || !IsTargetValid() || GetTarget()->GetGUID() != owner.GetOwnerGUID())
+    if (!owner.isPet() || !owner.IsInWorld() || !IsTargetValid() || GetTargetGuid() != owner.GetOwnerGUID())
         return;
 
     owner.UpdateSpeed(MOVE_RUN, true);
@@ -410,7 +424,7 @@ void FollowMovementGenerator<Creature>::MovementInform(Creature& owner)
 
     // Pass back the GUIDLow of the target. If it is pet's owner then PetAI will handle
     if (owner.AI())
-        owner.AI()->MovementInform(FOLLOW_MOTION_TYPE, GetTarget()->GetGUID().GetCounter());
+        owner.AI()->MovementInform(FOLLOW_MOTION_TYPE, GetTargetGuid().GetCounter());
 }
 
 static Optional<float> GetVelocity(Unit* owner, Unit* target, G3D::Vector3 const& dest, bool playerPet)
@@ -478,15 +492,16 @@ template<class T>
 bool FollowMovementGenerator<T>::DoUpdate(T&, uint32) { return false; }
 
 template<>
-bool FollowMovementGenerator<Player>::DoUpdate(Player& owner, uint32 diff) { return false; }
+bool FollowMovementGenerator<Player>::DoUpdate(Player& owner, uint32 diff)
+{
+    // Possessed player: keep following the charmer. Returning false here made the generator expire right after its first launch
+    return TargetedMovementGenerator<Player, FollowMovementGenerator<Player>>::DoUpdate(owner, diff);
+}
 
 template<>
 bool FollowMovementGenerator<Creature>::DoUpdate(Creature& owner, uint32 diff)
 {
-    if (!GetTarget())
-        return false;
-
-    if (!GetTarget()->IsInWorld() || !owner.IsInMap(GetTarget()))
+    if (!IsTargetValid() || !IsTargetInMapOf(owner) || !GetTarget()->IsInWorld())
         return false;
 
     if (!owner.ToCreature() || !owner.IsAlive())
@@ -566,7 +581,7 @@ bool FollowMovementGenerator<Creature>::DoUpdate(Creature& owner, uint32 diff)
         else
             _path->Clear();
 
-        target->MovePositionToFirstCollision(targetPosition, owner.GetCombatReach() + _range, target->ToAbsoluteAngle(Position::NormalizeOrientation(_range)) - target->GetOrientation());
+        target->MovePositionToFirstCollision(targetPosition, owner.GetCombatReach() + _range, target->ToAbsoluteAngle(Position::NormalizeOrientation(_angle)) - target->GetOrientation());
 
         float x, y, z;
         targetPosition.GetPosition(x, y, z);
@@ -588,9 +603,6 @@ bool FollowMovementGenerator<Creature>::DoUpdate(Creature& owner, uint32 diff)
 
         Movement::MoveSplineInit init(*owner.ToUnit());
         init.MovebyPath(_path->GetPath());
-        if (_inheritWalkState)
-            init.SetWalk(target->IsWalking() || target->movespline->isWalking());
-
         if (Optional<float> velocity = GetVelocity(owner.ToUnit(), target, _path->GetActualEndPosition(), owner.isGuardian()))
             init.SetVelocity(*velocity);
         init.Launch();
@@ -698,7 +710,7 @@ void FetchMovementGenerator<Creature>::MovementInform(Creature& unit)
         {
             if(Pet* pet = _player->GetPet())
             {
-                _player->GetSession()->LootCorps(GetTarget()->GetGUID(), pet);
+                _player->GetSession()->LootCorps(GetTargetGuid(), pet);
                 pet->CastSpell(GetTarget(), 125056, false);
 
                 pet->AttackStop();
@@ -718,7 +730,7 @@ void FetchMovementGenerator<Creature>::MovementInform(Creature& unit)
     }
     // Pass back the GUIDLow of the target. If it is pet's owner then PetAI will handle
     if (unit.AI())
-        unit.AI()->MovementInform(CHASE_MOTION_TYPE, GetTarget()->GetGUIDLow());
+        unit.AI()->MovementInform(CHASE_MOTION_TYPE, GetTargetGuid().GetCounter());
 }
 
 //-----------------------------------------------//

@@ -1,20 +1,14 @@
-/*
- * Copyright (C) 2008-2012 TrinityCore <http://www.trinitycore.org/>
- * Copyright (C) 2005-2009 MaNGOS <http://getmangos.com/>
- *
- * This program is free software; you can redistribute it and/or modify it
- * under the terms of the GNU General Public License as published by the
- * Free Software Foundation; either version 2 of the License, or (at your
- * option) any later version.
- *
- * This program is distributed in the hope that it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for
- * more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program. If not, see <http://www.gnu.org/licenses/>.
- */
+////////////////////////////////////////////
+///                                      ///
+///         LEGIONCORE REFORGED          ///
+///    Copyright 2026 Titans-Project     ///
+///         All Rights Reserved.         ///
+///                                      ///
+///      Based on TrinityCore code       ///
+///   Copyright 2008-2012 TrinityCore    ///
+///   <http://www.trinitycore.org/>      ///
+///                                      ///
+////////////////////////////////////////////
 
 #ifndef TRINITY_TARGETEDMOVEMENTGENERATOR_H
 #define TRINITY_TARGETEDMOVEMENTGENERATOR_H
@@ -26,21 +20,26 @@
 class TargetedMovementGeneratorBase
 {
     public:
-        TargetedMovementGeneratorBase(Unit& target) { _target.link(&target, this); }
+        TargetedMovementGeneratorBase(Unit& target);
 
         bool IsTargetValid() const { return _target.isValid(); }
         Unit* GetTarget() const { return _target.getTarget(); }
+        ObjectGuid const& GetTargetGuid() const { return _targetGuid; }
+        // True only if the owner's map still holds the very unit we point to (it may have logged out, died or changed map).
+        // Compares pointers without dereferencing the target.
+        bool IsTargetInMapOf(WorldObject const& owner) const;
         void stopFollowing() { }
 
     private:
         FollowerReference _target;
+        ObjectGuid _targetGuid;
 };
 
 template<class T, typename D>
 class TargetedMovementGenerator : public MovementGeneratorMedium<T, D>, public TargetedMovementGeneratorBase
 {
     public:
-        explicit TargetedMovementGenerator(Unit& target, float offset, float angle) : TargetedMovementGeneratorBase(target), _path(nullptr), _timer(0), _offset(offset), _angle(angle), _recalculateTravel(false), _targetReached(false), _interrupt(false) { }
+        explicit TargetedMovementGenerator(Unit& target, float offset, float angle) : TargetedMovementGeneratorBase(target), _path(nullptr), _timer(0), _retryTimer(0), _offset(offset), _angle(angle), _recalculateTravel(false), _targetReached(false), _interrupt(false) { }
         ~TargetedMovementGenerator();
 
         virtual bool DoUpdate(T&, uint32);
@@ -61,6 +60,7 @@ class TargetedMovementGenerator : public MovementGeneratorMedium<T, D>, public T
     private:
         PathGenerator* _path;
         TimeTrackerSmall _timer;
+        TimeTrackerSmall _retryTimer; // delays the next path attempt towards an unreachable target
         float _offset;
         float _angle;
         bool _recalculateTravel;
@@ -108,7 +108,7 @@ template<class T>
 class FollowMovementGenerator : public TargetedMovementGenerator<T, FollowMovementGenerator<T>>
 {
     public:
-        explicit FollowMovementGenerator(Unit &target, float offset, float angle) : TargetedMovementGenerator<T, FollowMovementGenerator<T> >(target, offset, angle), _path(nullptr), _recheckPredictedDistanceTimer(0), _recheckPredictedDistance(false), _range(offset), _angle(angle), _inheritWalkState(false) { }
+        explicit FollowMovementGenerator(Unit &target, float offset, float angle) : TargetedMovementGenerator<T, FollowMovementGenerator<T> >(target, offset, angle), _path(nullptr), _recheckPredictedDistanceTimer(0), _recheckPredictedDistance(false), _range(offset), _angle(angle) { }
         ~FollowMovementGenerator() = default;
 
         MovementGeneratorType GetMovementGeneratorType() const override { return FOLLOW_MOTION_TYPE; }
@@ -138,7 +138,6 @@ class FollowMovementGenerator : public TargetedMovementGenerator<T, FollowMoveme
         Optional<Position> _lastPredictedPosition;
         float _range;
         float _angle;
-        bool _inheritWalkState;
 };
 
 #endif

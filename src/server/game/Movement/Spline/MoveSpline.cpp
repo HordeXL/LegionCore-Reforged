@@ -1,24 +1,15 @@
-/*
- * Copyright (C) 2005-2011 MaNGOS <http://getmangos.com/>
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
- */
+////////////////////////////////////////////
+///                                      ///
+///         LEGIONCORE REFORGED          ///
+///    Copyright 2026 Titans-Project     ///
+///         All Rights Reserved.         ///
+///                                      ///
+////////////////////////////////////////////
 
 #include "MoveSpline.h"
 #include "Log.h"
 #include "DB2Stores.h"
+#include <cmath>
 
 namespace Movement
 {
@@ -234,11 +225,15 @@ void MoveSpline::UpdateVelocity(Unit* owner)
         moveFlags = (moveFlags & ~MOVEMENTFLAG_FORWARD) | MOVEMENTFLAG_BACKWARD;
 
     float velocity = owner->GetSpeed(UnitMoveType(SelectSpeedType(moveFlags)));
-    time_passed *= (_velocity / velocity);
+    // Same lower bound as Validate; also rejects NaN. A zero speed would turn the rescale below into inf.
+    if (!(velocity > 0.1f) || !(_velocity > 0.0f))
+        return;
+
+    time_passed = static_cast<int32>(time_passed * (_velocity / velocity));
     _velocity = velocity;
     CommonInitializer init(velocity);
     spline.initLengths(init);
-    // spline.updateLengths(velocity, point_Idx, time_passed);
+    time_passed = std::max<int32>(0, std::min<int32>(time_passed, Duration()));
 }
 
 void MoveSpline::Initialize(const MoveSplineInitArgs& args)
@@ -259,9 +254,10 @@ void MoveSpline::Initialize(const MoveSplineInitArgs& args)
     durationModifier = 1.0f;
     nextDurationModifier = 1.0f;
 
-    // Check if its a stop spline
-    if (args.flags.done)
+    // Check if its a stop spline; a path under two points cannot be a spline (callers that skip Validate)
+    if (args.flags.done || args.path.size() < 2)
     {
+        splineflags.done = true;
         spline.clear();
         return;
     }
@@ -315,9 +311,15 @@ bool MoveSplineInitArgs::Validate() const
     {\
         return false;\
     }
-    //CHECK(path.size() > 1); @TODO how crash happens here ? =/
-    CHECK_V(velocity > 0.1f);
+    // A single point cannot form a spline (InitLinear asserts, InitCatmullRom reads past the array)
+    CHECK_V(path.size() > 1);
+    CHECK_V(velocity > 0.1f && std::isfinite(velocity));
     CHECK(time_perc >= 0.f && time_perc <= 1.f);
+    CHECK_V(std::isfinite(parabolic_amplitude) && std::isfinite(initialOrientation));
+    CHECK_V(facing.type != MONSTER_MOVE_FACING_ANGLE || std::isfinite(facing.angle));
+    CHECK_V(facing.type != MONSTER_MOVE_FACING_SPOT || (std::isfinite(facing.f.x) && std::isfinite(facing.f.y) && std::isfinite(facing.f.z)));
+    for (G3D::Vector3 const& point : path)
+        CHECK_V(std::isfinite(point.x) && std::isfinite(point.y) && std::isfinite(point.z));
     CHECK(_checkPathLengths());
     if (spellEffectExtra)
     {
@@ -351,10 +353,9 @@ MoveSpline::UpdateResult MoveSpline::_updateState(int32& ms_time_diff)
 
     UpdateResult result = Result_None;
 
-    int32 minimal_diff = std::min(ms_time_diff, segment_time_elapsed());
-    //ASSERT(minimal_diff >= 0);
-    if(minimal_diff < 0)
-        return Result_Arrived;
+    // A negative elapsed time (lengths rescaled under time_passed) must still advance the segment,
+    // otherwise the caller's do/while on ms_time_diff never ends.
+    int32 minimal_diff = std::max<int32>(0, std::min(ms_time_diff, segment_time_elapsed()));
 
     time_passed += minimal_diff;
     ms_time_diff -= minimal_diff;

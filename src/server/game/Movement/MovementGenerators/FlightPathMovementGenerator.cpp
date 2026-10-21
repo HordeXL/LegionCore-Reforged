@@ -1,19 +1,10 @@
-/*
-* This file is part of the TrinityCore Project. See AUTHORS file for Copyright information
-*
-* This program is free software; you can redistribute it and/or modify it
-* under the terms of the GNU General Public License as published by the
-* Free Software Foundation; either version 2 of the License, or (at your
-* option) any later version.
-*
-* This program is distributed in the hope that it will be useful, but WITHOUT
-* ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
-* FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for
-* more details.
-*
-* You should have received a copy of the GNU General Public License along
-* with this program. If not, see <http://www.gnu.org/licenses/>.
-*/
+////////////////////////////////////////////
+///                                      ///
+///         LEGIONCORE REFORGED          ///
+///    Copyright 2026 Titans-Project     ///
+///         All Rights Reserved.         ///
+///                                      ///
+////////////////////////////////////////////
 
 #include "FlightPathMovementGenerator.h"
 #include "MoveSpline.h"
@@ -55,7 +46,7 @@ void FlightPathMovementGenerator::LoadPath(Player& player, uint32 startNode /*= 
     {
         uint32 path, cost;
         sObjectMgr->GetTaxiPath(taxi[src], taxi[dst], path, cost);
-        if (path > sTaxiPathNodesByPath.size())
+        if (path >= sTaxiPathNodesByPath.size())
             return;
 
         TaxiPathNodeList const& nodes = sTaxiPathNodesByPath[path];
@@ -83,7 +74,7 @@ void FlightPathMovementGenerator::LoadPath(Player& player, uint32 startNode /*= 
             }
         }
 
-        _pointsForPathSwitch.push_back({ uint32(_path.size() - 1), int32(cost) });
+        _pointsForPathSwitch.push_back({ _path.empty() ? 0u : uint32(_path.size() - 1), int32(cost) });
     }
 }
 
@@ -142,13 +133,17 @@ void FlightPathMovementGenerator::DoReset(Player& player)
 
 bool FlightPathMovementGenerator::DoUpdate(Player& player, uint32 /*diff*/)
 {
+    // A taxi without nodes would otherwise never end (size() - 1 underflows below)
+    if (_path.empty())
+        return false;
+
     uint32 pointId = (uint32)player.movespline->currentPathIdx();
     if (pointId > _currentNode)
     {
         bool departureEvent = true;
         do
         {
-            if (_path.size() == _currentNode) // Max point
+            if (_currentNode >= _path.size()) // Max point
                 return false;
 
             DoEventIfAny(player, *_path[_currentNode], departureEvent);
@@ -174,7 +169,7 @@ bool FlightPathMovementGenerator::DoUpdate(Player& player, uint32 /*diff*/)
         while (true);
     }
 
-    return _currentNode < (_path.size() - 1);
+    return _currentNode + 1 < _path.size();
 }
 
 void FlightPathMovementGenerator::SetCurrentNodeAfterTeleport()
@@ -204,6 +199,9 @@ void FlightPathMovementGenerator::DoEventIfAny(Player& player, TaxiPathNodeEntry
 
 bool FlightPathMovementGenerator::GetResetPosition(Unit&, float& x, float& y, float& z)
 {
+    if (_currentNode >= _path.size())
+        return false;
+
     TaxiPathNodeEntry const* node = _path[_currentNode];
     x = node->Loc.X;
     y = node->Loc.Y;
@@ -216,8 +214,11 @@ void FlightPathMovementGenerator::InitEndGridInfo()
     /*! Storage to preload flightmaster grid at end of flight. For multi-stop flights, this will
        be reinitialized for each flightmaster at the end of each spline (or stop) in the flight. */
     uint32 nodeCount = _path.size();        //! Number of nodes in path.
+    if (!nodeCount)
+        return;
+
     _endMapId = _path[nodeCount - 1]->ContinentID; //! MapId of last node
-    _preloadTargetNode = nodeCount - 3;
+    _preloadTargetNode = nodeCount >= 3 ? nodeCount - 3 : 0;
     _endGridX = _path[nodeCount - 1]->Loc.X;
     _endGridY = _path[nodeCount - 1]->Loc.Y;
     _endGridZ = _path[nodeCount - 1]->Loc.Z;
