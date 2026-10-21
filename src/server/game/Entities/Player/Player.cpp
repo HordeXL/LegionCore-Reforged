@@ -29670,6 +29670,18 @@ void Player::LeaveBattleground(bool teleportToEntryPoint)
     }
 }
 
+void Player::RefreshBgPenaltyFlags(uint32 spellId)
+{
+    if (spellId != SPELL_BG_DESERTER && spellId != SPELL_BG_CRAVEN)
+        return;
+
+    uint8 const bit = spellId == SPELL_BG_DESERTER ? 1 : 2;
+    if (HasAura(spellId))
+        m_bgPenaltyFlags.fetch_or(bit);
+    else
+        m_bgPenaltyFlags.fetch_and(uint8(~bit));
+}
+
 bool Player::CanJoinToBattleground(uint8 pvpIternalType) const
 {
     if (pvpIternalType >= MS::Battlegrounds::IternalPvpTypes::Max)
@@ -29679,10 +29691,10 @@ bool Player::CanJoinToBattleground(uint8 pvpIternalType) const
     {
         case MS::Battlegrounds::IternalPvpTypes::Brawl:
         case MS::Battlegrounds::IternalPvpTypes::Battleground:
-            return !(HasAura(SPELL_BG_DESERTER));
+            return !(m_bgPenaltyFlags.load() & 1);
         case MS::Battlegrounds::IternalPvpTypes::Arena:
         case MS::Battlegrounds::IternalPvpTypes::Skirmish:
-            return !(HasAura(SPELL_BG_CRAVEN));
+            return !(m_bgPenaltyFlags.load() & 2);
         // case ashran:
         // return !(HasAura(194958));
         default:

@@ -4618,6 +4618,8 @@ AuraApplication * Unit::_CreateAuraApplication(Aura* aura, uint32 effMask)
     m_aura_lock.lock();
     AuraApplicationPtr aurApp = std::make_shared<AuraApplication>(this, caster, aura, effMask);
     m_appliedAuras.insert(std::make_pair(aurId, aurApp));
+    if (Player* player = ToPlayer())
+        player->RefreshBgPenaltyFlags(aurId);
 
     if (aurSpellInfo->GetAuraOptions(GetSpawnMode())->IsProcAura)
         m_procAuras.insert(std::make_pair(aurId, aurApp));
@@ -4632,7 +4634,47 @@ AuraApplication * Unit::_CreateAuraApplication(Aura* aura, uint32 effMask)
     if (AuraStateType aState = aura->GetSpellInfo()->GetAuraState())
         m_auraStateAuras.insert(std::make_pair(aState, aurApp.get()));
 
-    aura->_ApplyForTarget(this, caster, aurApp);
+    if (!aura->_ApplyForTarget(this, caster, aurApp))
+    {
+        // the aura was removed meanwhile or is already applied here: the application must not stay listed on the unit
+        m_aura_lock.lock();
+        for (auto itr = m_appliedAuras.lower_bound(aurId); itr != m_appliedAuras.upper_bound(aurId); ++itr)
+            if (itr->second == aurApp)
+            {
+                m_appliedAuras.erase(itr);
+                break;
+            }
+        if (Player* player = ToPlayer())
+            player->RefreshBgPenaltyFlags(aurId);
+        for (auto itr = m_procAuras.lower_bound(aurId); itr != m_procAuras.upper_bound(aurId); ++itr)
+            if (itr->second == aurApp)
+            {
+                m_procAuras.erase(itr);
+                break;
+            }
+        m_aura_lock.unlock();
+
+        if (aurSpellInfo->HasAnyAuraInterruptFlag())
+        {
+            m_interruptableAuras.remove(aurApp);
+            UpdateInterruptMask();
+        }
+
+        if (AuraStateType aState = aurSpellInfo->GetAuraState())
+        {
+            auto stateRange = m_auraStateAuras.equal_range(aState);
+            for (auto itr = stateRange.first; itr != stateRange.second; ++itr)
+                if (itr->second == aurApp.get())
+                {
+                    m_auraStateAuras.erase(itr);
+                    break;
+                }
+        }
+
+        aurApp->_Remove();
+        return nullptr;
+    }
+
     return aurApp.get();
 }
 
@@ -4722,6 +4764,8 @@ void Unit::_UnapplyAura(AuraApplicationMap::iterator &i, AuraRemoveMode removeMo
     // Remove all pointers from lists here to prevent possible pointer invalidation on spellcast/auraapply/auraremove
     m_procAuras.erase(aura->GetId());
     m_appliedAuras.erase(i);
+    if (Player* player = ToPlayer())
+        player->RefreshBgPenaltyFlags(aura->GetId());
 
     if (spellInfo->HasAnyAuraInterruptFlag())
     {
