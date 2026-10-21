@@ -1,21 +1,17 @@
-/*
- * Copyright (C) 2008-2015 TrinityCore <http://www.trinitycore.org/>
- *
- * This program is free software; you can redistribute it and/or modify it
- * under the terms of the GNU General Public License as published by the
- * Free Software Foundation; either version 2 of the License, or (at your
- * option) any later version.
- *
- * This program is distributed in the hope that it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for
- * more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program. If not, see <http://www.gnu.org/licenses/>.
- */
+////////////////////////////////////////////
+///                                      ///
+///         LEGIONCORE REFORGED          ///
+///    Copyright 2026 Titans-Project     ///
+///         All Rights Reserved.         ///
+///                                      ///
+///      Based on TrinityCore code       ///
+///   Copyright 2008-2015 TrinityCore    ///
+///   <http://www.trinitycore.org/>      ///
+///                                      ///
+////////////////////////////////////////////
 
 #include "NPCPackets.h"
+#include "PacketUtilities.h"
 #include "ItemPackets.h"
 
 void WorldPackets::NPC::Hello::Read()
@@ -33,8 +29,11 @@ WorldPacket const* WorldPackets::NPC::GossipMessage::Write()
     _worldPacket << static_cast<int32>(GossipOptions.size());
     _worldPacket << static_cast<int32>(GossipText.size());
 
-    for (ClientGossipOptions const& options : GossipOptions)
+    for (ClientGossipOptions& options : GossipOptions)
     {
+        TruncateStringToBits(options.Text, 12);
+        TruncateStringToBits(options.Confirm, 12);
+
         _worldPacket << options.ClientOption;
         _worldPacket << uint8(options.OptionNPC);
         _worldPacket << options.OptionFlags;
@@ -48,8 +47,10 @@ WorldPacket const* WorldPackets::NPC::GossipMessage::Write()
         _worldPacket.WriteString(options.Confirm);
     }
 
-    for (ClientGossipText const& text : GossipText)
+    for (ClientGossipText& text : GossipText)
     {
+        TruncateStringToBits(text.QuestTitle, 9);
+
         _worldPacket << text.QuestID;
         _worldPacket << text.QuestType;
         _worldPacket << text.QuestLevel;
@@ -113,6 +114,7 @@ WorldPacket const* WorldPackets::NPC::TrainerList::Write()
         _worldPacket << spell.ReqLevel;
     }
 
+    TruncateStringToBits(Greeting, 11);
     _worldPacket.WriteBits(Greeting.length(), 11);
     _worldPacket.FlushBits();
     _worldPacket.WriteString(Greeting);

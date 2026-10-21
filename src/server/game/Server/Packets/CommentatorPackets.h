@@ -1,3 +1,11 @@
+////////////////////////////////////////////
+///                                      ///
+///         LEGIONCORE REFORGED          ///
+///    Copyright 2026 Titans-Project     ///
+///         All Rights Reserved.         ///
+///                                      ///
+////////////////////////////////////////////
+
 #ifndef CommentatorPackets_h__
 #define CommentatorPackets_h__
 
@@ -10,9 +18,9 @@ namespace WorldPackets
     {
         struct ServerSpec
         {
-            uint32 Realm;
-            uint16 Server;
-            uint8 Type;
+            uint32 Realm = 0;
+            uint16 Server = 0;
+            uint8 Type = 0;
         };
 
         struct CommentatorSpellChargeEntry
@@ -94,7 +102,7 @@ namespace WorldPackets
 
                 void Read() override;
 
-                uint32 Enable;
+                uint32 Enable = 0;
         };
 
         class CommentatorGetMapInfo final : public ClientPacket
@@ -115,7 +123,7 @@ namespace WorldPackets
                 void Read() override;
 
                 ServerSpec WorldServer;
-                uint32 MapID;
+                uint32 MapID = 0;
         };
 
         class CommentatorEnterInstance final : public ClientPacket
@@ -125,7 +133,7 @@ namespace WorldPackets
 
                 void Read() override;
 
-                uint32 Enable;
+                uint32 Enable = 0;
         };
 
         class CommentatorExitInstance final : public ClientPacket

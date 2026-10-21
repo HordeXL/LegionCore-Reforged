@@ -1,21 +1,17 @@
-/*
- * Copyright (C) 2008-2015 TrinityCore <http://www.trinitycore.org/>
- *
- * This program is free software; you can redistribute it and/or modify it
- * under the terms of the GNU General Public License as published by the
- * Free Software Foundation; either version 2 of the License, or (at your
- * option) any later version.
- *
- * This program is distributed in the hope that it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for
- * more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program. If not, see <http://www.gnu.org/licenses/>.
- */
+////////////////////////////////////////////
+///                                      ///
+///         LEGIONCORE REFORGED          ///
+///    Copyright 2026 Titans-Project     ///
+///         All Rights Reserved.         ///
+///                                      ///
+///      Based on TrinityCore code       ///
+///   Copyright 2008-2015 TrinityCore    ///
+///   <http://www.trinitycore.org/>      ///
+///                                      ///
+////////////////////////////////////////////
 
 #include "QuestPackets.h"
+#include "PacketUtilities.h"
 
 void WorldPackets::Quest::QuestGiverStatusQuery::Read()
 {
@@ -173,6 +169,16 @@ WorldPacket const* WorldPackets::Quest::QueryQuestInfoResponse::Write()
         _worldPacket << Info.QuestRewardID;
         _worldPacket << Info.Expansion;
 
+        TruncateStringToBits(Info.LogTitle, 9);
+        TruncateStringToBits(Info.LogDescription, 12);
+        TruncateStringToBits(Info.QuestDescription, 12);
+        TruncateStringToBits(Info.AreaDescription, 9);
+        TruncateStringToBits(Info.PortraitGiverText, 10);
+        TruncateStringToBits(Info.PortraitGiverName, 8);
+        TruncateStringToBits(Info.PortraitTurnInText, 10);
+        TruncateStringToBits(Info.PortraitTurnInName, 8);
+        TruncateStringToBits(Info.QuestCompletionLog, 11);
+
         _worldPacket.WriteBits(Info.LogTitle.size(), 9);
         _worldPacket.WriteBits(Info.LogDescription.size(), 12);
         _worldPacket.WriteBits(Info.QuestDescription.size(), 12);
@@ -184,8 +190,10 @@ WorldPacket const* WorldPackets::Quest::QueryQuestInfoResponse::Write()
         _worldPacket.WriteBits(Info.QuestCompletionLog.size(), 11);
         _worldPacket.FlushBits();
 
-        for (QuestObjective const& questObjective : Info.Objectives)
+        for (QuestObjective& questObjective : Info.Objectives)
         {
+            TruncateStringToBits(questObjective.Description, 8);
+
             _worldPacket << questObjective.ID;
             _worldPacket << questObjective.Type;
             _worldPacket << questObjective.StorageIndex;
@@ -313,6 +321,13 @@ WorldPacket const* WorldPackets::Quest::QuestGiverOfferRewardMessage::Write()
     _worldPacket << PortraitGiver;
     _worldPacket << PortraitTurnIn;
 
+    TruncateStringToBits(QuestTitle, 9);
+    TruncateStringToBits(RewardText, 12);
+    TruncateStringToBits(PortraitGiverText, 10);
+    TruncateStringToBits(PortraitGiverName, 8);
+    TruncateStringToBits(PortraitTurnInText, 10);
+    TruncateStringToBits(PortraitTurnInName, 8);
+
     _worldPacket.WriteBits(QuestTitle.size(), 9);
     _worldPacket.WriteBits(RewardText.size(), 12);
     _worldPacket.WriteBits(PortraitGiverText.size(), 10);
@@ -401,6 +416,14 @@ WorldPacket const* WorldPackets::Quest::QuestGiverQuestDetails::Write()
         _worldPacket << obj.Type;
     }
 
+    TruncateStringToBits(QuestTitle, 9);
+    TruncateStringToBits(DescriptionText, 12);
+    TruncateStringToBits(LogDescription, 12);
+    TruncateStringToBits(PortraitGiverText, 10);
+    TruncateStringToBits(PortraitGiverName, 8);
+    TruncateStringToBits(PortraitTurnInText, 10);
+    TruncateStringToBits(PortraitTurnInName, 8);
+
     _worldPacket.WriteBits(QuestTitle.size(), 9);
     _worldPacket.WriteBits(DescriptionText.size(), 12);
     _worldPacket.WriteBits(LogDescription.size(), 12);
@@ -456,6 +479,9 @@ WorldPacket const* WorldPackets::Quest::QuestGiverRequestItems::Write()
     _worldPacket.WriteBit(AutoLaunched);
     _worldPacket.FlushBits();
 
+    TruncateStringToBits(QuestTitle, 9);
+    TruncateStringToBits(CompletionText, 12);
+
     _worldPacket.WriteBits(QuestTitle.size(), 9);
     _worldPacket.WriteBits(CompletionText.size(), 12);
     _worldPacket.FlushBits();
@@ -500,11 +526,14 @@ WorldPacket const* WorldPackets::Quest::QuestGiverQuestList::Write()
     _worldPacket << GreetEmoteDelay;
     _worldPacket << GreetEmoteType;
     _worldPacket << static_cast<uint32>(GossipTexts.size());
+    TruncateStringToBits(Greeting, 11);
     _worldPacket.WriteBits(Greeting.size(), 11);
     _worldPacket.FlushBits();
 
-    for (GossipTextData const& gossip : GossipTexts)
+    for (GossipTextData& gossip : GossipTexts)
     {
+        TruncateStringToBits(gossip.QuestTitle, 9);
+
         _worldPacket << gossip.QuestID;
         _worldPacket << gossip.QuestType;
         _worldPacket << gossip.QuestLevel;
@@ -539,6 +568,7 @@ WorldPacket const* WorldPackets::Quest::QuestConfirmAcceptResponse::Write()
     _worldPacket << uint32(QuestID);
     _worldPacket << InitiatedBy;
 
+    TruncateStringToBits(QuestTitle, 10);
     _worldPacket.WriteBits(QuestTitle.size(), 10);
     _worldPacket.FlushBits();
 
@@ -572,6 +602,7 @@ WorldPacket const* WorldPackets::Quest::QuestGiverInvalidQuest::Write()
     _worldPacket << Reason;
     _worldPacket << int32(ContributionRewardID);
 
+    TruncateStringToBits(ReasonText, 9);
     _worldPacket.WriteBit(SendErrorMessage);
     _worldPacket.WriteBits(ReasonText.length(), 9);
     _worldPacket.WriteString(ReasonText);
@@ -673,20 +704,26 @@ ByteBuffer& operator<<(ByteBuffer& data, WorldPackets::Quest::PlayerChoiceRespon
     data << int32(playerChoiceResponse.ResponseID);
     data << int32(playerChoiceResponse.ChoiceArtFileID);
 
-    data.WriteBits(playerChoiceResponse.Answer.length(), 9);
-    data.WriteBits(playerChoiceResponse.Header.length(), 9);
-    data.WriteBits(playerChoiceResponse.Description.length(), 11);
-    data.WriteBits(playerChoiceResponse.Confirmation.length(), 7);
+    std::string answerStorage, headerStorage, descriptionStorage, confirmationStorage;
+    std::string const& answer = WorldPackets::FitStringToBits(playerChoiceResponse.Answer, 9, answerStorage);
+    std::string const& header = WorldPackets::FitStringToBits(playerChoiceResponse.Header, 9, headerStorage);
+    std::string const& description = WorldPackets::FitStringToBits(playerChoiceResponse.Description, 11, descriptionStorage);
+    std::string const& confirmation = WorldPackets::FitStringToBits(playerChoiceResponse.Confirmation, 7, confirmationStorage);
+
+    data.WriteBits(answer.length(), 9);
+    data.WriteBits(header.length(), 9);
+    data.WriteBits(description.length(), 11);
+    data.WriteBits(confirmation.length(), 7);
     data.WriteBit(playerChoiceResponse.Reward.has_value());
     data.FlushBits();
 
     if (playerChoiceResponse.Reward)
         data << *playerChoiceResponse.Reward;
 
-    data.WriteString(playerChoiceResponse.Answer);
-    data.WriteString(playerChoiceResponse.Header);
-    data.WriteString(playerChoiceResponse.Description);
-    data.WriteString(playerChoiceResponse.Confirmation);
+    data.WriteString(answer);
+    data.WriteString(header);
+    data.WriteString(description);
+    data.WriteString(confirmation);
     return data;
 }
 
@@ -696,6 +733,7 @@ WorldPacket const* WorldPackets::Quest::DisplayPlayerChoice::Write()
     _worldPacket << uint32(Responses.size());
     _worldPacket << SenderGUID;
     _worldPacket << int32(UiTextureKitID);
+    TruncateStringToBits(Question, 8);
     _worldPacket.WriteBits(Question.length(), 8);
     _worldPacket.WriteBit(CloseChoiceFrame);
     _worldPacket.WriteBit(HideWarboardHeader);

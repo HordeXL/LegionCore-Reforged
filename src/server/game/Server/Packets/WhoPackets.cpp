@@ -1,21 +1,17 @@
-/*
- * Copyright (C) 2008-2015 TrinityCore <http://www.trinitycore.org/>
- *
- * This program is free software; you can redistribute it and/or modify it
- * under the terms of the GNU General Public License as published by the
- * Free Software Foundation; either version 2 of the License, or (at your
- * option) any later version.
- *
- * This program is distributed in the hope that it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for
- * more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program. If not, see <http://www.gnu.org/licenses/>.
- */
+////////////////////////////////////////////
+///                                      ///
+///         LEGIONCORE REFORGED          ///
+///    Copyright 2026 Titans-Project     ///
+///         All Rights Reserved.         ///
+///                                      ///
+///      Based on TrinityCore code       ///
+///   Copyright 2008-2015 TrinityCore    ///
+///   <http://www.trinitycore.org/>      ///
+///                                      ///
+////////////////////////////////////////////
 
 #include "WhoPackets.h"
+#include "PacketUtilities.h"
 
 void WorldPackets::Who::WhoIsRequest::Read()
 {
@@ -101,20 +97,25 @@ ByteBuffer& operator<<(ByteBuffer& data, WorldPackets::Who::WhoEntry const& entr
     data << uint32(entry.GuildVirtualRealmAddress);
     data << int32(entry.AreaID);
 
-    data.WriteBits(entry.GuildName.length(), 7);
+    std::string guildNameStorage;
+    std::string const& guildName = WorldPackets::FitStringToBits(entry.GuildName, 7, guildNameStorage);
+
+    data.WriteBits(guildName.length(), 7);
     data.WriteBit(entry.IsGM);
-    data.WriteString(entry.GuildName);
+    data.WriteString(guildName);
 
     return data;
 }
 
 ByteBuffer& operator<<(ByteBuffer& data, WorldPackets::Who::WhoResponse const& response)
 {
-    data.WriteBits(response.Entries.size(), 6);
+    // the count takes 6 bits: MaxWhoListReturns is not bounded by the config
+    std::size_t const count = std::min<std::size_t>(response.Entries.size(), 63);
+    data.WriteBits(count, 6);
     data.FlushBits();
 
-    for (auto const& entrie : response.Entries)
-        data << entrie;
+    for (std::size_t i = 0; i < count; ++i)
+        data << response.Entries[i];
 
     return data;
 }

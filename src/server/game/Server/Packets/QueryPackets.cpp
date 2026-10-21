@@ -1,21 +1,17 @@
-/*
- * Copyright (C) 2008-2015 TrinityCore <http://www.trinitycore.org/>
- *
- * This program is free software; you can redistribute it and/or modify it
- * under the terms of the GNU General Public License as published by the
- * Free Software Foundation; either version 2 of the License, or (at your
- * option) any later version.
- *
- * This program is distributed in the hope that it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for
- * more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program. If not, see <http://www.gnu.org/licenses/>.
- */
+////////////////////////////////////////////
+///                                      ///
+///         LEGIONCORE REFORGED          ///
+///    Copyright 2026 Titans-Project     ///
+///         All Rights Reserved.         ///
+///                                      ///
+///      Based on TrinityCore code       ///
+///   Copyright 2008-2015 TrinityCore    ///
+///   <http://www.trinitycore.org/>      ///
+///                                      ///
+////////////////////////////////////////////
 
 #include "QueryPackets.h"
+#include "PacketUtilities.h"
 #include "Player.h"
 #include "World.h"
 #include "ObjectMgr.h"
@@ -212,10 +208,13 @@ ByteBuffer& operator<<(ByteBuffer& data, WorldPackets::Query::QueryPageTextRespo
     data << uint32(page.NextPageID);
     data << int32(page.PlayerConditionID);
     data << uint8(page.Flags);
-    data.WriteBits(page.Text.length(), 12);
+    std::string textStorage;
+    std::string const& text = WorldPackets::FitStringToBits(page.Text, 12, textStorage);
+
+    data.WriteBits(text.length(), 12);
     data.FlushBits();
 
-    data.WriteString(page.Text);
+    data.WriteString(text);
 
     return data;
 }
@@ -459,8 +458,11 @@ void WorldPackets::Query::ItemTextQuery::Read()
 
 ByteBuffer& operator<<(ByteBuffer& data, WorldPackets::Query::ItemTextCache const& itemTextCache)
 {
-    data.WriteBits(itemTextCache.Text.length(), 13);
-    data.WriteString(itemTextCache.Text);
+    std::string textStorage;
+    std::string const& text = WorldPackets::FitStringToBits(itemTextCache.Text, 13, textStorage);
+
+    data.WriteBits(text.length(), 13);
+    data.WriteString(text);
 
     return data;
 }

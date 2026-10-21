@@ -1,25 +1,21 @@
-/*
- * Copyright (C) 2008-2015 TrinityCore <http://www.trinitycore.org/>
- *
- * This program is free software; you can redistribute it and/or modify it
- * under the terms of the GNU General Public License as published by the
- * Free Software Foundation; either version 2 of the License, or (at your
- * option) any later version.
- *
- * This program is distributed in the hope that it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for
- * more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program. If not, see <http://www.gnu.org/licenses/>.
- */
+////////////////////////////////////////////
+///                                      ///
+///         LEGIONCORE REFORGED          ///
+///    Copyright 2026 Titans-Project     ///
+///         All Rights Reserved.         ///
+///                                      ///
+///      Based on TrinityCore code       ///
+///   Copyright 2008-2015 TrinityCore    ///
+///   <http://www.trinitycore.org/>      ///
+///                                      ///
+////////////////////////////////////////////
 
 #include "AuthenticationPackets.h"
 #include "HmacHash.h"
 #include "Util.h"
 #include "RSA.h"
 #include "CharacterData.h"
+#include <stdexcept>
 #include <utility>
 
 bool WorldPackets::Auth::EarlyProcessClientPacket::ReadNoThrow()
@@ -31,6 +27,10 @@ bool WorldPackets::Auth::EarlyProcessClientPacket::ReadNoThrow()
     }
     catch (ByteBufferException const& /*ex*/)
     {
+    }
+    catch (std::exception const& /*ex*/)
+    {
+        // these packets are read in the network thread, before authentication: nothing may escape (bad_alloc, length_error)
     }
 
     return false;
@@ -128,12 +128,15 @@ WorldPacket const* WorldPackets::Auth::AuthResponse::Write()
         _worldPacket << uint8(SuccessInfo->ActiveExpansionLevel);
         _worldPacket << uint8(SuccessInfo->AccountExpansionLevel);
         _worldPacket << uint32(SuccessInfo->TimeSecondsUntilPCKick);
-        _worldPacket << uint32(SuccessInfo->AvailableClasses->size());
+        static std::unordered_map<uint8, uint8> const noClasses;
+        auto const& availableClasses = SuccessInfo->AvailableClasses ? *SuccessInfo->AvailableClasses : noClasses;
+
+        _worldPacket << uint32(availableClasses.size());
         _worldPacket << uint32(SuccessInfo->Templates.size());
         _worldPacket << uint32(SuccessInfo->CurrencyID);
         _worldPacket << int32(SuccessInfo->Time);
 
-        for (auto const& klass : *SuccessInfo->AvailableClasses)
+        for (auto const& klass : availableClasses)
         {
             _worldPacket << uint8(klass.first); /// the current class
             _worldPacket << uint8(klass.second); /// the required Expansion
@@ -339,6 +342,9 @@ void WorldPackets::Auth::WardenData::Read()
 {
     if (auto size = _worldPacket.read<uint32>())
     {
+        if (size > _worldPacket.size() - _worldPacket.rpos())
+            throw std::length_error("WardenData size past the end of the packet");
+
         Data.resize(size);
         _worldPacket.read(Data.contents(), size);
     }

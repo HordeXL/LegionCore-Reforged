@@ -1,19 +1,14 @@
-/*
- * Copyright (C) 2008-2015 TrinityCore <http://www.trinitycore.org/>
- *
- * This program is free software; you can redistribute it and/or modify it
- * under the terms of the GNU General Public License as published by the
- * Free Software Foundation; either version 2 of the License, or (at your
- * option) any later version.
- *
- * This program is distributed in the hope that it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for
- * more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program. If not, see <http://www.gnu.org/licenses/>.
- */
+////////////////////////////////////////////
+///                                      ///
+///         LEGIONCORE REFORGED          ///
+///    Copyright 2026 Titans-Project     ///
+///         All Rights Reserved.         ///
+///                                      ///
+///      Based on TrinityCore code       ///
+///   Copyright 2008-2015 TrinityCore    ///
+///   <http://www.trinitycore.org/>      ///
+///                                      ///
+////////////////////////////////////////////
 
 #include "TokenPackets.h"
 
@@ -183,12 +178,12 @@ WorldPacket const* WorldPackets::Token::WowTokenDistributionGlueUpdate::Write()
 {
     _worldPacket << UnkInt;
     _worldPacket << UnkInt2;
-    _worldPacket << DistributionCount1;
-    _worldPacket << DistributionCount2;
-    for (int32 i = 0; i < DistributionCount1; ++i)
-        _worldPacket << DistributionIDs1[i];
-    for (int32 i = 0; i < DistributionCount2; ++i)
-        _worldPacket << DistributionIDs2[i];
+    _worldPacket << int32(DistributionIDs1.size());
+    _worldPacket << int32(DistributionIDs2.size());
+    for (int64 id : DistributionIDs1)
+        _worldPacket << id;
+    for (int64 id : DistributionIDs2)
+        _worldPacket << id;
 
     return &_worldPacket;
 }

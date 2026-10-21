@@ -1,20 +1,14 @@
-/*
- * Copyright (C) 2008-2012 TrinityCore <http://www.trinitycore.org/>
- * Copyright (C) 2005-2009 MaNGOS <http://getmangos.com/>
- *
- * This program is free software; you can redistribute it and/or modify it
- * under the terms of the GNU General Public License as published by the
- * Free Software Foundation; either version 2 of the License, or (at your
- * option) any later version.
- *
- * This program is distributed in the hope that it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for
- * more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program. If not, see <http://www.gnu.org/licenses/>.
- */
+////////////////////////////////////////////
+///                                      ///
+///         LEGIONCORE REFORGED          ///
+///    Copyright 2026 Titans-Project     ///
+///         All Rights Reserved.         ///
+///                                      ///
+///      Based on TrinityCore code       ///
+///   Copyright 2008-2012 TrinityCore    ///
+///   <http://www.trinitycore.org/>      ///
+///                                      ///
+////////////////////////////////////////////
 
 #include "AccountMgr.h"
 #include "AreaTriggerData.h"
@@ -205,6 +199,10 @@ void WorldSession::SendCharacterEnum(bool deleted /*= false*/)
 
 void WorldSession::HandleCharCreateOpcode(WorldPackets::Character::CreateChar& charCreate)
 {
+    // a character screen request: refused while a character is in the world or loading (the opcode status alone allows it)
+    if (_player || PlayerLoading())
+        return;
+
     auto SendCharCreate = [this](ResponseCodes result) -> void
     {
         WorldPackets::Character::CharacterCreateResponse response;
@@ -550,6 +548,10 @@ void WorldSession::HandleCharCreateOpcode(WorldPackets::Character::CreateChar& c
 
 void WorldSession::HandleCharDeleteOpcode(WorldPackets::Character::DeleteChar& charDelete)
 {
+    // a character screen request: refused while a character is in the world or loading (the opcode status alone allows it)
+    if (_player || PlayerLoading())
+        return;
+
     if (ObjectAccessor::FindPlayer(charDelete.Guid))
         return;
 
@@ -1174,6 +1176,10 @@ void WorldSession::HandleSetFactionInactive(WorldPackets::Character::SetFactionI
 
 void WorldSession::HandleCharacterRenameRequest(WorldPackets::Character::CharacterRenameRequest& packet)
 {
+    // a character screen request: refused while a character is in the world or loading (the opcode status alone allows it)
+    if (_player || PlayerLoading())
+        return;
+
     if (!normalizePlayerName(packet.RenameInfo->NewName))
     {
         WorldPackets::Character::CharacterRenameResult result;
@@ -1420,6 +1426,10 @@ void WorldSession::HandleAlterAppearance(WorldPackets::Character::AlterApperance
 
 void WorldSession::HandleCharCustomize(WorldPackets::Character::CharCustomize& packet)
 {
+    // a character screen request: refused while a character is in the world or loading (the opcode status alone allows it)
+    if (_player || PlayerLoading())
+        return;
+
     CharacterInfo const* charInfo = sWorld->GetCharacterInfo(packet.CustomizeInfo->CharGUID);
     if (!charInfo || charInfo->AccountId != GetAccountId())
     {
@@ -1534,6 +1544,10 @@ void WorldSession::HandleCharCustomizeCallback(std::shared_ptr<WorldPackets::Cha
 
 void WorldSession::HandleCharRaceOrFactionChange(WorldPackets::Character::CharRaceOrFactionChange& packet)
 {
+    // a character screen request: refused while a character is in the world or loading (the opcode status alone allows it)
+    if (_player || PlayerLoading())
+        return;
+
     auto SendCharFactionChange = [this](ResponseCodes result, WorldPackets::Character::CharRaceOrFactionChangeInfo const* factionChangeInfo) -> void
     {
         WorldPackets::Character::CharFactionChangeResult packet;
@@ -2139,6 +2153,10 @@ void WorldSession::HandleGenerateRandomCharacterName(WorldPackets::Character::Ge
 
 void WorldSession::HandleReorderCharacters(WorldPackets::Character::ReorderCharacters& packet)
 {
+    // a character screen request: refused while a character is in the world or loading (the opcode status alone allows it)
+    if (_player || PlayerLoading())
+        return;
+
     auto trans = CharacterDatabase.BeginTransaction();
     for (auto const& reorderInfo : packet.Entries)
     {
@@ -2371,6 +2389,10 @@ namespace
 
 void WorldSession::HandleUndeleteCharacter(WorldPackets::Character::UndeleteCharacter& packet)
 {
+    // a character screen request: refused while a character is in the world or loading (the opcode status alone allows it)
+    if (_player || PlayerLoading())
+        return;
+
     auto SendUndeleteCharacterResponse = [this](CharacterUndeleteResult result, WorldPackets::Character::CharacterUndeleteInfo const* undeleteInfo) -> void
     {
         WorldPackets::Character::UndeleteCharacterResponse response;
