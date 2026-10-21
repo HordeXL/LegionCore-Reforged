@@ -1,20 +1,14 @@
-/*
- * Copyright (C) 2008-2012 TrinityCore <http://www.trinitycore.org/>
- * Copyright (C) 2005-2009 MaNGOS <http://getmangos.com/>
- *
- * This program is free software; you can redistribute it and/or modify it
- * under the terms of the GNU General Public License as published by the
- * Free Software Foundation; either version 2 of the License, or (at your
- * option) any later version.
- *
- * This program is distributed in the hope that it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for
- * more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program. If not, see <http://www.gnu.org/licenses/>.
- */
+////////////////////////////////////////////
+///                                      ///
+///         LEGIONCORE REFORGED          ///
+///    Copyright 2026 Titans-Project     ///
+///         All Rights Reserved.         ///
+///                                      ///
+///      Based on TrinityCore code       ///
+///   Copyright 2008-2012 TrinityCore    ///
+///   <http://www.trinitycore.org/>      ///
+///                                      ///
+////////////////////////////////////////////
 
 #include "AreaTriggerData.h"
 #include "Chat.h"
@@ -35,6 +29,7 @@
 #include "Log.h"
 #include "MapManager.h"
 #include "ObjectMgr.h"
+#include <shared_mutex>
 #include "Packets/BattlePayPackets.h"
 #include "QuestData.h"
 #include "ScriptMgr.h"
@@ -49,6 +44,7 @@
 
 VisibleDistanceMap sVisibleDistance[TYPE_VISIBLE_MAX];
 WorldRateMap sWorldRateInfo[TYPE_RATE_MAX];
+static std::shared_mutex sWorldRateInfoLock;       ///< .reload rebuilds the rates while the maps read them at every kill
 int32 playerCountInArea[10000];
 int32 objectCountInWorld[50]; // HighGuid::Count
 std::vector<int32> creatureCountInWorld;
@@ -108,6 +104,7 @@ float GetRateInfo(Creature* creature)
     if (!creature)
         return sWorld->getRate(RATE_XP_KILL);
 
+    std::shared_lock<std::shared_mutex> lock(sWorldRateInfoLock);
     WorldRateMap::const_iterator itr = sWorldRateInfo[TYPE_RATE_AREA].find(creature->GetCurrentAreaID());
     if (itr != sWorldRateInfo[TYPE_RATE_AREA].end())
         return itr->second;
@@ -519,12 +516,16 @@ void ObjectMgr::LoadWorldRateInfo()
 {
     uint32 oldMSTime = getMSTime();
 
-    for (uint8 i = 0; i < TYPE_RATE_MAX; ++i)
-        sWorldRateInfo[i].clear();
+    WorldRateMap rates[TYPE_RATE_MAX];
 
     QueryResult result = WorldDatabase.Query("SELECT `type`, `id`, `rate` FROM `world_rate_info`");
     if (!result)
+    {
+        std::unique_lock<std::shared_mutex> lock(sWorldRateInfoLock);
+        for (uint8 i = 0; i < TYPE_RATE_MAX; ++i)
+            sWorldRateInfo[i].clear();
         return;
+    }
 
     uint32 count = 0;
     do
@@ -534,16 +535,22 @@ void ObjectMgr::LoadWorldRateInfo()
         uint32 type = fields[0].GetUInt32();
         uint32 id = fields[1].GetUInt32();
         float rate = fields[2].GetFloat();
-        if(type > TYPE_RATE_MAX)
+        if (type >= TYPE_RATE_MAX)
         {
             TC_LOG_INFO("server.loading", ">> Loaded world rate type %u error", type);
             continue;
         }
 
-        sWorldRateInfo[type][id] = rate;
+        rates[type][id] = rate;
 
         count++;
     } while (result->NextRow());
+
+    {
+        std::unique_lock<std::shared_mutex> lock(sWorldRateInfoLock);
+        for (uint8 i = 0; i < TYPE_RATE_MAX; ++i)
+            sWorldRateInfo[i].swap(rates[i]);
+    }
 
     TC_LOG_INFO("server.loading", ">> Loaded %u world rate in %u ms", count, GetMSTimeDiffToNow(oldMSTime));
 }

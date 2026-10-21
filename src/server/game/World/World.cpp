@@ -1,20 +1,14 @@
-/*
- * Copyright (C) 2008-2012 TrinityCore <http://www.trinitycore.org/>
- * Copyright (C) 2005-2009 MaNGOS <http://getmangos.com/>
- *
- * This program is free software; you can redistribute it and/or modify it
- * under the terms of the GNU General Public License as published by the
- * Free Software Foundation; either version 2 of the License, or (at your
- * option) any later version.
- *
- * This program is distributed in the hope that it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for
- * more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program. If not, see <http://www.gnu.org/licenses/>.
- */
+////////////////////////////////////////////
+///                                      ///
+///         LEGIONCORE REFORGED          ///
+///    Copyright 2026 Titans-Project     ///
+///         All Rights Reserved.         ///
+///                                      ///
+///      Based on TrinityCore code       ///
+///   Copyright 2008-2012 TrinityCore    ///
+///   <http://www.trinitycore.org/>      ///
+///                                      ///
+////////////////////////////////////////////
 
 /** \file
     \ingroup world
@@ -113,6 +107,7 @@
 #include "WorldPacket.h"
 #include "WorldSession.h"
 #include "WorldStateMgr.h"
+#include <algorithm>
 #include <atomic>
 #include <boost/algorithm/string.hpp>
 #include <boost/filesystem/operations.hpp>
@@ -374,7 +369,7 @@ bool World::HasRecentlyDisconnected(WorldSessionPtr session)
     {
         for (DisconnectMap::iterator i = m_disconnects.begin(); i != m_disconnects.end();)
         {
-            if (difftime(i->second, GameTime::GetGameTime()) < tolerance)
+            if (difftime(GameTime::GetGameTime(), i->second) < tolerance)
             {
                 if (i->first == session->GetAccountId())
                     return true;
@@ -458,6 +453,30 @@ bool World::RemoveQueuedPlayer(WorldSessionPtr sess)
 }
 
 /// Initialize config values
+namespace
+{
+    // The reset loops advance by interval * unit until they pass "now": a 0 (or a negative value read as unsigned) never ends
+    // and freezes the world thread.
+    uint32 ClampConfigRange(char const* key, int32 value, int32 minValue, int32 maxValue)
+    {
+        int32 const clamped = std::clamp(value, minValue, maxValue);
+        if (clamped != value)
+            TC_LOG_ERROR("server.loading", "%s (%i) must be in range %i..%i. Set to %i.", key, value, minValue, maxValue, clamped);
+        return uint32(clamped);
+    }
+
+    // Whole days later at the same local hour: a fixed n * DAY shifts the hour by one across a DST change.
+    time_t AddLocalDays(time_t from, uint32 days)
+    {
+        tm local;
+        localtime_r(&from, &local);
+        local.tm_mday += int32(days);
+        local.tm_isdst = -1;
+        time_t const result = mktime(&local);
+        return result > from ? result : from + time_t(days) * DAY;
+    }
+}
+
 void World::LoadConfigSettings(bool reload)
 {
     if (reload)
@@ -620,7 +639,7 @@ void World::LoadConfigSettings(bool reload)
     if (rate_values[RATE_DURABILITY_LOSS_ON_DEATH] > 100.0f)
     {
         TC_LOG_ERROR("server.loading", "DurabilityLoss.OnDeath (%f) must be <= 100. Using 100.0 instead.", rate_values[RATE_DURABILITY_LOSS_ON_DEATH]);
-        rate_values[RATE_DURABILITY_LOSS_ON_DEATH] = 0.0f;
+        rate_values[RATE_DURABILITY_LOSS_ON_DEATH] = 100.0f;
     }
     rate_values[RATE_DURABILITY_LOSS_ON_DEATH] = rate_values[RATE_DURABILITY_LOSS_ON_DEATH] / 100.0f;
 
@@ -718,7 +737,7 @@ void World::LoadConfigSettings(bool reload)
 
     m_int_configs[CONFIG_INTERVAL_MAP_SESSION_UPDATE] = sConfigMgr->GetIntDefault("MapSessionUpdateInterval", 10);
 
-    m_int_configs[CONFIG_INTERVAL_CHANGEWEATHER] = sConfigMgr->GetIntDefault("ChangeWeatherInterval", 10 * MINUTE * IN_MILLISECONDS);
+    m_int_configs[CONFIG_INTERVAL_CHANGEWEATHER] = ClampConfigRange("ChangeWeatherInterval", sConfigMgr->GetIntDefault("ChangeWeatherInterval", 10 * MINUTE * IN_MILLISECONDS), IN_MILLISECONDS, DAY * IN_MILLISECONDS);
 
     if (reload)
     {
@@ -928,11 +947,11 @@ void World::LoadConfigSettings(bool reload)
     m_bool_configs[CONFIG_CAST_UNSTUCK] = sConfigMgr->GetBoolDefault("CastUnstuck", true);
     m_int_configs[CONFIG_MAX_SPELL_CASTS_IN_CHAIN]  = sConfigMgr->GetIntDefault("MaxSpellCastsInChain", 10);
     m_int_configs[CONFIG_INSTANCE_RESET_TIME_HOUR]  = sConfigMgr->GetIntDefault("Instance.ResetTimeHour", 4);
-    m_int_configs[CONFIG_INSTANCE_DAILY_RESET]  = sConfigMgr->GetIntDefault("Instance.DailyReset", 1);
-    m_int_configs[CONFIG_INSTANCE_WEEKLY_RESET]  = sConfigMgr->GetIntDefault("Instance.WeeklyReset", 7);
+    m_int_configs[CONFIG_INSTANCE_DAILY_RESET]  = ClampConfigRange("Instance.DailyReset", sConfigMgr->GetIntDefault("Instance.DailyReset", 1), 1, 365);
+    m_int_configs[CONFIG_INSTANCE_WEEKLY_RESET]  = ClampConfigRange("Instance.WeeklyReset", sConfigMgr->GetIntDefault("Instance.WeeklyReset", 7), 1, 365);
     m_int_configs[CONFIG_INSTANCE_UNLOAD_DELAY] = sConfigMgr->GetIntDefault("Instance.UnloadDelay", 30 * MINUTE * IN_MILLISECONDS);
 
-    m_int_configs[CONFIG_CHALLENGE_KEY_RESET]  = sConfigMgr->GetIntDefault("Challenge.Key.Reset", 7);
+    m_int_configs[CONFIG_CHALLENGE_KEY_RESET]  = ClampConfigRange("Challenge.Key.Reset", sConfigMgr->GetIntDefault("Challenge.Key.Reset", 7), 1, 365);
     m_bool_configs[CONFIG_CHALLENGE_ENABLED] = sConfigMgr->GetBoolDefault("Challenge.Enabled", true);
 
     m_int_configs[CONFIG_MAX_PRIMARY_TRADE_SKILL] = sConfigMgr->GetIntDefault("MaxPrimaryTradeSkill", 2);
@@ -1246,7 +1265,9 @@ void World::LoadConfigSettings(bool reload)
 
     ///- Read the "Data" directory from the config file
     std::string dataPath = sConfigMgr->GetStringDefault("DataDir", "./");
-    if (dataPath.at(dataPath.length()-1) != '/' && dataPath.at(dataPath.length()-1) != '\\')
+    if (dataPath.empty())
+        dataPath = "./";
+    if (dataPath.back() != '/' && dataPath.back() != '\\')
         dataPath.push_back('/');
 
     if (reload)
@@ -1265,7 +1286,7 @@ void World::LoadConfigSettings(bool reload)
     TC_LOG_INFO("server.loading", "WORLD: MMap data directory is: %smmaps", m_dataPath.c_str());
 
     m_bool_configs[CONFIG_VMAP_INDOOR_CHECK] = sConfigMgr->GetBoolDefault("vmap.enableIndoorCheck", false);
-    bool enableIndoor = sConfigMgr->GetBoolDefault("vmap.enableIndoorCheck", true);
+    bool enableIndoor = m_bool_configs[CONFIG_VMAP_INDOOR_CHECK];
     bool enableLOS = sConfigMgr->GetBoolDefault("vmap.enableLOS", true);
     bool enableHeight = sConfigMgr->GetBoolDefault("vmap.enableHeight", true);
     bool enablePetLOS = sConfigMgr->GetBoolDefault("vmap.petLOS", true);
@@ -1336,7 +1357,7 @@ void World::LoadConfigSettings(bool reload)
     // AutoBroadcast
     m_bool_configs[CONFIG_AUTOBROADCAST] = sConfigMgr->GetBoolDefault("AutoBroadcast.On", false);
     m_int_configs[CONFIG_AUTOBROADCAST_CENTER] = sConfigMgr->GetIntDefault("AutoBroadcast.Center", 0);
-    m_int_configs[CONFIG_AUTOBROADCAST_INTERVAL] = sConfigMgr->GetIntDefault("AutoBroadcast.Timer", 60000);
+    m_int_configs[CONFIG_AUTOBROADCAST_INTERVAL] = ClampConfigRange("AutoBroadcast.Timer", sConfigMgr->GetIntDefault("AutoBroadcast.Timer", 60000), IN_MILLISECONDS, DAY * IN_MILLISECONDS);
 
     if (reload)
     {
@@ -1442,9 +1463,9 @@ void World::LoadConfigSettings(bool reload)
 
     m_bool_configs[CONFIG_WORLD_QUEST] = sConfigMgr->GetBoolDefault("WorldQuest", true);
     m_int_configs[CONFIG_WORLD_QUEST_RESET_TIME_HOUR]  = sConfigMgr->GetIntDefault("WorldQuest.ResetTimeHour", 4);
-    m_int_configs[CONFIG_WORLD_QUEST_HOURLY_RESET]  = sConfigMgr->GetIntDefault("WorldQuest.HourlyReset", 6);
-    m_int_configs[CONFIG_WORLD_QUEST_DAILY_RESET]  = sConfigMgr->GetIntDefault("WorldQuest.DailyReset", 1);
-    m_int_configs[CONFIG_INVASION_POINT_RESET]  = sConfigMgr->GetIntDefault("WorldQuest.InvasionPoint", 2);
+    m_int_configs[CONFIG_WORLD_QUEST_HOURLY_RESET]  = ClampConfigRange("WorldQuest.HourlyReset", sConfigMgr->GetIntDefault("WorldQuest.HourlyReset", 6), 1, 24 * 30);
+    m_int_configs[CONFIG_WORLD_QUEST_DAILY_RESET]  = ClampConfigRange("WorldQuest.DailyReset", sConfigMgr->GetIntDefault("WorldQuest.DailyReset", 1), 1, 365);
+    m_int_configs[CONFIG_INVASION_POINT_RESET]  = ClampConfigRange("WorldQuest.InvasionPoint", sConfigMgr->GetIntDefault("WorldQuest.InvasionPoint", 2), 1, 24 * 30);
 
     m_int_configs[CONFIG_WORLD_QUEST_MIN_ITEMLEVEL]  = sConfigMgr->GetIntDefault("WorldQuest.ItemLevel.Min", 805);
     m_int_configs[CONFIG_WORLD_QUEST_ITEMLEVEL_CAP]  = sConfigMgr->GetIntDefault("WorldQuest.ItemLevel.Max", 855);
@@ -2536,7 +2557,11 @@ void World::Update(uint32 diff)
     if (currentGameTime > m_NextDailyQuestReset)
     {
         ResetDailyQuests();
-        m_NextDailyQuestReset += DAY;
+
+        // after a long downtime the stored time is old: skip the missed days, one reset covers them
+        do
+            m_NextDailyQuestReset = AddLocalDays(m_NextDailyQuestReset, 1);
+        while (m_NextDailyQuestReset <= currentGameTime);
     }
 
     if (currentGameTime > m_NextWeeklyReset)
@@ -2648,7 +2673,7 @@ void World::Update(uint32 diff)
         LoginDatabase.Execute(stmt);
 
         if (!m_bool_configs[CONFIG_DISABLE_NEW_ONLINE])
-            LoginDatabase.PQuery("REPLACE INTO `online` (`realmID`, `online`, `diff`, `uptime`) VALUES ('%u', '%u', '%u', '%u')", realm.Id.Realm, GetActiveSessionCount(), sWorldUpdateTime.GetLastUpdateTime(), GameTime::GetUptime());
+            LoginDatabase.PExecute("REPLACE INTO `online` (`realmID`, `online`, `diff`, `uptime`) VALUES ('%u', '%u', '%u', '%u')", realm.Id.Realm, GetActiveSessionCount(), sWorldUpdateTime.GetLastUpdateTime(), GameTime::GetUptime());
     }
 
     /// <li> Clean logs table
@@ -3214,6 +3239,7 @@ void World::MuteAccount(uint32 accountId, int64 duration, std::string reason, st
 
     LoginDatabasePreparedStatement* stmt = LoginDatabase.GetPreparedStatement(LOGIN_UPD_MUTE_TIME);
 
+    int64 const muteSeconds = duration > 0 ? duration * MINUTE : 4294967295;
     int64 muteTime = (duration>0 ? GameTime::GetGameTime() + duration * MINUTE : 4294967295);
 
     QueryResult result = LoginDatabase.PQuery("SELECT mutetime FROM account WHERE id = %u", accountId);
@@ -3242,8 +3268,16 @@ void World::MuteAccount(uint32 accountId, int64 duration, std::string reason, st
 
         if (Player* player = session->GetPlayer())
         {
-            playerName = player->GetName();
-            ChatHandler(player).PSendSysMessage(LANG_YOUR_CHAT_DISABLED,  duration, reason.c_str());
+            ObjectGuid const playerGuid = player->GetGUID();
+            if (CharacterInfo const* info = GetCharacterInfo(playerGuid))
+                playerName = info->Name;
+
+            // the player may live in another map thread than the caller: the message is sent from his own
+            std::string const message = reason;
+            ObjectAccessor::PostToPlayer(playerGuid, [duration, message](Player* target)
+            {
+                ChatHandler(target).PSendSysMessage(LANG_YOUR_CHAT_DISABLED, duration, message.c_str());
+            });
         }
     }
 
@@ -3252,7 +3286,8 @@ void World::MuteAccount(uint32 accountId, int64 duration, std::string reason, st
     stmt->setUInt32(1, accountId);
     LoginDatabase.Execute(stmt);
 
-    LoginDatabase.PQuery("INSERT INTO account_muted VALUES (%u, UNIX_TIMESTAMP(), UNIX_TIMESTAMP() + %u, '%s', '%s', 1)", accountId, (duration >= 0 ? duration * MINUTE : 4294967295), playerName.c_str(), reason.c_str());
+    LoginDatabase.EscapeString(playerName);
+    LoginDatabase.PExecute("INSERT INTO account_muted VALUES (%u, UNIX_TIMESTAMP(), UNIX_TIMESTAMP() + " UI64FMTD ", '%s', '%s', 1)", accountId, uint64(muteSeconds), playerName.c_str(), reason.c_str());
   //  LoginDatabase.PQuery("UPDATE account SET mutetime = UNIX_TIMESTAMP() + %u WHERE id = %u", (duration >= 0 ? duration * MINUTE : 4294967295), accountId);
 }
 
@@ -3616,7 +3651,7 @@ void World::InitDailyQuestResetTime()
     if (mostRecentQuestTime && mostRecentQuestTime <= resetTime)
         m_NextDailyQuestReset = mostRecentQuestTime;
     else // plan next reset time
-        m_NextDailyQuestReset = (curTime >= curDayResetTime) ? curDayResetTime + DAY : curDayResetTime;
+        m_NextDailyQuestReset = (curTime >= curDayResetTime) ? AddLocalDays(curDayResetTime, 1) : curDayResetTime;
 }
 
 void World::InitRandomBGResetTime()
@@ -3635,7 +3670,7 @@ void World::InitRandomBGResetTime()
 
     // next reset time before current moment
     while (curTime >= nextDayResetTime)
-        nextDayResetTime += DAY;
+        nextDayResetTime = AddLocalDays(nextDayResetTime, 1);
 
     // normalize reset time
     m_NextRandomBGReset = bgtime ? bgtime : nextDayResetTime;
@@ -3665,7 +3700,7 @@ void World::InitInstanceDailyResetTime()
 
     // next reset time before current moment
     while (curTime >= nextResetTime)
-        nextResetTime += getIntConfig(CONFIG_INSTANCE_DAILY_RESET) * DAY;
+        nextResetTime = AddLocalDays(nextResetTime, getIntConfig(CONFIG_INSTANCE_DAILY_RESET));
 
     // normalize reset time
     m_NextInstanceDailyReset = insttime ? insttime : nextResetTime;
@@ -3755,7 +3790,7 @@ void World::InitWorldQuestDailyResetTime()
 
     // next reset time before current moment
     while (curTime >= nextResetTime)
-        nextResetTime += getIntConfig(CONFIG_WORLD_QUEST_DAILY_RESET) * DAY;
+        nextResetTime = AddLocalDays(nextResetTime, getIntConfig(CONFIG_WORLD_QUEST_DAILY_RESET));
 
     // normalize reset time
     m_NextWorldQuestDailyReset = insttime ? insttime : nextResetTime;
@@ -3856,10 +3891,10 @@ void World::ResetCurrencyWeekCap()
 void World::InstanceDailyResetTime()
 {
     time_t curTime = GameTime::GetGameTime();
-    m_NextInstanceDailyReset = time_t(m_NextInstanceDailyReset + DAY * getIntConfig(CONFIG_INSTANCE_DAILY_RESET));
+    m_NextInstanceDailyReset = AddLocalDays(m_NextInstanceDailyReset, getIntConfig(CONFIG_INSTANCE_DAILY_RESET));
 
     while (curTime >= m_NextInstanceDailyReset)
-        m_NextInstanceDailyReset += getIntConfig(CONFIG_INSTANCE_DAILY_RESET) * DAY;
+        m_NextInstanceDailyReset = AddLocalDays(m_NextInstanceDailyReset, getIntConfig(CONFIG_INSTANCE_DAILY_RESET));
 
     sWorld->setWorldState(WS_INSTANCE_DAILY_RESET_TIME, m_NextInstanceDailyReset);
 
@@ -3959,10 +3994,10 @@ void World::InvasionPointResetTime()
 void World::WorldQuestDailyResetTime()
 {
     time_t curTime = GameTime::GetGameTime();
-    m_NextWorldQuestDailyReset = time_t(m_NextWorldQuestDailyReset + DAY * getIntConfig(CONFIG_WORLD_QUEST_DAILY_RESET));
+    m_NextWorldQuestDailyReset = AddLocalDays(m_NextWorldQuestDailyReset, getIntConfig(CONFIG_WORLD_QUEST_DAILY_RESET));
 
     while (curTime >= m_NextWorldQuestDailyReset)
-        m_NextWorldQuestDailyReset += getIntConfig(CONFIG_WORLD_QUEST_DAILY_RESET) * DAY;
+        m_NextWorldQuestDailyReset = AddLocalDays(m_NextWorldQuestDailyReset, getIntConfig(CONFIG_WORLD_QUEST_DAILY_RESET));
 
     sWorld->setWorldState(WS_WORLDQUEST_DAILY_RESET_TIME, m_NextWorldQuestDailyReset);
 }
@@ -4058,7 +4093,10 @@ void World::ResetRandomBG()
 
     ObjectAccessor::PostToAllPlayers([](Player* player) { player->SetWinToday(false); }, 100);
 
-    m_NextRandomBGReset = time_t(m_NextRandomBGReset + DAY);
+    time_t const now = GameTime::GetGameTime();
+    do
+        m_NextRandomBGReset = AddLocalDays(m_NextRandomBGReset, 1);
+    while (m_NextRandomBGReset <= now);
     sWorld->setWorldState(WS_BG_DAILY_RESET_TIME, m_NextRandomBGReset);
 }
 
@@ -4205,7 +4243,10 @@ void World::LoadWorldStates()
     do
     {
         Field* fields = result->Fetch();
-        m_worldstates[fields[0].GetUInt32()] = fields[1].GetUInt32();
+        {
+            std::lock_guard<std::mutex> lock(m_worldstatesLock);
+            m_worldstates[fields[0].GetUInt32()] = fields[1].GetUInt32();
+        }
         ++count;
     }
     while (result->NextRow());
@@ -4228,8 +4269,14 @@ bool World::IsFFAPvPRealm() const
 // Setting a worldstate will save it to DB
 void World::setWorldState(uint32 index, uint32 value)
 {
-    WorldStatesMap::const_iterator it = m_worldstates.find(index);
-    if (it != m_worldstates.end())
+    bool exists;
+    {
+        std::lock_guard<std::mutex> lock(m_worldstatesLock);
+        exists = m_worldstates.find(index) != m_worldstates.end();
+        m_worldstates[index] = value;
+    }
+
+    if (exists)
     {
         CharacterDatabasePreparedStatement* stmt = CharacterDatabase.GetPreparedStatement(CHAR_UPD_WORLDSTATE);
 
@@ -4247,13 +4294,19 @@ void World::setWorldState(uint32 index, uint32 value)
 
         CharacterDatabase.Execute(stmt);
     }
-    m_worldstates[index] = value;
 }
 
 uint32 World::getWorldState(uint32 index) const
 {
+    std::lock_guard<std::mutex> lock(m_worldstatesLock);
     WorldStatesMap::const_iterator it = m_worldstates.find(index);
     return it != m_worldstates.end() ? it->second : 0;
+}
+
+bool World::HasWorldState(uint32 index) const
+{
+    std::lock_guard<std::mutex> lock(m_worldstatesLock);
+    return m_worldstates.find(index) != m_worldstates.end();
 }
 
 void World::ApplyPvPSeason()
@@ -4376,8 +4429,10 @@ void World::LoadCharacterNameData()
     TC_LOG_INFO("server.loading", "Loaded name data for %u characters", count);
 }
 
-void World::AddCharacterInfo(ObjectGuid const& guid, uint32 accountId, std::string const& name, uint8 gender, uint8 race, uint8 playerClass, uint8 level, uint8 zoneId, uint8 rankId, ObjectGuid const& guildId, uint32 specid)
+void World::AddCharacterInfo(ObjectGuid const& guid, uint32 accountId, std::string const& name, uint8 gender, uint8 race, uint8 playerClass, uint8 level, uint16 zoneId, uint8 rankId, ObjectGuid const& guildId, uint32 specid)
 {
+    std::unique_lock<std::shared_mutex> lock(_characterInfoLock);
+
     CharacterInfo& data = _characterInfoStore[guid];
     data.Guid = guid.GetCounter();
     data.Name = name;
@@ -4391,30 +4446,36 @@ void World::AddCharacterInfo(ObjectGuid const& guid, uint32 accountId, std::stri
     data.GuildId = guildId.GetCounter();
     data.SpecId = specid;
 
-    nameMap[name] = data;
+    nameMap[name] = guid;
 }
 
 void World::UpdateCharacterInfo(ObjectGuid const& guid, std::string const& name, uint8 gender /*= GENDER_NONE*/, uint8 race /*= RACE_NONE*/)
 {
-    CharacterInfoContainer::iterator itr = _characterInfoStore.find(guid);
-    if (itr == _characterInfoStore.end())
-        return;
+    {
+        std::unique_lock<std::shared_mutex> lock(_characterInfoLock);
 
-    DeleteCharName(itr->second.Name);
-    itr->second.Name = name;
+        CharacterInfoContainer::iterator itr = _characterInfoStore.find(guid);
+        if (itr == _characterInfoStore.end())
+            return;
 
-    if (gender != GENDER_NONE)
-        itr->second.Sex = gender;
+        DeleteCharNameLocked(itr->second.Name);
+        itr->second.Name = name;
 
-    if (race != RACE_NONE)
-        itr->second.Race = race;
+        if (gender != GENDER_NONE)
+            itr->second.Sex = gender;
 
-    AddCharacterName(name, itr->second);
+        if (race != RACE_NONE)
+            itr->second.Race = race;
+
+        AddCharacterNameLocked(name, guid);
+    }
+
     SendGlobalMessage(WorldPackets::Misc::InvalidatePlayer(guid).Write());
 }
 
 void World::UpdateCharacterAccount(ObjectGuid const& guid, uint32 BnetAccountId)
 {
+    std::shared_lock<std::shared_mutex> lock(_characterInfoLock);
     auto itr = _characterInfoStore.find(guid);
     if (itr == _characterInfoStore.end())
         return;
@@ -4424,6 +4485,7 @@ void World::UpdateCharacterAccount(ObjectGuid const& guid, uint32 BnetAccountId)
 
 void World::UpdateCharacterInfoLevel(ObjectGuid const& guid, uint8 level)
 {
+    std::shared_lock<std::shared_mutex> lock(_characterInfoLock);
     auto itr = _characterInfoStore.find(guid);
     if (itr == _characterInfoStore.end())
         return;
@@ -4433,6 +4495,7 @@ void World::UpdateCharacterInfoLevel(ObjectGuid const& guid, uint8 level)
 
 void World::UpdateCharacterInfoDeleted(ObjectGuid const& guid, bool deleted, std::string const* name /*= nullptr*/)
 {
+    std::unique_lock<std::shared_mutex> lock(_characterInfoLock);
     auto itr = _characterInfoStore.find(guid);
     if (itr == _characterInfoStore.end())
         return;
@@ -4445,6 +4508,7 @@ void World::UpdateCharacterInfoDeleted(ObjectGuid const& guid, bool deleted, std
 
 void World::UpdateCharacterNameDataZoneGuild(ObjectGuid const& guid, uint16 zoneId, uint16 guildId, uint8 rankId)
 {
+    std::shared_lock<std::shared_mutex> lock(_characterInfoLock);
     auto itr = _characterInfoStore.find(guid);
     if (itr == _characterInfoStore.end())
         return;
@@ -4466,6 +4530,7 @@ void World::SetCleaningFlags(uint32 flags)
 
 CharacterInfo const* World::GetCharacterInfo(ObjectGuid const& guid) const
 {
+    std::shared_lock<std::shared_mutex> lock(_characterInfoLock);
     CharacterInfoContainer::const_iterator itr = _characterInfoStore.find(guid);
     if (itr != _characterInfoStore.end())
         return &itr->second;
@@ -4475,19 +4540,30 @@ CharacterInfo const* World::GetCharacterInfo(ObjectGuid const& guid) const
 
 CharacterInfo const* World::GetCharacterInfo(std::string name) const
 {
-    return Trinity::Containers::MapGetValuePtr(nameMap, name);
+    std::shared_lock<std::shared_mutex> lock(_characterInfoLock);
+
+    auto nameItr = nameMap.find(name);
+    if (nameItr == nameMap.end())
+        return nullptr;
+
+    auto itr = _characterInfoStore.find(nameItr->second);
+    return itr != _characterInfoStore.end() ? &itr->second : nullptr;
 }
 
 void World::DeleteCharacterNameData(ObjectGuid const& guid)
 {
+    std::unique_lock<std::shared_mutex> lock(_characterInfoLock);
+
     auto itr = _characterInfoStore.find(guid);
     if (itr == _characterInfoStore.end())
         return;
 
     itr->second.IsDeleted = true;
 
-    nameMap.erase(itr->second.Name);
-    _characterInfoStore.erase(guid);
+    DeleteCharNameLocked(itr->second.Name);
+
+    // parked, not freed: pointers from GetCharacterInfo may still be in use in a map thread
+    _deletedCharacterInfo.push_back(_characterInfoStore.extract(itr));
 }
 
 void World::UpdatePhaseDefinitions()
@@ -4497,6 +4573,8 @@ void World::UpdatePhaseDefinitions()
 
 bool World::CheckCharacterName(std::string name)
 {
+    std::shared_lock<std::shared_mutex> lock(_characterInfoLock);
+
     if (nameMap.find(name) != nameMap.end())
         return false;
 
@@ -4505,10 +4583,22 @@ bool World::CheckCharacterName(std::string name)
 
 void World::AddCharacterName(std::string name, CharacterInfo const& nameData)
 {
-    nameMap[name] = nameData;
+    std::unique_lock<std::shared_mutex> lock(_characterInfoLock);
+    AddCharacterNameLocked(name, ObjectGuid::Create<HighGuid::Player>(nameData.Guid));
 }
 
 void World::DeleteCharName(std::string name)
+{
+    std::unique_lock<std::shared_mutex> lock(_characterInfoLock);
+    DeleteCharNameLocked(name);
+}
+
+void World::AddCharacterNameLocked(std::string const& name, ObjectGuid const& guid)
+{
+    nameMap[name] = guid;
+}
+
+void World::DeleteCharNameLocked(std::string const& name)
 {
     nameMap.erase(name);
 }
@@ -4534,8 +4624,8 @@ void World::ProcessMailboxQueue()
             uint32 stationery = f[i++].GetUInt32();
             uint64 sender_guid = f[i++].GetUInt64();
             ObjectGuid receiver_guid = ObjectGuid::Create<HighGuid::Player>(f[i++].GetUInt64());
-            std::string subject = f[i++].GetCString();
-            std::string body = f[i++].GetCString();
+            std::string subject = f[i++].GetString();
+            std::string body = f[i++].GetString();
             uint32 money = f[i++].GetUInt32();
             uint32 itemid = f[i++].GetUInt32();
             uint32 itemcount = f[i++].GetUInt32();
@@ -4544,8 +4634,15 @@ void World::ProcessMailboxQueue()
                 money = 0;
 
             ItemTemplate const *pProto = sObjectMgr->GetItemTemplate(itemid);
-            if(itemid && !pProto)
+            if (itemid && !pProto)
+            {
+                // left in the queue it would be retried every two minutes for ever
+                TC_LOG_ERROR("misc", "MailboxQueue: row %u has unknown item %u, removed", id, itemid);
+                stmt = CharacterDatabase.GetPreparedStatement(CHAR_DEL_MAILBOX_QUEUE);
+                stmt->setUInt32(0, id);
+                CharacterDatabase.Execute(stmt);
                 continue;
+            }
             
             uint8 countmails = 1;
             uint32 stack = pProto ? pProto->GetMaxStackSize() : uint32(0x7FFFFFFF-1);
@@ -4614,9 +4711,9 @@ void World::ProcessMailboxQueue()
 
                 }
                 
-                // Add to DB
-                CharacterDatabase.EscapeString(subject);
-                CharacterDatabase.EscapeString(body);
+                // Add to DB (prepared statement: no escaping)
+                // the money travels with the first mail only
+                uint32 const mailMoney = j == 0 ? money : 0;
                 // trans->PAppend("REPLACE INTO mail (id,messageType,stationery,mailTemplateId,sender,receiver,subject,body,has_items,expire_time,deliver_time,money,cod,checked) VALUES ('%u', '%u', '%u', '%u', '%u', '%u', '%s', '%s', '%u', '" UI64FMTD "','" UI64FMTD "', '%u', '%u', '%d')",
                 //  mailId, messageType, stationery, 0, sender_guid, receiver_guid.GetGUIDLow(), subject.c_str(), body.c_str(), (attachment != nullptr ? 1 : 0), (uint64)expire_time, (uint64)deliver_time, money, 0, 0);
                 CharacterDatabasePreparedStatement* stmtt = CharacterDatabase.GetPreparedStatement(CHAR_INS_MAIL);
@@ -4632,7 +4729,7 @@ void World::ProcessMailboxQueue()
                 stmtt->setBool  (index++, tempcountitems);
                 stmtt->setUInt64(index++, uint64(expire_time));
                 stmtt->setUInt64(index++, uint64(deliver_time));
-                stmtt->setUInt64(index++, money);
+                stmtt->setUInt64(index++, mailMoney);
                 stmtt->setUInt64(index++, 0);
                 stmtt->setUInt8 (index, uint8(0));
                 trans->Append(stmtt);
@@ -4657,7 +4754,7 @@ void World::ProcessMailboxQueue()
 
                     m->expire_time = expire_time;
                     m->deliver_time = deliver_time;
-                    m->money = money;
+                    m->money = mailMoney;
                     m->COD = 0;
                     m->checked = 0;
                     m->state = MAIL_STATE_UNCHANGED;

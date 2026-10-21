@@ -1,20 +1,14 @@
-/*
- * Copyright (C) 2008-2012 TrinityCore <http://www.trinitycore.org/>
- * Copyright (C) 2005-2009 MaNGOS <http://getmangos.com/>
- *
- * This program is free software; you can redistribute it and/or modify it
- * under the terms of the GNU General Public License as published by the
- * Free Software Foundation; either version 2 of the License, or (at your
- * option) any later version.
- *
- * This program is distributed in the hope that it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for
- * more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program. If not, see <http://www.gnu.org/licenses/>.
- */
+////////////////////////////////////////////
+///                                      ///
+///         LEGIONCORE REFORGED          ///
+///    Copyright 2026 Titans-Project     ///
+///         All Rights Reserved.         ///
+///                                      ///
+///      Based on TrinityCore code       ///
+///   Copyright 2008-2012 TrinityCore    ///
+///   <http://www.trinitycore.org/>      ///
+///                                      ///
+////////////////////////////////////////////
 
 /// \addtogroup world The World
 /// @{
@@ -36,6 +30,7 @@
 #include "Threading/LockedQueue.h"
 #include <safe_ptr.h>
 #include <atomic>
+#include <mutex>
 #include <queue>
 #include <shared_mutex>
 #include "Util.h"
@@ -876,7 +871,7 @@ class TC_GAME_API World
 
         void setWorldState(uint32 index, uint32 value);
         uint32 getWorldState(uint32 index) const;
-        bool HasWorldState(uint32 index) const { return m_worldstates.find(index) != m_worldstates.end(); }
+        bool HasWorldState(uint32 index) const;
         void LoadWorldStates();
 
         // at startup: saves the ratings of the season left, restores or resets those of the new one
@@ -939,7 +934,7 @@ class TC_GAME_API World
 
         CharacterInfo const* GetCharacterInfo(ObjectGuid const& guid) const;
         CharacterInfo const* GetCharacterInfo(std::string name) const;
-        void AddCharacterInfo(ObjectGuid const& guid, uint32 accountId, std::string const& name, uint8 gender, uint8 race, uint8 playerClass, uint8 level, uint8 zoneId = 0, uint8 rankId = 0, ObjectGuid const& guildId = ObjectGuid::Empty, uint32 specid = 0);
+        void AddCharacterInfo(ObjectGuid const& guid, uint32 accountId, std::string const& name, uint8 gender, uint8 race, uint8 playerClass, uint8 level, uint16 zoneId = 0, uint8 rankId = 0, ObjectGuid const& guildId = ObjectGuid::Empty, uint32 specid = 0);
         void UpdateCharacterInfo(ObjectGuid const& guid, std::string const& name, uint8 gender = GENDER_NONE, uint8 race = RACE_NONE);
         void UpdateCharacterAccount(ObjectGuid const& guid, uint32 BnetAccountId);
         void UpdateCharacterInfoLevel(ObjectGuid const& guid, uint8 level);
@@ -1040,6 +1035,8 @@ class TC_GAME_API World
         bool m_bool_configs[BOOL_CONFIG_VALUE_COUNT];
         float m_float_configs[FLOAT_CONFIG_VALUE_COUNT];
         typedef std::map<uint32, uint32> WorldStatesMap;
+        // leaf lock: setWorldState is called from map threads as well as from the world thread
+        mutable std::mutex m_worldstatesLock;
         WorldStatesMap m_worldstates;
         uint32 m_playerLimit;
         AccountTypes m_allowedSecurityLevel;
@@ -1098,10 +1095,19 @@ class TC_GAME_API World
         std::list<std::string> m_Autobroadcasts;
 
         typedef std::map<ObjectGuid, CharacterInfo> CharacterInfoContainer;
+        // leaf lock for the structure of _characterInfoStore, _deletedCharacterInfo and nameMap: map threads read them while
+        // the world and session threads create, rename and delete characters
+        mutable std::shared_mutex _characterInfoLock;
         CharacterInfoContainer _characterInfoStore;
+        // deleted entries are parked here instead of freed: GetCharacterInfo hands out raw pointers
+        // (a list, not a map: a guid restored then deleted again would make a keyed insert free the new node)
+        std::vector<CharacterInfoContainer::node_type> _deletedCharacterInfo;
         void LoadCharacterNameData();
 
-        std::unordered_map<std::string, CharacterInfo> nameMap;
+        // name -> guid of the entry in _characterInfoStore, so that both lookups see the same data
+        std::unordered_map<std::string, ObjectGuid> nameMap;
+        void DeleteCharNameLocked(std::string const& name);
+        void AddCharacterNameLocked(std::string const& name, ObjectGuid const& guid);
 
         void ProcessQueryCallbacks();
         QueryCallbackProcessor _queryProcessor;

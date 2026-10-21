@@ -1,20 +1,14 @@
-/*
- * Copyright (C) 2008-2012 TrinityCore <http://www.trinitycore.org/>
- * Copyright (C) 2005-2011 MaNGOS <http://getmangos.com/>
- *
- * This program is free software; you can redistribute it and/or modify it
- * under the terms of the GNU General Public License as published by the
- * Free Software Foundation; either version 2 of the License, or (at your
- * option) any later version.
- *
- * This program is distributed in the hope that it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for
- * more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program. If not, see <http://www.gnu.org/licenses/>.
- */
+////////////////////////////////////////////
+///                                      ///
+///         LEGIONCORE REFORGED          ///
+///    Copyright 2026 Titans-Project     ///
+///         All Rights Reserved.         ///
+///                                      ///
+///      Based on TrinityCore code       ///
+///   Copyright 2008-2012 TrinityCore    ///
+///   <http://www.trinitycore.org/>      ///
+///                                      ///
+////////////////////////////////////////////
 
 #include "HmacHash.h"
 #include "Common.h"
@@ -586,6 +580,15 @@ void WardenWin::HandleData(ByteBuffer &buff)
         return;
     }
 
+    // length is client controlled: never hash past the end of the packet
+    if (length > buff.size() - buff.rpos())
+    {
+        buff.rfinish();
+        sLog->outWarden("%s failed packet length. Action: Kick", _session->GetPlayerName(false).c_str());
+        KickPlayer();
+        return;
+    }
+
     if (!IsValidCheckSum(checksum, buff.contents() + buff.rpos(), length))
     {
         buff.rfinish();
@@ -766,6 +769,13 @@ void WardenWin::HandleChecks(ByteBuffer &buff)
                     return;
                 }
 
+                if (rd->Length > buff.size() - buff.rpos())
+                {
+                    buff.rfinish();
+                    KickPlayer();
+                    return;
+                }
+
                 std::string packet_data = _wardenMgr->ByteArrayToString(buff.contents() + buff.rpos(), rd->Length);
                 if (strcmp(rd->Result.c_str(), packet_data.c_str()))
                 {
@@ -784,6 +794,13 @@ void WardenWin::HandleChecks(ByteBuffer &buff)
             case MODULE_CHECK:
             case PROC_CHECK:
             {
+                if (buff.size() <= buff.rpos())
+                {
+                    buff.rfinish();
+                    KickPlayer();
+                    return;
+                }
+
                 std::string packet_data = _wardenMgr->ByteArrayToString(buff.contents() + buff.rpos(), 1);
                 if (strcmp(rd->Result.c_str(), packet_data.c_str()))
                 {
@@ -856,6 +873,13 @@ void WardenWin::HandleChecks(ByteBuffer &buff)
 
                 if (luaStrLen)
                 {
+                    if (luaStrLen > buff.size() - buff.rpos())
+                    {
+                        buff.rfinish();
+                        KickPlayer();
+                        return;
+                    }
+
                     char *str = new char[luaStrLen + 1];
                     memset(str, 0, luaStrLen + 1);
                     memcpy(str, buff.contents() + buff.rpos(), luaStrLen);
