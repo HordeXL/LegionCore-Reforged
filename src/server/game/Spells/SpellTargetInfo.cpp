@@ -1,7 +1,16 @@
+////////////////////////////////////////////
+///                                      ///
+///         LEGIONCORE REFORGED          ///
+///    Copyright 2026 Titans-Project     ///
+///         All Rights Reserved.         ///
+///                                      ///
+////////////////////////////////////////////
 
 #include "SpellTargetInfo.h"
 #include "SpellPackets.h"
 #include "TradeData.h"
+#include <algorithm>
+#include <cmath>
 
 SpellDestination::SpellDestination()
 {
@@ -217,8 +226,15 @@ void SpellCastTargets::RemoveObjectTarget()
 
 void SpellCastTargets::SetItemTarget(Item* item)
 {
+    // null clears the item target: the "prevent crash" calls after an item is destroyed relied on it and did nothing
     if (!item)
+    {
+        m_itemTarget = nullptr;
+        m_itemTargetGUID.Clear();
+        m_itemTargetEntry = 0;
+        m_targetMask &= ~TARGET_FLAG_ITEM;
         return;
+    }
 
     m_itemTarget = item;
     m_itemTargetGUID = item->GetGUID();
@@ -474,7 +490,11 @@ float SpellCastTargets::GetPitch() const
 
 void SpellCastTargets::SetPitch(float elevation)
 {
-    m_pitch = elevation;
+    // the pitch comes from the client: a value near ±90° sends cos(pitch) to 0 in the flight time computations
+    if (!std::isfinite(elevation))
+        elevation = 0.0f;
+
+    m_pitch = std::max(-1.5f, std::min(1.5f, elevation));
 }
 
 float SpellCastTargets::GetSpeed() const
@@ -484,7 +504,11 @@ float SpellCastTargets::GetSpeed() const
 
 void SpellCastTargets::SetSpeed(float speed)
 {
-    m_speed = speed;
+    // the speed comes from the client and decides whether the destination range is checked: keep it sane
+    if (!std::isfinite(speed) || speed < 0.0f)
+        speed = 0.0f;
+
+    m_speed = std::min(speed, 200.0f);
 }
 
 float SpellCastTargets::GetDist2d() const

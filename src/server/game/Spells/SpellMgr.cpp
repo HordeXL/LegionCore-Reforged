@@ -1,20 +1,14 @@
-/*
-* Copyright (C) 2008-2012 TrinityCore <http://www.trinitycore.org/>
-* Copyright (C) 2005-2009 MaNGOS <http://getmangos.com/>
-*
-* This program is free software; you can redistribute it and/or modify it
-* under the terms of the GNU General Public License as published by the
-* Free Software Foundation; either version 2 of the License, or (at your
-* option) any later version.
-*
-* This program is distributed in the hope that it will be useful, but WITHOUT
-* ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
-* FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for
-* more details.
-*
-* You should have received a copy of the GNU General Public License along
-* with this program. If not, see <http://www.gnu.org/licenses/>.
-*/
+////////////////////////////////////////////
+///                                      ///
+///         LEGIONCORE REFORGED          ///
+///    Copyright 2026 Titans-Project     ///
+///         All Rights Reserved.         ///
+///                                      ///
+///      Based on TrinityCore code       ///
+///   Copyright 2008-2012 TrinityCore    ///
+///   <http://www.trinitycore.org/>      ///
+///                                      ///
+////////////////////////////////////////////
 
 #include "BattlefieldMgr.h"
 #include "BattlefieldWG.h"
@@ -487,7 +481,12 @@ uint32 SpellMgr::GetSpellWithRank(uint32 spell_id, uint32 rank, bool strict) con
     if (SpellChainNode const* node = GetSpellChainNode(spell_id))
     {
         if (rank != node->rank)
-            return GetSpellWithRank(node->rank < rank ? node->next->Id : node->prev->Id, rank, strict);
+        {
+            SpellInfo const* nextRank = node->rank < rank ? node->next : node->prev;
+            if (!nextRank)
+                return strict ? 0 : spell_id;
+            return GetSpellWithRank(nextRank->Id, rank, strict);
+        }
     }
     else if (strict && rank > 1)
         return 0;
@@ -952,7 +951,7 @@ SpellEnchantProcEntry const* SpellMgr::GetSpellEnchantProcEvent(uint32 enchId) c
 
 bool SpellMgr::IsArenaAllowedEnchancment(uint32 ench_id) const
 {
-    return mEnchantCustomAttr[ench_id];
+    return ench_id < mEnchantCustomAttr.size() && mEnchantCustomAttr[ench_id];
 }
 
 const std::vector<SpellLinked>* SpellMgr::GetSpellLinked(int8 type, int32 spell_id) const
@@ -1007,6 +1006,8 @@ const std::vector<SpellPendingCast>* SpellMgr::GetSpellPendingCast(int32 spellID
 
 const std::vector<SpellPrcoCheck>* SpellMgr::GetSpellPrcoCheck(int32 spell_id) const
 {
+    if (spell_id < 0 || uint32(spell_id) >= mSpellPrcoCheckMap.size())
+        return nullptr;
     return !mSpellPrcoCheckMap[spell_id].empty() ? &mSpellPrcoCheckMap[spell_id] : nullptr;
 }
 
@@ -1429,8 +1430,8 @@ void SpellMgr::LoadSpellRequired()
         SpellInfo const* req_spell = GetSpellInfo(spell_req);
         if (!req_spell)
         {
-            WorldDatabase.PExecute("DELETE FROM spell_required WHERE req_spell = %u;", spell_id);
-            TC_LOG_ERROR("sql.sql", "req_spell %u listed in `spell_required` does not exist", spell_id);
+            WorldDatabase.PExecute("DELETE FROM spell_required WHERE spell_id = %u AND req_spell = %u;", spell_id, spell_req);
+            TC_LOG_ERROR("sql.sql", "req_spell %u listed in `spell_required` does not exist", spell_req);
             continue;
         }
 
@@ -2044,6 +2045,8 @@ void SpellMgr::LoadSpellProcs()
             {
                 spellId = GetNextSpellInChain(spellId);
                 spellEntry = GetSpellInfo(spellId);
+                if (!spellEntry)
+                    break;
             }
             else
                 break;
@@ -2694,6 +2697,11 @@ void SpellMgr::LoadSpellPrcoCheck()
         Field* fields = result->Fetch();
 
         int32 entry = fields[0].GetInt32();
+        if (entry < 0)
+        {
+            TC_LOG_ERROR("sql.sql", "Spell %i listed in `spell_proc_check` is negative, skipped", entry);
+            continue;
+        }
         if (!GetSpellInfo(abs(entry)))
         {
             TC_LOG_ERROR("sql.sql", "Spell %u listed in `spell_proc_check` does not exist", abs(entry));
@@ -2703,6 +2711,16 @@ void SpellMgr::LoadSpellPrcoCheck()
 
         int32 entry2 = fields[1].GetInt32();
         int32 entry3 = fields[2].GetInt32();
+        if (entry2 < 0 || uint32(entry2) >= mSpellPrcoCheckMap.size())
+        {
+            TC_LOG_ERROR("sql.sql", "Spell %i (entry2 of %i) listed in `spell_proc_check` is out of range, ignored", entry2, entry);
+            entry2 = 0;
+        }
+        if (entry3 < 0 || uint32(entry3) >= mSpellPrcoCheckMap.size())
+        {
+            TC_LOG_ERROR("sql.sql", "Spell %i (entry3 of %i) listed in `spell_proc_check` is out of range, ignored", entry3, entry);
+            entry3 = 0;
+        }
         SpellPrcoCheck templink;
         templink.checkspell = fields[3].GetInt32();
         templink.hastalent = fields[4].GetInt32();
@@ -2789,6 +2807,12 @@ void SpellMgr::LoadSpellTriggered()
             int32 slot = fields[24].GetInt32();
             Tokenizer randToken(fields[25].GetString(), ' ');
 
+            if (spell_id < 0)
+            {
+                TC_LOG_ERROR("sql.sql", "Spell %i listed in `spell_trigger` is negative, skipped", spell_id);
+                continue;
+            }
+
             SpellInfo const* spellInfo = GetSpellInfo(abs(spell_id));
             if (!spellInfo)
             {
@@ -2869,6 +2893,12 @@ void SpellMgr::LoadSpellTriggered()
             int8 group = fields[11].GetInt8();
             int32 handlemask = fields[12].GetInt32();
 
+            if (spell_id < 0)
+            {
+                TC_LOG_ERROR("sql.sql", "Spell %i listed in `spell_dummy_trigger` is negative, skipped", spell_id);
+                continue;
+            }
+
             if (!GetSpellInfo(abs(spell_id)))
             {
                 TC_LOG_ERROR("sql.sql", "Spell %u listed in `spell_trigger_dummy` does not exist", abs(spell_id));
@@ -2917,6 +2947,12 @@ void SpellMgr::LoadSpellTriggered()
             int32 chance = fields[9].GetInt32();
             int32 slot = fields[10].GetInt32();
 
+            if (spell_id < 0)
+            {
+                TC_LOG_ERROR("sql.sql", "Spell %i listed in `spell_aura_trigger` is negative, skipped", spell_id);
+                continue;
+            }
+
             if (!GetSpellInfo(abs(spell_id)))
             {
                 TC_LOG_ERROR("sql.sql", "Spell %u listed in `spell_aura_trigger` does not exist", abs(spell_id));
@@ -2961,6 +2997,12 @@ void SpellMgr::LoadSpellTriggered()
             Field* fields = result->Fetch();
 
             int32 spellId = fields[0].GetInt32();
+
+            if (spellId < 0)
+            {
+                TC_LOG_ERROR("sql.sql", "Spell %i listed in `spell_aura_dummy` is negative, skipped", spellId);
+                continue;
+            }
 
             if (!GetSpellInfo(abs(spellId)))
             {
@@ -3021,6 +3063,12 @@ void SpellMgr::LoadSpellTriggered()
             float param2 = fields[12].GetFloat();
             float param3 = fields[13].GetFloat();
 
+            if (spellId < 0)
+            {
+                TC_LOG_ERROR("sql.sql", "Spell %i listed in `spell_target_filter` is negative, skipped", spellId);
+                continue;
+            }
+
             if (!GetSpellInfo(abs(spellId)))
             {
                 TC_LOG_ERROR("sql.sql", "Spell %i listed in `spell_target_filter` does not exist", spellId);
@@ -3059,6 +3107,12 @@ void SpellMgr::LoadSpellTriggered()
             Field* fields = result->Fetch();
             int32 spellId = fields[0].GetInt32();
 
+            if (spellId < 0)
+            {
+                TC_LOG_ERROR("sql.sql", "Spell %i listed in `spell_check_cast` is negative, skipped", spellId);
+                continue;
+            }
+
             if (!GetSpellInfo(abs(spellId)))
             {
                 TC_LOG_ERROR("sql.sql", "Spell %i listed in `spell_check_cast` does not exist", spellId);
@@ -3095,6 +3149,12 @@ void SpellMgr::LoadSpellTriggered()
         {
             Field* fields = result->Fetch();
             int32 spellId = fields[0].GetInt32();
+
+            if (spellId < 0)
+            {
+                TC_LOG_ERROR("sql.sql", "Spell %i listed in `spell_trigger_delay` is negative, skipped", spellId);
+                continue;
+            }
 
             if (!GetSpellInfo(abs(spellId)))
             {
@@ -3272,6 +3332,7 @@ void SpellMgr::LoadSpellAreas()
     uint32 oldMSTime = getMSTime();
 
     mSpellAreaMap.clear();                                  // need for reload case
+    mSpellAreaForAreaMap.clear();
     mSpellAreaForQuestMap.clear();
     mSpellAreaForActiveQuestMap.clear();
     mSpellAreaForQuestEndMap.clear();
@@ -3306,12 +3367,7 @@ void SpellMgr::LoadSpellAreas()
         spellArea.active_event = fields[11].GetUInt32();
 
         spellArea.spellInfo = GetSpellInfo(spell);
-        if (spellArea.spellInfo)
-        {
-            if (spellArea.autocast)
-                const_cast<SpellInfo*>(spellArea.spellInfo)->GetMisc()->MiscData.Attributes[0] |= SPELL_ATTR0_CANT_CANCEL;
-        }
-        else
+        if (!spellArea.spellInfo)
         {
             TC_LOG_ERROR("sql.sql", "Spell %u listed in `spell_area` does not exist", spell);
             continue;
@@ -3441,6 +3497,10 @@ void SpellMgr::LoadSpellAreas()
 
         SpellArea const* sa = &mSpellAreaMap.insert(std::make_pair(spell, spellArea))->second;
 
+        // only for entries that passed every check above
+        if (spellArea.autocast)
+            const_cast<SpellInfo*>(spellArea.spellInfo)->GetMisc()->MiscData.Attributes[0] |= SPELL_ATTR0_CANT_CANCEL;
+
         // for search by current zone/subzone at zone/subzone change
         if (spellArea.areaId)
             mSpellAreaForAreaMap.insert(std::make_pair(spellArea.areaId, sa));
@@ -3537,6 +3597,9 @@ void SpellMgr::LoadSpellInfoStore()
 
     for (SpellXSpellVisualEntry const* visual : sSpellXSpellVisualStore)
     {
+        if (visual->DifficultyID >= MAX_DIFFICULTY)
+            continue;
+
         if (visualsBySpell[visual->SpellID].size() < MAX_DIFFICULTY)
             visualsBySpell[visual->SpellID].resize(MAX_DIFFICULTY);
 
@@ -4379,7 +4442,7 @@ void SpellMgr::LoadSpellCustomAttr()
     ApplySpellFix({ 247586 }, [](SpellInfo* spellInfo)
     {
         spellInfo->Effects[EFFECT_0]->TargetA = 87;
-        spellInfo->Effects[EFFECT_0]->TargetA = 0;
+        spellInfo->Effects[EFFECT_0]->TargetB = 0;
     });
 
     ApplySpellFix({137573,  // Burst of Speed (IMMUNITY)
@@ -8199,6 +8262,17 @@ void SpellMgr::LoadSpellCustomAttr()
 		spellInfo->GetMisc()->Duration.MaxDuration = 8;
 	});*/
 
+    // the fixes above change effects, auras and targets: refresh the lookup bits the constructor computed
+    for (auto const& spellInfo : mSpellInfoMap)
+        if (spellInfo)
+            spellInfo->_RebuildEffectBits();
+
+    // deliberately empty, must survive the rebuild
+    ApplySpellFix({213691}, [](SpellInfo* spellInfo)
+    {
+        spellInfo->EffectMechanicMask = MECHANIC_NONE;
+    });
+
     for (uint32 i = 0; i < GetSpellInfoStoreSize(); ++i)
     {
         auto const& spellInfo = mSpellInfoMap[i];
@@ -8318,6 +8392,9 @@ void SpellMgr::LoadSpellCustomAttr()
                     {
                         uint32 enchantId = spellInfo->Effects[j]->MiscValue;
                         SpellItemEnchantmentEntry const* enchant = sSpellItemEnchantmentStore.LookupEntry(enchantId);
+                        if (!enchant)
+                            break;
+
                         for (uint8 s = 0; s < MAX_ITEM_ENCHANTMENT_EFFECTS; ++s)
                         {
                             if (enchant->Effect[s] != ITEM_ENCHANTMENT_TYPE_COMBAT_SPELL)
