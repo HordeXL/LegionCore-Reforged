@@ -1,21 +1,13 @@
-/*
- * Copyright (C) 2011-2013 Project SkyFire <http://www.projectskyfire.org/>
- *
- * This program is free software; you can redistribute it and/or modify it
- * under the terms of the GNU General Public License as published by the
- * Free Software Foundation; either version 3 of the License, or (at your
- * option) any later version.
- *
- * This program is distributed in the hope that it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for
- * more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program. If not, see <http://www.gnu.org/licenses/>.
- */
+////////////////////////////////////////////
+///                                      ///
+///         LEGIONCORE REFORGED          ///
+///    Copyright 2026 Titans-Project     ///
+///         All Rights Reserved.         ///
+///                                      ///
+////////////////////////////////////////////
 
 #include "Unit.h"
+#include "GameObjectAI.h"
 #include "gilneas.h"
 #include "ScriptedEscortAI.h"
 #include "Vehicle.h"
@@ -524,24 +516,27 @@ public:
 class go_merchant_square_door : public GameObjectScript
 {
 public:
-    go_merchant_square_door() : GameObjectScript("go_merchant_square_door"), aPlayer(NULL) {}
+    go_merchant_square_door() : GameObjectScript("go_merchant_square_door") {}
 
-    float x, y, z, wx, wy, angle, tQuestCredit;
-    bool opened;
-    uint8 spawnKind;
-    Player* aPlayer;
-    GameObject* go;
-    uint32 DoorTimer;
-
-    bool OnGossipHello(Player* player, GameObject* go) override
+    // state lives in the AI so every door has its own timers
+    struct go_merchant_square_doorAI : public GameObjectAI
     {
-        if (player->GetQuestStatus(QUEST_EVAC_MERC_SQUA) == QUEST_STATUS_INCOMPLETE && go->GetGoState() == GO_STATE_READY)
+        explicit go_merchant_square_doorAI(GameObject* go) : GameObjectAI(go) {}
+
+        float x = 0.0f, y = 0.0f, z = 0.0f, wx = 0.0f, wy = 0.0f, angle = 0.0f;
+        uint32 questCreditTimer = 0;
+        uint32 doorTimer = 0;
+        uint8 spawnKind = 0;
+        bool opened = false;
+        ObjectGuid playerGuid;
+
+        void Open(Player* player)
         {
-            aPlayer          = player;
-            opened           = 1;
-            tQuestCredit     = 2500;
+            playerGuid       = player->GetGUID();
+            opened           = true;
+            questCreditTimer = 3000;
             go->SetGoState(GO_STATE_ACTIVE);
-            DoorTimer = DOOR_TIMER;
+            doorTimer = DOOR_TIMER;
             spawnKind = urand(1, 3); //1, 2=citizen, 3=citizen&worgen (66%, 33%)
             angle = go->GetOrientation();
             x = go->GetPositionX()-cos(angle)*2;
@@ -550,62 +545,74 @@ public:
             wx = x-cos(angle)*2;
             wy = y-sin(angle)*2;
 
-            if (spawnKind < 3)
+            if (Creature* spawnedCreature = go->SummonCreature(spawnKind < 3 ? NPC_FRIGHTENED_CITIZEN_1 : NPC_FRIGHTENED_CITIZEN_2, x, y, z, angle, TEMPSUMMON_TIMED_DESPAWN, SUMMON1_TTL))
             {
-                if (Creature* spawnedCreature = go->SummonCreature(NPC_FRIGHTENED_CITIZEN_1, x, y, z, angle, TEMPSUMMON_TIMED_DESPAWN, SUMMON1_TTL))
-                {
-                    spawnedCreature->SetPhaseMask(6, 1);
-                    spawnedCreature->Respawn(1);
-                }
+                spawnedCreature->SetPhaseMask(6, 1);
+                spawnedCreature->Respawn(1);
             }
-            else
-            {
-                if (Creature* spawnedCreature = go->SummonCreature(NPC_FRIGHTENED_CITIZEN_2, x, y, z, angle, TEMPSUMMON_TIMED_DESPAWN, SUMMON1_TTL))
-                {
-                    spawnedCreature->SetPhaseMask(6, 1);
-                    spawnedCreature->Respawn(1);
-                }
-            }
-            return true;
         }
-        return false;
-    }
 
-    void OnUpdate(GameObject* go, uint32 diff) override
-    {
-        if (opened == 1)
+        void UpdateAI(uint32 diff) override
         {
-            if (tQuestCredit <= ((float)diff/8))
+            if (opened)
             {
-                opened = 0;
-                
-                if(aPlayer)
-                    aPlayer->KilledMonsterCredit(35830, ObjectGuid::Empty);
-                
-                if (spawnKind == 3)
+                if (questCreditTimer > diff)
+                    questCreditTimer -= diff;
+                else
                 {
-                    if (Creature* spawnedCreature = go->SummonCreature(NPC_RAMPAGING_WORGEN_2, wx, wy, z, angle, TEMPSUMMON_TIMED_DESPAWN, SUMMON1_TTL))
+                    opened = false;
+                    Player* player = ObjectAccessor::GetPlayer(*go, playerGuid);
+
+                    if (player)
+                        player->KilledMonsterCredit(35830, ObjectGuid::Empty);
+
+                    if (spawnKind == 3)
                     {
-                        spawnedCreature->SetPhaseMask(6, 1);
-                        spawnedCreature->Respawn(1);
-                        spawnedCreature->getThreatManager().resetAllAggro();
-                        if(aPlayer)
-                            aPlayer->AddThreat(spawnedCreature, 1.0f);
-                        spawnedCreature->AddThreat(aPlayer, 1.0f);
+                        if (Creature* spawnedCreature = go->SummonCreature(NPC_RAMPAGING_WORGEN_2, wx, wy, z, angle, TEMPSUMMON_TIMED_DESPAWN, SUMMON1_TTL))
+                        {
+                            spawnedCreature->SetPhaseMask(6, 1);
+                            spawnedCreature->Respawn(1);
+                            spawnedCreature->getThreatManager().resetAllAggro();
+                            if (player)
+                            {
+                                player->AddThreat(spawnedCreature, 1.0f);
+                                spawnedCreature->AddThreat(player, 1.0f);
+                            }
+                        }
                     }
                 }
             }
-            else tQuestCredit -= ((float)diff/8);
-        }
-        if (DoorTimer <= diff)
-        {
-            if (go->GetGoState() == GO_STATE_ACTIVE)
-                go->SetGoState(GO_STATE_READY);
 
-            DoorTimer = DOOR_TIMER;
+            if (doorTimer)
+            {
+                if (doorTimer > diff)
+                    doorTimer -= diff;
+                else
+                {
+                    doorTimer = 0;
+                    if (go->GetGoState() == GO_STATE_ACTIVE)
+                        go->SetGoState(GO_STATE_READY);
+                }
+            }
         }
-        else
-            DoorTimer -= diff;
+    };
+
+    GameObjectAI* GetAI(GameObject* go) const override
+    {
+        return new go_merchant_square_doorAI(go);
+    }
+
+    bool OnGossipHello(Player* player, GameObject* go) override
+    {
+        if (player->GetQuestStatus(QUEST_EVAC_MERC_SQUA) == QUEST_STATUS_INCOMPLETE && go->GetGoState() == GO_STATE_READY)
+        {
+            if (auto ai = dynamic_cast<go_merchant_square_doorAI*>(go->AI()))
+            {
+                ai->Open(player);
+                return true;
+            }
+        }
+        return false;
     }
 };
 
