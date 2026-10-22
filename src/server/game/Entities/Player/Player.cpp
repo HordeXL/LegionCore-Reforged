@@ -55,6 +55,7 @@
 #include "GameObjectAI.h"
 #include "GameTime.h"
 #include "Garrison.h"
+#include "GarrisonInvasion.h"
 #include "GlobalFunctional.h"
 #include "GossipData.h"
 #include "GossipDef.h"
@@ -18760,7 +18761,7 @@ bool Player::CanSeeStartQuest(Quest const* quest)
         SatisfyQuestExclusiveGroup(quest, msg) && SatisfyQuestReputation(quest, msg) &&
         SatisfyQuestPreviousQuest(quest, msg) && SatisfyQuestNextChain(quest, msg) &&
         SatisfyQuestPrevChain(quest, msg) && SatisfyQuestDay(quest, msg) && SatisfyQuestWeek(quest) &&
-        SatisfyGarrisonCampaign(quest) && SatisfyQuestSeasonal(quest) && !DisableMgr::IsDisabledFor(DISABLE_TYPE_QUEST, quest->GetQuestId(), this))
+        SatisfyGarrisonCampaign(quest) && SatisfyGarrisonInvasion(quest) && SatisfyQuestSeasonal(quest) && !DisableMgr::IsDisabledFor(DISABLE_TYPE_QUEST, quest->GetQuestId(), this))
         return getLevel() + sWorld->getIntConfig(CONFIG_QUEST_HIGH_LEVEL_HIDE_DIFF) >= quest->MinLevel;
 
     return false;
@@ -18775,7 +18776,7 @@ bool Player::CanTakeQuest(Quest const* quest, bool msg)
         && SatisfyQuestPreviousQuest(quest, msg) && SatisfyQuestTimed(quest, msg)
         && SatisfyQuestNextChain(quest, msg) && SatisfyQuestPrevChain(quest, msg)
         && SatisfyQuestDay(quest, msg) && SatisfyQuestWeek(quest)
-        && SatisfyGarrisonCampaign(quest) && SatisfyQuestSeasonal(quest)
+        && SatisfyGarrisonCampaign(quest) && SatisfyGarrisonInvasion(quest) && SatisfyQuestSeasonal(quest)
         && SatisfyQuestConditions(quest, msg);
 }
 
@@ -19708,7 +19709,8 @@ void Player::RewardQuest(Quest const* quest, uint32 reward, Object* questGiver, 
     }
 
     MarkGarrisonCampaignWeek(quest_id);
-    
+    MarkGarrisonInvasion(quest_id);
+
     // Must come after the insert in m_RewardedQuests because of spell_area check
     RemoveActiveQuest(quest_id);
 
@@ -20291,6 +20293,24 @@ void Player::MarkGarrisonCampaignWeek(uint32 questId)
         for (CampaignChapter const& chapter : *chapters)
             if (std::find(chapter.begin(), chapter.end(), questId) != chapter.end())
                 SetWeeklyTrackingQuest(WEEKLY_TRACKING_GARRISON_CAMPAIGN_CHAPTER);
+}
+
+// an invasion quest only while its faction's invasion is pending; being weekly, it cannot be done twice in a week
+bool Player::SatisfyGarrisonInvasion(Quest const* qInfo) const
+{
+    GarrisonInvasion::Type const type = GarrisonInvasion::GetTypeByInvasionQuest(qInfo->GetQuestId());
+    if (type == GarrisonInvasion::MAX_TYPES)
+        return true;
+
+    return m_weeklyquests.count(GarrisonInvasion::Types[type].PendingTracking) != 0;
+}
+
+// an Apexis assault angers its faction, whose invasion stays pending until the weekly reset
+void Player::MarkGarrisonInvasion(uint32 questId)
+{
+    GarrisonInvasion::Type const type = GarrisonInvasion::GetTypeByAssaultQuest(questId);
+    if (type != GarrisonInvasion::MAX_TYPES)
+        SetWeeklyTrackingQuest(GarrisonInvasion::Types[type].PendingTracking);
 }
 
 bool Player::SatisfyQuestSeasonal(Quest const* qInfo)
