@@ -20228,7 +20228,8 @@ namespace
     };
     std::vector<CampaignChapter> const GarrisonCampaignHorde =
     {
-        { 34309 }, { 35843 }, { 35876 }, { 32979 }, { 34034 }, { 34335 }, { 35186 }, { 35680 }, { 36117 }, { 36261 },
+        // Grinding Gears (34034) left out: its goblin engineer has no known spawn, the chapter cannot be finished
+        { 34309 }, { 35843 }, { 35876 }, { 32979 }, { 34335 }, { 35186 }, { 35680 }, { 36117 }, { 36261 },
         { 36219, 36280, 36281, 36282 }
     };
     uint32 const GarrisonCampaignFinalAlliance = 36134;
