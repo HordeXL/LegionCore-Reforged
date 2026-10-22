@@ -39,6 +39,8 @@
 #include "GuildMgr.h"
 #include "NPCPackets.h"
 #include "MailPackets.h"
+#include "Garrison.h"
+#include "GarrisonPackets.h"
 
 void WorldSession::HandleTabardVendorActivate(WorldPackets::NPC::Hello& packet)
 {
@@ -301,6 +303,21 @@ void WorldSession::HandleGossipHelloOpcode(WorldPackets::NPC::Hello& packet)
             bg->AddPlayerToResurrectQueue(unit->GetGUID(), player->GetGUID());
             sBattlegroundMgr->SendAreaSpiritHealerQuery(player, bg, unit->GetGUID());
             return;
+        }
+    }
+
+    // the architect table answers with its own window, once a blueprint is known
+    if (unit->HasFlag(UNIT_FIELD_NPC_FLAGS2, UNIT_NPC_FLAG2_GARRISON_ARCHITECT))
+    {
+        if (Garrison* garrison = player->GetGarrisonPtr())
+        {
+            if (garrison->GetCountOfBluePrints())
+            {
+                WorldPackets::Garrison::GarrisonOpenArchitect openArchitect;
+                openArchitect.NpcGUID = unit->GetGUID();
+                SendPacket(openArchitect.Write());
+                return;
+            }
         }
     }
 
