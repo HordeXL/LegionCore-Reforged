@@ -32003,6 +32003,10 @@ void Player::UpdateAreaQuestTasks(uint32 newAreaId, uint32 oldAreaId)
             if (quest->IsEmissary() || quest->IsWorld())
                 continue;
 
+            // the server-side player conditions of some tasks are missing (Apexis assaults): `conditions` stand in for them
+            if (!SatisfyQuestConditions(quest, false))
+                continue;
+
             if (QuestV2CliTaskEntry const* questTask = sQuestV2CliTaskStore.LookupEntry(quest->GetQuestId()))
             {
                 if (!sConditionMgr->IsPlayerMeetingCondition(this, questTask->ConditionID))

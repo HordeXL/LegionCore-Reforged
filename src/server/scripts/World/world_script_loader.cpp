@@ -9,6 +9,7 @@
 void AddSC_garrison_general();
 void AddSC_garrison_instance();
 void AddSC_garrison_invasions();
+void AddSC_garrison_apexis_assaults();
 
 void AddSC_areatrigger_scripts();
 void AddSC_emerald_dragons();
@@ -39,6 +40,7 @@ void AddWorldScripts()
     AddSC_garrison_general();
     AddSC_garrison_instance();
     AddSC_garrison_invasions();
+    AddSC_garrison_apexis_assaults();
 
     AddSC_areatrigger_scripts();
     AddSC_emerald_dragons();
