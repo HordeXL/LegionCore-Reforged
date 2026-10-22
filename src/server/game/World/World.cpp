@@ -2564,6 +2564,8 @@ void World::Update(uint32 diff)
         while (m_NextDailyQuestReset <= currentGameTime);
     }
 
+    sScriptMgr->OnWorldUpdate(diff);
+
     if (currentGameTime > m_NextWeeklyReset)
         ResetWeekly();
 

@@ -2032,6 +2032,11 @@ void ScriptMgr::OnShutdown()
     FOREACH_SCRIPT(WorldScript)->OnShutdown();
 }
 
+void ScriptMgr::OnWorldUpdate(uint32 diff)
+{
+    FOREACH_SCRIPT(WorldScript)->OnUpdate(diff);
+}
+
 bool ScriptMgr::OnCriteriaCheck(AchievementCriteriaData const* data, Player* source, Unit* target)
 {
     ASSERT(source);
