@@ -18139,7 +18139,9 @@ void Player::PrepareGossipMenu(WorldObject* source, uint32 menuId /*= 0*/, bool 
         if (Creature* creature = source->ToCreature())
         {
             GossipOptionNpc optionNpc = itr->second.OptionNpc;
-            if (!(GossipMenu::GetRequiredNpcFlagForOption(optionNpc) & npcflags))
+
+            // the mission and work order flags live in the second flag word, which npcflags does not hold
+            if (optionNpc != GossipOptionNpc::GarrisonMission && optionNpc != GossipOptionNpc::ShipmentCrafter && !(GossipMenu::GetRequiredNpcFlagForOption(optionNpc) & npcflags))
                 continue;
 
             // HACK: disable dual spec
@@ -18219,6 +18221,7 @@ void Player::PrepareGossipMenu(WorldObject* source, uint32 menuId /*= 0*/, bool 
                 case GossipOptionNpc::Auctioneer:
                 case GossipOptionNpc::Mailbox:
                 case GossipOptionNpc::Transmogrify:
+                case GossipOptionNpc::GarrisonMission:
                     break;                                 // No checks
                 default:
                     TC_LOG_ERROR("sql.sql", "Creature entry %u has an unknown gossip option icon %u for menu %u.", creature->GetEntry(), AsUnderlyingType(itr->second.OptionNpc), itr->second.MenuID);
@@ -18450,6 +18453,15 @@ void Player::OnGossipSelect(WorldObject* source, uint32 gossipListId, uint32 men
         case GossipOptionNpc::ShipmentCrafter:
             if (Garrison* garr = GetGarrisonPtr())
                 garr->OnGossipSelect(source);
+            break;
+        case GossipOptionNpc::GarrisonMission:
+            PlayerTalkClass->SendCloseGossip();
+            if (Garrison* garr = GetGarrisonPtr())
+            {
+                // the two fleet command tables of the bays open the naval board
+                bool const fleetTable = source->GetEntry() == 94398 || source->GetEntry() == 94399;
+                garr->OpenMissionNpc(fleetTable ? GarrisonConst::FollowerType::Shipyard : GarrisonConst::FollowerType::Garrison);
+            }
             break;
         case GossipOptionNpc::GarrisonTradeskill:
             if (Garrison* garr = GetGarrisonPtr())

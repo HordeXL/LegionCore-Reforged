@@ -1699,6 +1699,7 @@ void AchievementMgr<T>::UpdateAchievementCriteria(AchievementCachePtr cachePtr, 
             case CRITERIA_TYPE_CONSTRUCT_GARRISON_BUILDING:
             case CRITERIA_TYPE_START_GARRISON_MISSION:
             case CRITERIA_TYPE_COMPLETE_GARRISON_MISSION:
+            case CRITERIA_TYPE_COMPLETE_NAVAL_MISSION:
             case CRITERIA_TYPE_OWN_HEIRLOOMS:
             case CRITERIA_TYPE_COMPLETE_SCENARIO_COUNT:
             case CRITERIA_TYPE_ENTER_AREA:
@@ -2169,6 +2170,7 @@ bool AchievementMgr<T>::IsCompletedCriteria(CriteriaTree const* tree, uint64 req
         case CRITERIA_TYPE_CONSTRUCT_GARRISON_BUILDING:
         case CRITERIA_TYPE_START_GARRISON_MISSION:
         case CRITERIA_TYPE_COMPLETE_GARRISON_MISSION:
+        case CRITERIA_TYPE_COMPLETE_NAVAL_MISSION:
         case CRITERIA_TYPE_COMPLETE_GARRISON_MISSION_COUNT:
         case CRITERIA_TYPE_OWN_HEIRLOOMS:
         case CRITERIA_TYPE_COMPLETE_SCENARIO:
@@ -3492,9 +3494,14 @@ bool AchievementMgr<T>::RequirementsSatisfied(CriteriaTree const* tree, Achievem
                 return false;
             break;
         }
+        // the asset is the follower type of the mission (ground, naval, champions)
         case CRITERIA_TYPE_START_GARRISON_MISSION:
+        case CRITERIA_TYPE_COMPLETE_GARRISON_MISSION_COUNT:
+            return !criteria->Asset || uint32(criteria->Asset) == miscValue2;
+        // the asset is the mission itself
         case CRITERIA_TYPE_COMPLETE_GARRISON_MISSION:
-            return true;
+        case CRITERIA_TYPE_COMPLETE_NAVAL_MISSION:
+            return !criteria->Asset || uint32(criteria->Asset) == miscValue1;
         default:
             break;
     }

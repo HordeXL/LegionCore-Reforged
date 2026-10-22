@@ -1,19 +1,14 @@
-/*
- * Copyright (C) 2008-2015 TrinityCore <http://www.trinitycore.org/>
- *
- * This program is free software; you can redistribute it and/or modify it
- * under the terms of the GNU General Public License as published by the
- * Free Software Foundation; either version 2 of the License, or (at your
- * option) any later version.
- *
- * This program is distributed in the hope that it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for
- * more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program. If not, see <http://www.gnu.org/licenses/>.
- */
+////////////////////////////////////////////
+///                                      ///
+///         LEGIONCORE REFORGED          ///
+///    Copyright 2026 Titans-Project     ///
+///         All Rights Reserved.         ///
+///                                      ///
+///      Based on TrinityCore code       ///
+///   Copyright 2008-2015 TrinityCore    ///
+///   <http://www.trinitycore.org/>      ///
+///                                      ///
+////////////////////////////////////////////
 
 #ifndef GarrisonMgr_h__
 #define GarrisonMgr_h__
@@ -94,6 +89,7 @@ enum GarrBuildingType
     GARR_BTYPE_TRADING_POST = 6,
     GARR_BTYPE_MENAGERIE    = 7,
     GARR_BTYPE_BARRACKS     = 8,
+    GARR_BTYPE_SHIPYARD     = 9,
     GARR_BTYPE_WARMILL      = 10,
     GARR_BTYPE_STABLES      = 11,
     GARR_BTYPE_MAGETOWER    = 13,
@@ -170,7 +166,7 @@ public:
     GarrMissionEntry const* GetNextMissionInQuestLine(uint32 missionID);
     GarrMissionEntry const* GetMissionAtFollowerTaking(uint32 followerID);
 
-    GarrShipment const* GetGarrShipment(uint32 entry, ShipmentGetType type, uint8 classID) const;
+    GarrShipment const* GetGarrShipment(uint32 entry, ShipmentGetType type, uint8 classID, Player const* player = nullptr) const;
     uint32 GetShipmentID(GarrShipment const* shipment);
     GarrMissionRewardEntry const* GetMissionRewardByRecID(uint32 missionRecID);
     GarrMissionRewardEntry const* GetMissionOwermaxRewardByRecID(uint32 missionRecID);
@@ -210,7 +206,7 @@ private:
 
     NpcTradeskillList _garrNpcTradeSkill;
     
-    typedef std::unordered_map<uint32/*entry*/, GarrShipment> shipmentStoreMap;
+    typedef std::unordered_multimap<uint32/*entry*/, GarrShipment> shipmentStoreMap;
     std::map<uint8 /*ShipmentGetType*/, shipmentStoreMap> shipment;
 
     std::set<GarrAbilityEntry const*> _garrisonFollowerRandomTraits;

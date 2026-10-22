@@ -1,19 +1,14 @@
-/*
- * Copyright (C) 2008-2015 TrinityCore <http://www.trinitycore.org/>
- *
- * This program is free software; you can redistribute it and/or modify it
- * under the terms of the GNU General Public License as published by the
- * Free Software Foundation; either version 2 of the License, or (at your
- * option) any later version.
- *
- * This program is distributed in the hope that it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for
- * more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program. If not, see <http://www.gnu.org/licenses/>.
- */
+////////////////////////////////////////////
+///                                      ///
+///         LEGIONCORE REFORGED          ///
+///    Copyright 2026 Titans-Project     ///
+///         All Rights Reserved.         ///
+///                                      ///
+///      Based on TrinityCore code       ///
+///   Copyright 2008-2015 TrinityCore    ///
+///   <http://www.trinitycore.org/>      ///
+///                                      ///
+////////////////////////////////////////////
 
 #ifndef Garrison_h__
 #define Garrison_h__
@@ -266,6 +261,8 @@ public:
 
     // Missions
     void CheckBasicRequirements();
+    void AddQuestMissions();
+    void OpenMissionNpc(uint32 followerType);
     void AddMission(uint32 missionRecID, bool sendLog = true);
     void GenerateRandomMission(uint16 count = 0);
     Mission const* GetMission(uint64 dbId) const;
@@ -299,6 +296,11 @@ public:
     // Enother
     void OnQuestReward(uint32 questID);
 
+    // Shipyard
+    bool HasShipyard() const;
+    void ApplyShipyardQuests();
+    void AddShipFromShipment(CharShipmentEntry const* shipmentEntry);
+
     // Shipment
     void CreateShipment(ObjectGuid const& guid, uint32 count);
     void CreateGarrisonShipment(uint32 shipmentID);
@@ -331,6 +333,7 @@ public:
 protected:
     Map* FindMap() const;
     void InitializePlots(uint8 type);
+    void InitializeShipyardPlot(uint8 type);
     GarrisonError CheckBuildingPlacement(uint32 garrPlotInstanceId, uint32 garrBuildingId, bool byQuest = false) const;
     GarrisonError CheckBuildingRemoval(uint32 garrPlotInstanceId) const;
     Player* _owner;
@@ -338,6 +341,7 @@ protected:
     uint32 _followerActivationsRemainingToday;
     uint32 _lastResTaken;
     uint32 _MissionGen = 0;
+    bool _shipyardChecked = false;
 
     std::unordered_set<uint32 /*garrBuildingId*/> _knownBuildings;
     std::unordered_set<uint32 /*garrBuildingId*/> _buildingsToSave;

@@ -1112,6 +1112,11 @@ void Spell::EffectDummy(SpellEffIndex effIndex)
         }
     }
 
+    // naval blueprints: the shipyard quests wait for the player to be the target of these spells
+    if (m_spellInfo->Id == 186231 || m_spellInfo->Id == 185609)
+        if (Player* learner = unitTarget ? unitTarget->ToPlayer() : nullptr)
+            learner->UpdateAchievementCriteria(CRITERIA_TYPE_BE_SPELL_TARGET, m_spellInfo->Id);
+
     // selection by spell family
     switch (m_spellInfo->ClassOptions.SpellClassSet)
     {
