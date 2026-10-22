@@ -1,20 +1,14 @@
-/*
- * Copyright (C) 2008-2012 TrinityCore <http://www.trinitycore.org/>
- * Copyright (C) 2005-2009 MaNGOS <http://getmangos.com/>
- *
- * This program is free software; you can redistribute it and/or modify it
- * under the terms of the GNU General Public License as published by the
- * Free Software Foundation; either version 2 of the License, or (at your
- * option) any later version.
- *
- * This program is distributed in the hope that it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for
- * more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program. If not, see <http://www.gnu.org/licenses/>.
- */
+////////////////////////////////////////////
+///                                      ///
+///         LEGIONCORE REFORGED          ///
+///    Copyright 2026 Titans-Project     ///
+///         All Rights Reserved.         ///
+///                                      ///
+///      Based on TrinityCore code       ///
+///   Copyright 2008-2012 TrinityCore    ///
+///   <http://www.trinitycore.org/>      ///
+///                                      ///
+////////////////////////////////////////////
 
 #include "ScriptSystem.h"
 #include "ObjectMgr.h"
@@ -144,8 +138,8 @@ void SystemMgr::LoadScriptWaypoints()
 {
     uint32 oldMSTime = getMSTime();
 
-    // Drop Existing Waypoint list
-    m_mPointMoveMap.clear();
+    // Built aside and swapped in under the lock: map threads read the table while a reload runs
+    PointMoveMap newPointMoveMap;
 
     uint64 uiCreatureCount = 0;
 
@@ -161,6 +155,10 @@ void SystemMgr::LoadScriptWaypoints()
 
     if (!result)
     {
+        {
+            std::unique_lock<std::shared_mutex> lock(m_pointMoveLock);
+            m_mPointMoveMap.swap(newPointMoveMap);
+        }
         TC_LOG_INFO("server.loading", ">> Loaded 0 Script Waypoints. DB table `script_waypoint` is empty.");
         return;
     }
@@ -191,10 +189,15 @@ void SystemMgr::LoadScriptWaypoints()
         if (!pCInfo->ScriptID)
             TC_LOG_ERROR("sql.sql", "TSCR: DB table script_waypoint has waypoint for creature entry %u, but creature does not have ScriptName defined and then useless.", temp.uiCreatureEntry);
 
-        m_mPointMoveMap[uiEntry].push_back(temp);
+        newPointMoveMap[uiEntry].push_back(temp);
         ++count;
     }
     while (result->NextRow());
+
+    {
+        std::unique_lock<std::shared_mutex> lock(m_pointMoveLock);
+        m_mPointMoveMap.swap(newPointMoveMap);
+    }
 
     TC_LOG_INFO("server.loading", ">> Loaded %u Script Waypoint nodes in %u ms", count, GetMSTimeDiffToNow(oldMSTime));
 }
@@ -204,8 +207,10 @@ StringTextData const* SystemMgr::GetTextData(int32 textId) const
     return Trinity::Containers::MapGetValuePtr(m_mTextDataMap, textId);
 }
 
-ScriptPointVector const& SystemMgr::GetPointMoveList(uint32 creatureEntry) const
+ScriptPointVector SystemMgr::GetPointMoveList(uint32 creatureEntry) const
 {
+    // returned by value: a reference would dangle once a reload swaps the table
+    std::shared_lock<std::shared_mutex> lock(m_pointMoveLock);
     PointMoveMap::const_iterator itr = m_mPointMoveMap.find(creatureEntry);
     if (itr == m_mPointMoveMap.end())
         return _empty;

@@ -1,20 +1,14 @@
-/*
- * Copyright (C) 2008-2012 TrinityCore <http://www.trinitycore.org/>
- * Copyright (C) 2005-2010 MaNGOS <http://getmangos.com/>
- *
- * This program is free software; you can redistribute it and/or modify it
- * under the terms of the GNU General Public License as published by the
- * Free Software Foundation; either version 2 of the License, or (at your
- * option) any later version.
- *
- * This program is distributed in the hope that it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for
- * more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program. If not, see <http://www.gnu.org/licenses/>.
- */
+////////////////////////////////////////////
+///                                      ///
+///         LEGIONCORE REFORGED          ///
+///    Copyright 2026 Titans-Project     ///
+///         All Rights Reserved.         ///
+///                                      ///
+///      Based on TrinityCore code       ///
+///   Copyright 2008-2012 TrinityCore    ///
+///   <http://www.trinitycore.org/>      ///
+///                                      ///
+////////////////////////////////////////////
 
 #include "Common.h"
 #include "CharacterDatabaseCleaner.h"
@@ -44,6 +38,7 @@ void CharacterDatabaseCleaner::ResetCharacterDB()
         "characters", "character_account_data", "character_achievement",
         "character_achievement_progress", "character_action", "character_adventure_quest",
         "character_archaeology", "character_archaeology_finds", "character_army_training_info",
+        "account_ban_attempts", "account_bot_detected", "character_bag_slot_flags",
         "character_aura", "character_aura_effect", "character_banned",
         "character_battleground_data", "character_battleground_random",
         "character_brackets_info", "character_brackets_info_season", "character_cuf_profiles", "character_currency",
@@ -130,9 +125,6 @@ void CharacterDatabaseCleaner::CleanDatabase()
 
     if (flags & CLEANING_FLAG_QUESTSTATUS)
         CleanCharacterQuestStatus();
-
-    if (flags & CLEANING_FLAG_PETSLOT)
-        CleanPetSlots();
 
     // NOTE: In order to have persistentFlags be set in worldstates for the next cleanup,
     // you need to define them at least once in worldstates.
@@ -234,92 +226,4 @@ void CharacterDatabaseCleaner::CleanCharacterSpell()
 void CharacterDatabaseCleaner::CleanCharacterQuestStatus()
 {
     CharacterDatabase.DirectExecute("DELETE FROM character_queststatus WHERE status = 0");
-}
-
-//uint8 CheckSlot(PlayerPetSlotList &list, uint8 slot, uint32 id)
-//{
-//    uint32 index = 0;
-//    for(PlayerPetSlotList::iterator itr = list.begin(); itr != list.end(); ++itr, ++index)
-//    {
-//        if ((*itr) == id)
-//        {
-//            TC_LOG_ERROR("misc", "Warning! CheckSlot. Pet Id:%u with Slot: %u already on slot %u", id, slot, index);
-//            return 1;
-//        }
-//
-//        if (slot == index && (*itr) > 0 && (*itr) != id)
-//        {
-//            TC_LOG_ERROR("misc", "Warning! CheckSlot. Pet Id:%u with Slot: %u has another pet %u", id, slot, *itr);
-//            return 2;
-//        }
-//    }
-//    return 0;
-//}
-
-void CharacterDatabaseCleaner::CleanPetSlots()
-{
-    //QueryResult result = CharacterDatabase.PQuery("SELECT DISTINCT owner FROM character_pet");
-    //if (!result)
-    //{
-    //    TC_LOG_INFO("misc", "Table character_pet is empty.");
-    //    return;
-    //}
-    //
-    //uint8 res = 0;
-    //do
-    //{
-    //    Field* fields = result->Fetch();
-    //    uint32 ownerID = fields[0].GetUInt32();
-
-    //    QueryResult r2 = CharacterDatabase.PQuery("SELECT id, slot FROM character_pet WHERE owner = %u", ownerID);
-    //    if (!r2)
-    //    {
-    //        TC_LOG_ERROR("misc", "Warning! Problem with table character_pet at cleanup");
-    //        continue;
-    //    }
-
-    //    PlayerPetSlotList list(PET_SLOT_LAST);
-    //    std::set<uint32> lost;
-    //    do
-    //    {
-    //        Field* fields2 = r2->Fetch();
-    //        uint8 id = fields2[0].GetUInt32();
-    //        uint8 slot = fields2[1].GetUInt8();
-
-    //        res = CheckSlot(list, slot, id);
-    //        switch(res)
-    //        {
-    //            case 1: //double add
-    //                break;
-    //            case 2: //lost link.
-    //                lost.insert(id);
-    //                break;
-    //            case 0: //good
-    //                list.at(slot) = id;
-    //                break;
-    //        }
-    //    }
-    //    while (r2->NextRow());
-
-    //    //find slot for lost link
-    //    uint32 index = 0;
-    //    for(std::set<uint32>::iterator itr = lost.begin(); itr != lost.end(); ++itr)
-    //    {
-    //        for(; index < PET_SLOT_LAST; ++index)
-    //        {
-    //            if (list.at(index) > 0)
-    //                continue;
-    //            list.at(index) = *itr;
-    //            break;
-    //        }
-    //    }
-
-    //    // create save string
-    //    std::ostringstream ss;
-    //    for (uint32 i = 0; i < PET_SLOT_LAST; ++i)
-    //        ss << list[i] << ' ';
-
-    //    CharacterDatabase.PExecute("UPDATE characters SET petSlot = '%s' WHERE guid = %u", ss.str().c_str(), ownerID);
-    //}
-    //while (result->NextRow());
 }

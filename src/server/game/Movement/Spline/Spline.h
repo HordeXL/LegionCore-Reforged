@@ -1,20 +1,10 @@
-/*
- * Copyright (C) 2005-2011 MaNGOS <http://getmangos.com/>
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
- */
+////////////////////////////////////////////
+///                                      ///
+///         LEGIONCORE REFORGED          ///
+///    Copyright 2026 Titans-Project     ///
+///         All Rights Reserved.         ///
+///                                      ///
+////////////////////////////////////////////
 
 #ifndef TRINITYSERVER_SPLINE_H
 #define TRINITYSERVER_SPLINE_H
@@ -198,45 +188,6 @@ public:
             lengths[++i] = new_length;
 
             //ASSERT(prev_length <= new_length);
-            if(prev_length > new_length)
-                break;
-            prev_length = new_length;
-        }
-    }
-
-    void updateLengths(float velocity, int32 pointId, int32 timePassed)
-    {
-        float velocityInv = 1000.f/velocity;
-        index_type i = index_lo;
-        lengths.resize(index_hi+1);
-        length_type prev_length = 0, new_length = 0;
-
-        // Before current node not change length
-        while(i < pointId - 1)
-            new_length += lengths[++i];
-
-        // Current node recalc length
-        ++i;
-        length_type seg_length = length(pointId, pointId+1);
-        length_type cur_seg = lengths[pointId] - timePassed;
-
-        float percSeg = (cur_seg * 100.0f) / seg_length / 100.0f;
-
-        length_type new_seg_length = SegLength(pointId) * velocityInv;
-        new_length += seg_length * percSeg;
-        new_length += new_seg_length * (1.0f - percSeg);
-
-        // After all node recalc
-        while(i < index_hi)
-        {
-            new_length += SegLength(i) * velocityInv;
-
-            //length overflowed, assign to max positive value
-            if( new_length < 0)
-                new_length = std::numeric_limits<length_type>::max();
-
-            lengths[++i] = new_length;
-
             if(prev_length > new_length)
                 break;
             prev_length = new_length;

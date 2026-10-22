@@ -1,3 +1,11 @@
+////////////////////////////////////////////
+///                                      ///
+///         LEGIONCORE REFORGED          ///
+///    Copyright 2026 Titans-Project     ///
+///         All Rights Reserved.         ///
+///                                      ///
+////////////////////////////////////////////
+
 #include "Map.h"
 #include "WorldStateMgr.h"
 #include "Player.h"
@@ -32,16 +40,31 @@ WorldStateMgr& WorldStateMgr::Instance()
 
 void WorldStateMgr::Update(uint32 diff)
 {
-    if (_worldState.empty())
-        return;
+    {
+        std::lock_guard<std::recursive_mutex> lock(_stateLock);
+        if (_worldState.empty())
+            return;
+    }
 
     if (m_nextSave > 0)
     {
         if (diff >= m_nextSave)
         {
-            for (auto itr = _worldState.begin(); itr != _worldState.end(); ++itr)
-                if (itr->second.HasFlag(WorldStatesData::Flags::Deleted))
-                    _worldState.erase(itr++);
+            {
+                std::lock_guard<std::recursive_mutex> lock(_stateLock);
+                for (auto itr = _worldState.begin(); itr != _worldState.end();)
+                {
+                    if (itr->second.HasFlag(WorldStatesData::Flags::Deleted))
+                    {
+                        // the vector holds a raw pointer to the node being erased
+                        if (itr->first < _worldStateV.size() && _worldStateV[itr->first] == &itr->second)
+                            _worldStateV[itr->first] = nullptr;
+                        itr = _worldState.erase(itr);
+                    }
+                    else
+                        ++itr;
+                }
+            }
 
             SaveToDB();
         }
@@ -65,6 +88,9 @@ void WorldStateMgr::Initialize()
 
     LoadFromDB();
 
+    // the singleton can be built before the config is loaded, which would leave the timer at 0 (never saving)
+    m_nextSave = sWorld->getIntConfig(CONFIG_INTERVAL_SAVE);
+
     AddTemplate(WorldStates::WS_PVP_ARENA_ENABLED, WorldStatesData::Types::World, 0, 1 << WorldStatesData::Flags::InitialState, sWorld->getBoolConfig(CONFIG_ARENA_SEASON_IN_PROGRESS));
     AddTemplate(WorldStates::WS_ARENA_SEASON_ID, WorldStatesData::Types::World, 0, 1 << WorldStatesData::Flags::InitialState, sWorld->getIntConfig(CONFIG_ARENA_SEASON_ID));
     AddTemplate(WorldStates::WS_RATED_BG_ENABLED, WorldStatesData::Types::World, 0, 1 << WorldStatesData::Flags::InitialState, sWorld->getBoolConfig(CONFIG_ARENA_SEASON_IN_PROGRESS));
@@ -72,6 +98,10 @@ void WorldStateMgr::Initialize()
 
 void WorldStateMgr::Unload()
 {
+    // changes made since the last periodic save would otherwise be lost
+    SaveToDB();
+
+    std::lock_guard<std::recursive_mutex> lock(_stateLock);
     for (auto state : _worldStateV)
         if (state)
             state->Unload();
@@ -87,6 +117,13 @@ WorldStateTemplate const* WorldStateMgr::FindTemplate(uint32 variableID)
 
 WorldStateTemplate* WorldStateMgr::AddTemplate(uint32 variableID, uint32 type, uint32 _condition, uint32 flags, uint32 defaultValue)
 {
+    // ids come from the database: a huge one would make resize throw bad_alloc
+    if (variableID > 0x100000)
+    {
+        TC_LOG_ERROR("misc", "WorldStateMgr::AddTemplate: variable id %u is out of range, template skipped", variableID);
+        return nullptr;
+    }
+
     if (_worldStateTemplates.size() <= variableID)
         _worldStateTemplates.resize(variableID + 1, nullptr);
 
@@ -100,6 +137,8 @@ WorldState* WorldStateMgr::AddWorldState(uint32 variableID, uint32 instanceID, u
     WorldStateTemplate const* stateTemplate = FindTemplate(variableID);
     if (!stateTemplate)
         return nullptr;
+
+    std::lock_guard<std::recursive_mutex> lock(_stateLock);
 
     if (stateTemplate->IsGlobal())
     {
@@ -308,7 +347,12 @@ void WorldStateMgr::LoadTemplatesFromObjectTemplateDB()
 
 void WorldStateMgr::LoadFromDB()
 {
-    _worldState.clear();
+    {
+        std::lock_guard<std::recursive_mutex> lock(_stateLock);
+        // _worldStateV points into _worldState: both must go together
+        _worldStateV.clear();
+        _worldState.clear();
+    }
 
     //                                             0             1            2           3       4
     auto result = CharacterDatabase.Query("SELECT `VariableID`, `Type`, `ConditionID`, `Flags`, `Value` FROM `worldstate_data`");
@@ -340,12 +384,12 @@ void WorldStateMgr::LoadFromDB()
 
 void WorldStateMgr::CreateWorldStatesIfNeed()
 {
-    for (auto itr : _worldStateTemplatesMap[WorldStatesData::Types::World])
+    for (auto const& itr : _worldStateTemplatesMap[WorldStatesData::Types::World])
         if (itr.second.HasFlag(WorldStatesData::Flags::InitialState))
             if (!GetWorldState(&itr.second))
                 CreateWorldState(&itr.second, 0, itr.second.DefaultValue);
 
-    for (auto itr : _worldStateTemplatesMap[WorldStatesData::Types::Weekly])
+    for (auto const& itr : _worldStateTemplatesMap[WorldStatesData::Types::Weekly])
         if (itr.second.HasFlag(WorldStatesData::Flags::InitialState))
             if (!GetWorldState(&itr.second))
                 CreateWorldState(&itr.second, 0, itr.second.DefaultValue);
@@ -363,11 +407,11 @@ void WorldStateMgr::CreateWorldStatesIfNeed()
 
 void WorldStateMgr::CreateInstanceState(uint32 mapID, uint32 instanceID)
 {
-    for (auto itr : _worldStateTemplatesMap[WorldStatesData::Types::Map])
+    for (auto const& itr : _worldStateTemplatesMap[WorldStatesData::Types::Map])
         if (itr.second.HasFlag(WorldStatesData::Flags::InitialState) && itr.second.ConditionID == mapID)
             CreateWorldState(&itr.second, instanceID, itr.second.DefaultValue);
 
-    for (auto itr : _worldStateTemplatesMap[WorldStatesData::Types::Battlegound])
+    for (auto const& itr : _worldStateTemplatesMap[WorldStatesData::Types::Battlegound])
         if (itr.second.HasFlag(WorldStatesData::Flags::InitialState) && itr.second.ConditionID == mapID)
             CreateWorldState(&itr.second, instanceID, itr.second.DefaultValue);
 }
@@ -377,6 +421,8 @@ void WorldStateMgr::SaveToDB()
     m_nextSave = sWorld->getIntConfig(CONFIG_INTERVAL_SAVE);
 
     CharacterDatabaseTransaction trans = CharacterDatabase.BeginTransaction();
+
+    std::unique_lock<std::recursive_mutex> lock(_stateLock);
 
     for (auto iter = _worldState.begin(); iter != _worldState.end(); ++iter)
         if (!iter->second.HasFlag(WorldStatesData::Flags::Saved))
@@ -401,6 +447,8 @@ void WorldStateMgr::SaveToDB()
             }
         }
 
+    lock.unlock();
+
     CharacterDatabase.CommitTransaction(trans);
 }
 
@@ -415,6 +463,7 @@ void WorldStateMgr::DeleteWorldState(WorldState* state)
     trans->Append(stmt);
     CharacterDatabase.CommitTransaction(trans);
 
+    std::lock_guard<std::recursive_mutex> lock(_stateLock);
     for (auto iter = _worldState.begin(); iter != _worldState.end(); ++iter)
     {
         if (&iter->second != state)
@@ -483,15 +532,27 @@ WorldState* WorldStateMgr::CreateWorldState(WorldStateTemplate const* stateTempl
 
     sScriptMgr->OnWorldStateCreate(stateTemplate->VariableID, value, stateTemplate->VariableType);
 
-    if (auto state = GetWorldState(stateTemplate, instanceID))
+    WorldState* state = nullptr;
+    bool created = false;
+    {
+        // lookup and creation in one section: two map threads must not both create the same state
+        std::lock_guard<std::recursive_mutex> lock(_stateLock);
+        state = GetWorldState(stateTemplate, instanceID);
+        if (!state)
+        {
+            state = AddWorldState(stateTemplate->VariableID, instanceID, stateTemplate->VariableType, 0, value);
+            created = true;
+        }
+    }
+
+    if (!state)
+        return nullptr;
+
+    if (!created)
     {
         state->SetValue(value, false);
         return state;
     }
-
-    auto state = AddWorldState(stateTemplate->VariableID, instanceID, stateTemplate->VariableType, 0, value);
-    if (!state)
-        return nullptr;
 
     if (value != std::numeric_limits<uint32>().max())
         state->SetValue(value, false);
@@ -513,6 +574,8 @@ WorldState* WorldStateMgr::GetWorldState(WorldStateTemplate const* stateTemplate
 {
     if (!stateTemplate)
         return nullptr;
+
+    std::lock_guard<std::recursive_mutex> lock(_stateLock);
 
     if (stateTemplate->IsGlobal())
     {
@@ -537,7 +600,17 @@ void WorldStateMgr::DeleteInstanceState(uint32 instanceID)
     if (instanceID == 0)
         return;
 
-    _worldStateInstance.erase(instanceID);
+    // destroyed after the unlock: the states own mutexes and the destructor must not run under ours
+    WorldStateMap removed;
+    {
+        std::lock_guard<std::recursive_mutex> lock(_stateLock);
+        auto iter = _worldStateInstance.find(instanceID);
+        if (iter == _worldStateInstance.end())
+            return;
+
+        removed = std::move(iter->second);
+        _worldStateInstance.erase(iter);
+    }
 }
 
 std::vector<WorldState*>* WorldStateMgr::GetInitWorldStates(Player* player)
@@ -546,27 +619,37 @@ std::vector<WorldState*>* WorldStateMgr::GetInitWorldStates(Player* player)
 
     std::vector<WorldState*>* states = nullptr;
 
-    for (auto itr = _worldState.begin(); itr != _worldState.end(); ++itr)
+    // collect under the lock, evaluate conditions outside it
+    std::vector<WorldState*> candidates;
     {
-        auto state = &itr->second;
-        if (!state || state->HasFlag(WorldStatesData::Flags::Deleted))
-            continue;
+        std::lock_guard<std::recursive_mutex> lock(_stateLock);
 
-        if ((state->HasFlag(WorldStatesData::Flags::InitialState) || state->HasFlag(WorldStatesData::Flags::Active)) && IsFitToCondition(player, state))
-            AddToWorldState(&states, state, player);
-    }
-
-    if (instanceID)
-    {
-        for (auto itr = _worldState.begin(); itr != _worldState.end(); ++itr)
+        auto collect = [&candidates](WorldStateMap& stateMap)
         {
-            auto state = &itr->second;
-            if (!state || state->HasFlag(WorldStatesData::Flags::Deleted))
-                continue;
+            for (auto itr = stateMap.begin(); itr != stateMap.end(); ++itr)
+            {
+                WorldState* state = &itr->second;
+                if (state->HasFlag(WorldStatesData::Flags::Deleted))
+                    continue;
 
-            if ((state->HasFlag(WorldStatesData::Flags::InitialState) || state->HasFlag(WorldStatesData::Flags::Active)) && IsFitToCondition(player, state))
-                AddToWorldState(&states, state, player);
+                if (state->HasFlag(WorldStatesData::Flags::InitialState) || state->HasFlag(WorldStatesData::Flags::Active))
+                    candidates.push_back(state);
+            }
+        };
+
+        collect(_worldState);
+
+        if (instanceID)
+        {
+            auto iter = _worldStateInstance.find(instanceID);
+            if (iter != _worldStateInstance.end())
+                collect(iter->second);
         }
     }
+
+    for (WorldState* state : candidates)
+        if (IsFitToCondition(player, state))
+            AddToWorldState(&states, state, player);
+
     return states;
 }

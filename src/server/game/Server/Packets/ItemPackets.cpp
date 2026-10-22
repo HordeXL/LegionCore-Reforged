@@ -1,19 +1,14 @@
-/*
- * Copyright (C) 2008-2015 TrinityCore <http://www.trinitycore.org/>
- *
- * This program is free software; you can redistribute it and/or modify it
- * under the terms of the GNU General Public License as published by the
- * Free Software Foundation; either version 2 of the License, or (at your
- * option) any later version.
- *
- * This program is distributed in the hope that it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for
- * more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program. If not, see <http://www.gnu.org/licenses/>.
- */
+////////////////////////////////////////////
+///                                      ///
+///         LEGIONCORE REFORGED          ///
+///    Copyright 2026 Titans-Project     ///
+///         All Rights Reserved.         ///
+///                                      ///
+///      Based on TrinityCore code       ///
+///   Copyright 2008-2015 TrinityCore    ///
+///   <http://www.trinitycore.org/>      ///
+///                                      ///
+////////////////////////////////////////////
 
 #include "ItemPackets.h"
 
@@ -86,7 +81,7 @@ ByteBuffer& operator>>(ByteBuffer& data, WorldPackets::Item::ItemBonusInstanceDa
 {
 
     data >> itemBonusInstanceData.Context;
-    uint32 bonusListIdSize = data.read<uint32>();
+    uint32 bonusListIdSize = WorldPackets::CheckElementCount(data, data.read<uint32>(), sizeof(uint32), 64);
     for (uint32 i = 0u; i < bonusListIdSize; ++i)
         itemBonusInstanceData.BonusListIDs.push_back(data.read<uint32>());
 
@@ -304,7 +299,7 @@ void WorldPackets::Item::ItemInstance::Initialize(std::string item)
 {
     ItemBonusInstanceData bonus;
     Tokenizer tokenListIDs(item, ' ');
-    int8 count = 0;
+    uint32 count = 0;
     for (char const* token : tokenListIDs)
     {
         switch (count)

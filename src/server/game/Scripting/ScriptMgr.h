@@ -1,20 +1,14 @@
-/*
- * Copyright (C) 2008-2017 TrinityCore <http://www.trinitycore.org/>
- * Copyright (C) 2005-2009 MaNGOS <http://getmangos.com/>
- *
- * This program is free software; you can redistribute it and/or modify it
- * under the terms of the GNU General Public License as published by the
- * Free Software Foundation; either version 2 of the License, or (at your
- * option) any later version.
- *
- * This program is distributed in the hope that it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for
- * more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program. If not, see <http://www.gnu.org/licenses/>.
- */
+////////////////////////////////////////////
+///                                      ///
+///         LEGIONCORE REFORGED          ///
+///    Copyright 2026 Titans-Project     ///
+///         All Rights Reserved.         ///
+///                                      ///
+///      Based on TrinityCore code       ///
+///   Copyright 2008-2017 TrinityCore    ///
+///   <http://www.trinitycore.org/>      ///
+///                                      ///
+////////////////////////////////////////////
 
 #ifndef SC_SCRIPTMGR_H
 #define SC_SCRIPTMGR_H
@@ -606,38 +600,7 @@ class TC_GAME_API PlayerScript : public ScriptObject
     public:
 
         // Called when a player kills another player
-		virtual void OnPVPKill(Player* killer, Player* killed)
-		{
-			uint32 killerlvl = killer->getLevel();
-			uint32 killedlvl = killed->getLevel();
-			int32 diff = killerlvl - killedlvl;
-			uint32 XPLow = (killedlvl * 5 + 45)*(1 + 0.05*diff);
-			uint32 XPHigh = (killedlvl * 5 + 45)*(1 + 0.05*diff);
-			uint32 minusgold = killer->GetMoney() - (diff * 10000);
-			uint32 plusgold = killed->GetMoney() + (diff * 10000);
-			uint32 killergold = killer->GetMoney();
-			uint32 killedgold = killed->GetMoney();
-			uint32 plusgold2 = killedgold + killergold;
-
-			if (killerlvl < killedlvl + 1)
-				killer->GiveXP(XPHigh, killed);
-			else
-				if (diff > 10)
-					if (killergold > minusgold)
-					{
-						killer->SetMoney(minusgold);
-						killed->SetMoney(plusgold);
-					}
-					else
-					{
-						killed->SetMoney(plusgold2);
-						killer->SetMoney(0);
-					}
-				else
-					if (0 < diff && diff < 10)
-						killer->GiveXP(XPLow, killed);
-			return;
-		}
+        virtual void OnPVPKill(Player* /*killer*/, Player* /*killed*/) { }
 
         // Called when player accepts a quest
         virtual void OnQuestAccept(Player* /*player*/, Quest const* /*quest*/) { }

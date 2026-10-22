@@ -1,19 +1,14 @@
-/*
- * Copyright (C) 2008-2012 TrinityCore <http://www.trinitycore.org/>
- *
- * This program is free software; you can redistribute it and/or modify it
- * under the terms of the GNU General Public License as published by the
- * Free Software Foundation; either version 2 of the License, or (at your
- * option) any later version.
- *
- * This program is distributed in the hope that it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for
- * more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program. If not, see <http://www.gnu.org/licenses/>.
- */
+////////////////////////////////////////////
+///                                      ///
+///         LEGIONCORE REFORGED          ///
+///    Copyright 2026 Titans-Project     ///
+///         All Rights Reserved.         ///
+///                                      ///
+///      Based on TrinityCore code       ///
+///   Copyright 2008-2012 TrinityCore    ///
+///   <http://www.trinitycore.org/>      ///
+///                                      ///
+////////////////////////////////////////////
 
 #include "SpellScript.h"
 #include "ScriptMgr.h"
@@ -738,7 +733,7 @@ void SpellScript::PreventHitEffect(SpellEffIndex effIndex)
         TC_LOG_ERROR("scripts", "Script: `%s` Spell: `%u`: function SpellScript::PreventHitEffect was called, but function has no effect in current hook!", m_scriptName->c_str(), m_scriptSpellId);
         return;
     }
-    m_hitPreventEffectMask |= 1 << effIndex;
+    m_hitPreventEffectMask |= 1u << effIndex;
     PreventHitDefaultEffect(effIndex);
 }
 
@@ -749,7 +744,7 @@ void SpellScript::PreventHitDefaultEffect(SpellEffIndex effIndex)
         TC_LOG_ERROR("scripts", "Script: `%s` Spell: `%u`: function SpellScript::PreventHitDefaultEffect was called, but function has no effect in current hook!", m_scriptName->c_str(), m_scriptSpellId);
         return;
     }
-    m_hitPreventDefaultEffectMask |= 1 << effIndex;
+    m_hitPreventDefaultEffectMask |= 1u << effIndex;
 }
 
 int32 SpellScript::GetEffectValue() const

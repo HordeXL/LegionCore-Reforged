@@ -1,25 +1,21 @@
-/*
- * Copyright (C) 2008-2015 TrinityCore <http://www.trinitycore.org/>
- *
- * This program is free software; you can redistribute it and/or modify it
- * under the terms of the GNU General Public License as published by the
- * Free Software Foundation; either version 2 of the License, or (at your
- * option) any later version.
- *
- * This program is distributed in the hope that it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for
- * more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program. If not, see <http://www.gnu.org/licenses/>.
- */
+////////////////////////////////////////////
+///                                      ///
+///         LEGIONCORE REFORGED          ///
+///    Copyright 2026 Titans-Project     ///
+///         All Rights Reserved.         ///
+///                                      ///
+///      Based on TrinityCore code       ///
+///   Copyright 2008-2015 TrinityCore    ///
+///   <http://www.trinitycore.org/>      ///
+///                                      ///
+////////////////////////////////////////////
 
 #ifndef PacketUtilities_h__
 #define PacketUtilities_h__
 
 #include "ByteBuffer.h"
 #include "Duration.h"
+#include <algorithm>
 #include <ctime>
 
 namespace WorldPackets
@@ -34,6 +30,44 @@ namespace WorldPackets
             message().assign(builder.str());
         }
     };
+
+    // Rejects a client-supplied element count that exceeds a hard cap or cannot fit in the bytes left in the packet,
+    // so it never drives an allocation
+    inline uint32 CheckElementCount(ByteBuffer const& buffer, uint32 count, std::size_t minElementSize, std::size_t maxCount)
+    {
+        if (count > maxCount)
+            throw PacketArrayMaxCapacityException(count, maxCount);
+
+        if (minElementSize && std::size_t(count) * minElementSize > buffer.size() - std::min(buffer.rpos(), buffer.size()))
+            throw ByteBufferPositionException(buffer.rpos(), std::size_t(count) * minElementSize, buffer.size());
+
+        return count;
+    }
+
+    // A length written on N bits wraps silently past 2^N - 1 while the whole string is still written, which desyncs the client:
+    // cut the text to what the field can carry, without splitting a UTF-8 sequence
+    inline void TruncateStringToBits(std::string& str, uint32 bits)
+    {
+        std::size_t len = (std::size_t(1) << bits) - 1;
+        if (str.size() <= len)
+            return;
+
+        while (len > 0 && (static_cast<uint8>(str[len]) & 0xC0) == 0x80)
+            --len;
+
+        str.resize(len);
+    }
+
+    // Same for a read-only string: returns it as is when it fits, else a truncated copy kept in storage
+    inline std::string const& FitStringToBits(std::string const& str, uint32 bits, std::string& storage)
+    {
+        if (str.size() < (std::size_t(1) << bits))
+            return str;
+
+        storage = str;
+        TruncateStringToBits(storage, bits);
+        return storage;
+    }
 
     /**
      * Utility class for automated prevention of loop counter spoofing in client packets

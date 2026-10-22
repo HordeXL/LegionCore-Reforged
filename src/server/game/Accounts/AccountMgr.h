@@ -1,20 +1,14 @@
-/*
- * Copyright (C) 2008-2012 TrinityCore <http://www.trinitycore.org/>
- * Copyright (C) 2005-2009 MaNGOS <http://getmangos.com/>
- *
- * This program is free software; you can redistribute it and/or modify it
- * under the terms of the GNU General Public License as published by the
- * Free Software Foundation; either version 2 of the License, or (at your
- * option) any later version.
- *
- * This program is distributed in the hope that it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for
- * more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program. If not, see <http://www.gnu.org/licenses/>.
- */
+////////////////////////////////////////////
+///                                      ///
+///         LEGIONCORE REFORGED          ///
+///    Copyright 2026 Titans-Project     ///
+///         All Rights Reserved.         ///
+///                                      ///
+///      Based on TrinityCore code       ///
+///   Copyright 2008-2012 TrinityCore    ///
+///   <http://www.trinitycore.org/>      ///
+///                                      ///
+////////////////////////////////////////////
 
 #ifndef _ACCMGR_H
 #define _ACCMGR_H
@@ -49,7 +43,6 @@ namespace AccountMgr
     TC_GAME_API uint32 GetSecurity(uint32 accountId, int32 realmId);
     TC_GAME_API bool GetName(uint32 accountId, std::string& name);
     TC_GAME_API uint32 GetCharactersCount(uint32 accountId);
-    TC_GAME_API std::string CalculateShaPassHash(const std::string& name, const std::string& password);
 
     TC_GAME_API bool IsPlayerAccount(uint32 gmlevel);
     TC_GAME_API bool IsModeratorAccount(uint32 gmlevel);

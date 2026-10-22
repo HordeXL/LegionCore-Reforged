@@ -1,20 +1,14 @@
-/*
- * Copyright (C) 2008-2012 TrinityCore <http://www.trinitycore.org/>
- * Copyright (C) 2005-2009 MaNGOS <http://getmangos.com/>
- *
- * This program is free software; you can redistribute it and/or modify it
- * under the terms of the GNU General Public License as published by the
- * Free Software Foundation; either version 2 of the License, or (at your
- * option) any later version.
- *
- * This program is distributed in the hope that it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for
- * more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program. If not, see <http://www.gnu.org/licenses/>.
- */
+////////////////////////////////////////////
+///                                      ///
+///         LEGIONCORE REFORGED          ///
+///    Copyright 2026 Titans-Project     ///
+///         All Rights Reserved.         ///
+///                                      ///
+///      Based on TrinityCore code       ///
+///   Copyright 2008-2012 TrinityCore    ///
+///   <http://www.trinitycore.org/>      ///
+///                                      ///
+////////////////////////////////////////////
 
 #include "Unit.h"
 
@@ -4630,6 +4624,8 @@ AuraApplication * Unit::_CreateAuraApplication(Aura* aura, uint32 effMask)
     m_aura_lock.lock();
     AuraApplicationPtr aurApp = std::make_shared<AuraApplication>(this, caster, aura, effMask);
     m_appliedAuras.insert(std::make_pair(aurId, aurApp));
+    if (Player* player = ToPlayer())
+        player->RefreshBgPenaltyFlags(aurId);
 
     if (aurSpellInfo->GetAuraOptions(GetSpawnMode())->IsProcAura)
         m_procAuras.insert(std::make_pair(aurId, aurApp));
@@ -4644,7 +4640,47 @@ AuraApplication * Unit::_CreateAuraApplication(Aura* aura, uint32 effMask)
     if (AuraStateType aState = aura->GetSpellInfo()->GetAuraState())
         m_auraStateAuras.insert(std::make_pair(aState, aurApp.get()));
 
-    aura->_ApplyForTarget(this, caster, aurApp);
+    if (!aura->_ApplyForTarget(this, caster, aurApp))
+    {
+        // the aura was removed meanwhile or is already applied here: the application must not stay listed on the unit
+        m_aura_lock.lock();
+        for (auto itr = m_appliedAuras.lower_bound(aurId); itr != m_appliedAuras.upper_bound(aurId); ++itr)
+            if (itr->second == aurApp)
+            {
+                m_appliedAuras.erase(itr);
+                break;
+            }
+        if (Player* player = ToPlayer())
+            player->RefreshBgPenaltyFlags(aurId);
+        for (auto itr = m_procAuras.lower_bound(aurId); itr != m_procAuras.upper_bound(aurId); ++itr)
+            if (itr->second == aurApp)
+            {
+                m_procAuras.erase(itr);
+                break;
+            }
+        m_aura_lock.unlock();
+
+        if (aurSpellInfo->HasAnyAuraInterruptFlag())
+        {
+            m_interruptableAuras.remove(aurApp);
+            UpdateInterruptMask();
+        }
+
+        if (AuraStateType aState = aurSpellInfo->GetAuraState())
+        {
+            auto stateRange = m_auraStateAuras.equal_range(aState);
+            for (auto itr = stateRange.first; itr != stateRange.second; ++itr)
+                if (itr->second == aurApp.get())
+                {
+                    m_auraStateAuras.erase(itr);
+                    break;
+                }
+        }
+
+        aurApp->_Remove();
+        return nullptr;
+    }
+
     return aurApp.get();
 }
 
@@ -4740,6 +4776,8 @@ void Unit::_UnapplyAura(AuraApplicationMap::iterator &i, AuraRemoveMode removeMo
     // Remove all pointers from lists here to prevent possible pointer invalidation on spellcast/auraapply/auraremove
     m_procAuras.erase(aura->GetId());
     m_appliedAuras.erase(i);
+    if (Player* player = ToPlayer())
+        player->RefreshBgPenaltyFlags(aura->GetId());
 
     if (spellInfo->HasAnyAuraInterruptFlag())
     {
@@ -4783,7 +4821,8 @@ void Unit::_UnapplyAura(AuraApplicationMap::iterator &i, AuraRemoveMode removeMo
         }
     }
 
-    if (hasGravityEffect)
+    // another gravity aura, or a creature that flies without gravity by template, keeps the flag
+    if (hasGravityEffect && !HasAuraType(SPELL_AURA_DISABLE_GRAVITY) && !(IsCreature() && ToCreature()->GetMovementTemplate().Flight == CreatureFlightMovementType::DisableGravity))
         SetDisableGravity(false);
 
     m_aura_lock.unlock();
@@ -12570,18 +12609,17 @@ Unit* Unit::GetNextRandomRaidMemberOrPet(float radius)
     // reserve place for players and pets because resizing vector every unit push is unefficient (vector is reallocated then)
     nearMembers.reserve(group->GetMembersCount() * 2);
 
-    for (GroupReference* itr = group->GetFirstMember(); itr != nullptr; itr = itr->next())
-        if (Player* Target = itr->getSource())
-        {
-            // IsHostileTo check duel and controlled by enemy
-            if (Target != this && Target->IsAlive() && IsWithinDistInMap(Target, radius) && !IsHostileTo(Target))
-                nearMembers.push_back(Target);
+    group->ForEachMemberInMap(GetMap(), [&](Player* Target)
+    {
+        // IsHostileTo check duel and controlled by enemy
+        if (Target != this && Target->IsAlive() && IsWithinDistInMap(Target, radius) && !IsHostileTo(Target))
+            nearMembers.push_back(Target);
 
         // Push player's pet to vector
         if (Unit* pet = Target->GetGuardianPet())
             if (pet != this && pet->IsAlive() && IsWithinDistInMap(pet, radius) && !IsHostileTo(pet))
                 nearMembers.push_back(pet);
-        }
+    });
 
     if (nearMembers.empty())
         return nullptr;
@@ -22109,18 +22147,17 @@ void Unit::Kill(Unit* victim, bool durabilityLoss, SpellInfo const* spellProto)
                     }
                     else if (Group* group = player->GetGroup())
                     {
-                        for (GroupReference* iter = group->GetFirstMember(); iter != nullptr; iter = iter->next())
+                        group->ForEachMemberInMap(GetMap(), [&](Player* playerInfo)
                         {
-                            Player* playerInfo = iter->getSource();
-                            if (!playerInfo || !playerInfo->CanContact())
-                                continue;
+                            if (!playerInfo->CanContact())
+                                return;
 
                             if (!playerInfo->IsAtGroupRewardDistance(creature))
-                                continue;
+                                return;
 
                             playerInfo->UpdateAchievementCriteria(CRITERIA_TYPE_COMPLETE_DUNGEON_ENCOUNTER, encounterId, 0, 0, victim, true);
                             playerInfo->UpdateAchievementCriteria(CRITERIA_TYPE_DUNGEON_ENCOUNTER_COUNTER, encounterId, 0, 0, victim, true);
-                        }
+                        });
                     }
                     else
                     {
@@ -23091,12 +23128,10 @@ void Unit::GetPartyMembers(std::list<Unit*> &TagUnitMap)
     {
         uint8 subgroup = owner->ToPlayer()->GetSubGroup();
 
-        for (GroupReference* itr = group->GetFirstMember(); itr != nullptr; itr = itr->next())
+        group->ForEachMemberInMap(GetMap(), [&](Player* Target)
         {
-            Player* Target = itr->getSource();
-
             // IsHostileTo check duel and controlled by enemy
-            if (Target && Target->GetSubGroup() == subgroup && !IsHostileTo(Target))
+            if (Target->GetSubGroup() == subgroup && !IsHostileTo(Target))
             {
                 if (Target->IsAlive() && IsInMap(Target))
                     TagUnitMap.push_back(Target);
@@ -23105,7 +23140,7 @@ void Unit::GetPartyMembers(std::list<Unit*> &TagUnitMap)
                     if (pet->IsAlive() && IsInMap(Target))
                         TagUnitMap.push_back(pet);
             }
-        }
+        });
     }
     else
     {
@@ -23127,10 +23162,9 @@ void Unit::GetRaidMembers(std::list<Unit*>& tagUnitMap)
 
     if (group)
     {
-        for (auto itr = group->GetFirstMember(); itr != nullptr; itr = itr->next())
+        group->ForEachMemberInMap(GetMap(), [&](Player* target)
         {
-            auto const& target = itr->getSource();
-            if (target && !IsHostileTo(target))
+            if (!IsHostileTo(target))
             {
                 if (target->IsAlive() && IsInMap(target))
                     tagUnitMap.push_back(target);
@@ -23139,7 +23173,7 @@ void Unit::GetRaidMembers(std::list<Unit*>& tagUnitMap)
                     if (pet->IsAlive() && IsInMap(target))
                         tagUnitMap.push_back(pet);
             }
-        }
+        });
     }
     else
     {
@@ -26776,18 +26810,17 @@ void Unit::GenerateLoot(Creature* creature, Player* anyLooter)
                     group = looter->GetGroup();
                     if (group)
                     {
-                        for (GroupReference* iter = group->GetFirstMember(); iter != nullptr; iter = iter->next())
+                        group->ForEachMemberInMap(creature->GetMap(), [&](Player* memberLooter)
                         {
-                            Player* memberLooter = iter->getSource();
-                            if (!memberLooter || !memberLooter->CanContact())
-                                continue;
+                            if (!memberLooter->CanContact())
+                                return;
 
                             if (!memberLooter->IsAtGroupRewardDistance(creature))
-                                continue;
+                                return;
 
                             Loot* lootMember = &memberLooter->personalLoot[creature->GetGUID()];
                             if (!lootMember->isLooted())
-                                continue;
+                                return;
 
                             lootMember->clear();
                             lootMember->personal = true;
@@ -26808,7 +26841,7 @@ void Unit::GenerateLoot(Creature* creature, Player* anyLooter)
                                 memberLooter->RemoveLoot(creature->GetGUID());
 
                             // TC_LOG_DEBUG("loot", "Unit::GenerateLoot memberLooter %s", memberLooter->GetGUID().ToString().c_str());
-                        }
+                        });
                     }
                     // TC_LOG_DEBUG("loot", "Unit::GenerateLoot looter %s", looter->GetGUID().ToString().c_str());
                 }

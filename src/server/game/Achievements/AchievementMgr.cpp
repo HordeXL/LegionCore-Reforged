@@ -1,20 +1,14 @@
-/*
- * Copyright (C) 2008-2012 TrinityCore <http://www.trinitycore.org/>
- * Copyright (C) 2005-2009 MaNGOS <http://getmangos.com/>
- *
- * This program is free software; you can redistribute it and/or modify it
- * under the terms of the GNU General Public License as published by the
- * Free Software Foundation; either version 2 of the License, or (at your
- * option) any later version.
- *
- * This program is distributed in the hope that it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for
- * more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program. If not, see <http://www.gnu.org/licenses/>.
- */
+////////////////////////////////////////////
+///                                      ///
+///         LEGIONCORE REFORGED          ///
+///    Copyright 2026 Titans-Project     ///
+///         All Rights Reserved.         ///
+///                                      ///
+///      Based on TrinityCore code       ///
+///   Copyright 2008-2012 TrinityCore    ///
+///   <http://www.trinitycore.org/>      ///
+///                                      ///
+////////////////////////////////////////////
 
 #include "AchievementMgr.h"
 
@@ -2802,10 +2796,14 @@ void AchievementMgr<Guild>::CompletedAchievement(AchievementEntry const* achieve
                 ca->guids.insert(player->GetGUID());
 
             if (Group const* group = player->GetGroup())
-                for (GroupReference const* ref = group->GetFirstMember(); ref != nullptr; ref = ref->next())
-                    if (Player const* groupMember = ref->getSource())
-                        if (groupMember->GetGuildId() == GetOwner()->GetGUID().GetGUIDLow())
-                            ca->guids.insert(groupMember->GetGUID());
+            {
+                uint32 const ownerGuildId = GetOwner()->GetGUID().GetGUIDLow();
+                group->ForEachLinkedMember([&](Player* groupMember)
+                {
+                    if (groupMember->GetGuildId() == ownerGuildId)
+                        ca->guids.insert(groupMember->GetGUID());
+                });
+            }
         }
     }
 
@@ -3866,14 +3864,11 @@ bool AchievementMgr<T>::AdditionalRequirementsSatisfied(ModifierTreeNode const* 
                 }
 
                 uint32 counter = 0;
-                for (GroupReference* groupRef = group->GetFirstMember(); groupRef != nullptr; groupRef = groupRef->next())
+                group->ForEachLinkedMember([&](Player* player)
                 {
-                    if (Player* player = groupRef->getSource())
-                    {
-                        if (player->GetGuildId() == guildId)
-                            ++counter;
-                    }
-                }
+                    if (player->GetGuildId() == guildId)
+                        ++counter;
+                });
 
                 if (counter < reqValue)
                     check = false;
@@ -4363,6 +4358,12 @@ void AchievementGlobalMgr::LoadCriteriaList()
         // Load modifier tree nodes
         for (ModifierTreeEntry const* tree : sModifierTreeStore)
         {
+            if (tree->ID >= MAX_MODIFIER_TREE)
+            {
+                TC_LOG_ERROR("server.loading", "ModifierTree %u is past MAX_MODIFIER_TREE (%u): raise the limit", tree->ID, MAX_MODIFIER_TREE);
+                continue;
+            }
+
             auto node = new ModifierTreeNode();
             node->Entry = tree;
             _criteriaModifiers[node->Entry->ID] = node;
@@ -4371,7 +4372,7 @@ void AchievementGlobalMgr::LoadCriteriaList()
         // Build tree
         for (auto & _criteriaModifier : _criteriaModifiers)
         {
-            if (_criteriaModifier == nullptr || !_criteriaModifier->Entry->Parent)
+            if (_criteriaModifier == nullptr || !_criteriaModifier->Entry->Parent || _criteriaModifier->Entry->Parent >= MAX_MODIFIER_TREE)
                 continue;
 
             auto parent = _criteriaModifiers[_criteriaModifier->Entry->Parent];
@@ -4393,6 +4394,12 @@ void AchievementGlobalMgr::LoadCriteriaList()
             Field* fields = result->Fetch();
             uint32 treeID = fields[0].GetUInt32();
             uint32 QuestID = fields[1].GetUInt32();
+            if (treeID >= MAX_CRITERIA_TREE)
+            {
+                TC_LOG_ERROR("sql.sql", "quest_objectives: quest %u has criteria tree %u past MAX_CRITERIA_TREE", QuestID, treeID);
+                continue;
+            }
+
             //! if no achieve - add to list
             _criteriaTreeForQuest[treeID] = QuestID;
 
@@ -4400,14 +4407,21 @@ void AchievementGlobalMgr::LoadCriteriaList()
             {
                 for (auto child : *data)
                 {
+                    if (child->ID >= MAX_CRITERIA_TREE)
+                        continue;
+
                     _criteriaTreeForQuest[child->ID] = QuestID;
                     if (std::vector<CriteriaTreeEntry const*> const* data2 = sDB2Manager.GetCriteriaTreeList(child->ID))
                         for (auto child2 : *data2)
                         {
+                            if (child2->ID >= MAX_CRITERIA_TREE)
+                                continue;
+
                             _criteriaTreeForQuest[child2->ID] = QuestID;
                             if (std::vector<CriteriaTreeEntry const*> const* data3 = sDB2Manager.GetCriteriaTreeList(child2->ID))
                                 for (auto child3 : *data3)
-                                    _criteriaTreeForQuest[child3->ID] = QuestID;
+                                    if (child3->ID < MAX_CRITERIA_TREE)
+                                        _criteriaTreeForQuest[child3->ID] = QuestID;
                         }
                 }
             }
@@ -4432,6 +4446,12 @@ void AchievementGlobalMgr::LoadCriteriaList()
     // Load criteria tree nodes
     for (CriteriaTreeEntry const* tree : sCriteriaTreeStore)
     {
+        if (tree->ID >= MAX_CRITERIA_TREE)
+        {
+            TC_LOG_ERROR("server.loading", "CriteriaTree %u is past MAX_CRITERIA_TREE (%u): raise the limit", tree->ID, MAX_CRITERIA_TREE);
+            continue;
+        }
+
         // Find linked achievement
         AchievementEntry const* achievement = GetEntry(achievementCriteriaTreeIds, tree);
         ScenarioStepEntry const* scenarioStep = GetEntry(scenarioCriteriaTreeIds, tree);
@@ -4469,7 +4489,7 @@ void AchievementGlobalMgr::LoadCriteriaList()
     // Build tree
     for (auto & _criteriaTree : _criteriaTrees)
     {
-        if (_criteriaTree == nullptr || !_criteriaTree->Entry->Parent)
+        if (_criteriaTree == nullptr || !_criteriaTree->Entry->Parent || _criteriaTree->Entry->Parent >= MAX_CRITERIA_TREE)
             continue;
 
         auto parent = _criteriaTrees[_criteriaTree->Entry->Parent];
@@ -4480,10 +4500,16 @@ void AchievementGlobalMgr::LoadCriteriaList()
     // Load criteria
     for (CriteriaEntry const* criteriaEntry : sCriteriaStore)
     {
+        if (criteriaEntry->ID >= MAX_CRITERIA)
+        {
+            TC_LOG_ERROR("server.loading", "Criteria %u is past MAX_CRITERIA (%u): raise the limit", criteriaEntry->ID, MAX_CRITERIA);
+            continue;
+        }
+
         auto criteria = new Criteria();
         criteria->ID = criteriaEntry->ID;
         criteria->Entry = criteriaEntry;
-        auto mod = _criteriaModifiers[criteriaEntry->ModifierTreeId];
+        auto mod = criteriaEntry->ModifierTreeId < MAX_MODIFIER_TREE ? _criteriaModifiers[criteriaEntry->ModifierTreeId] : nullptr;
         if (mod != nullptr)
             criteria->Modifier = mod;
 

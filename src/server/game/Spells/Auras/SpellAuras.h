@@ -1,20 +1,14 @@
-/*
- * Copyright (C) 2008-2012 TrinityCore <http://www.trinitycore.org/>
- * Copyright (C) 2005-2009 MaNGOS <http://getmangos.com/>
- *
- * This program is free software; you can redistribute it and/or modify it
- * under the terms of the GNU General Public License as published by the
- * Free Software Foundation; either version 2 of the License, or (at your
- * option) any later version.
- *
- * This program is distributed in the hope that it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for
- * more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program. If not, see <http://www.gnu.org/licenses/>.
- */
+////////////////////////////////////////////
+///                                      ///
+///         LEGIONCORE REFORGED          ///
+///    Copyright 2026 Titans-Project     ///
+///         All Rights Reserved.         ///
+///                                      ///
+///      Based on TrinityCore code       ///
+///   Copyright 2008-2012 TrinityCore    ///
+///   <http://www.trinitycore.org/>      ///
+///                                      ///
+////////////////////////////////////////////
 
 #ifndef TRINITY_SPELLAURAS_H
 #define TRINITY_SPELLAURAS_H
@@ -142,7 +136,8 @@ class TC_GAME_API Aura
 
         AuraObjectType GetType() const;
 
-        virtual void _ApplyForTarget(Unit* target, Unit* caster, AuraApplicationPtr auraApp);
+        // false when the application was not registered (aura removed meanwhile or already applied): the caller must drop it from the target lists
+        virtual bool _ApplyForTarget(Unit* target, Unit* caster, AuraApplicationPtr auraApp);
         virtual void _UnapplyForTarget(Unit* target, Unit* caster, AuraApplicationPtr auraApp);
         void _Remove(AuraRemoveMode removeMode);
         virtual void Remove(AuraRemoveMode removeMode = AURA_REMOVE_BY_DEFAULT) = 0;
@@ -164,7 +159,6 @@ class TC_GAME_API Aura
         int32 CalcMaxDuration() { return CalcMaxDuration(GetCaster()); }
         int32 CalcMaxDuration(Unit* caster);
         int32 GetDuration() const { return m_duration; }
-        int32 GetAllDuration() const { return m_allDuration; }
         void SetDuration(int32 duration, bool withMods = false);
         void RefreshDuration();
         void RefreshTimers();
@@ -195,8 +189,6 @@ class TC_GAME_API Aura
 
         void RefreshSpellMods();
 
-        bool HasMoreThanOneEffectForType(AuraType auraType) const;
-
         uint16 GetCasterLevel() const { return m_casterLevel; }
 
         bool IsArea() const;
@@ -222,18 +214,18 @@ class TC_GAME_API Aura
         // helpers for aura effects
         bool HasEffect(uint8 effIndex) const { return GetEffect(effIndex) != nullptr; }
         bool HasEffectType(AuraType type) const;
-        AuraEffect* GetEffect(uint8 effIndex) const { ASSERT (effIndex < MAX_SPELL_EFFECTS); return m_effects[effIndex]; }
+        AuraEffect* GetEffect(uint8 effIndex) const { return effIndex < MAX_SPELL_EFFECTS ? m_effects[effIndex] : nullptr; }
         uint32 GetEffectMask() const { uint32 effMask = 0; for (uint8 i = 0; i < MAX_SPELL_EFFECTS; ++i) if (m_effects[i]) effMask |= 1<<i; return effMask; }
         void RecalculateAmountOfEffects(bool setCanRecalc = false);
         void HandleAllEffects(AuraApplication * aurApp, uint8 mode, bool apply);
 
         //Save list target for custom scripts work
         void SetEffectTargets(GuidList const& targets) { m_effect_targets = targets; }
-        GuidList GetEffectTargets() { return m_effect_targets; }
+        GuidList const& GetEffectTargets() const { return m_effect_targets; }
         void AddEffectTarget(ObjectGuid const& targetGuid) { m_effect_targets.push_back(targetGuid); }
         void RemoveEffectTarget(ObjectGuid const& targetGuid) { m_effect_targets.remove(targetGuid); }
         void ClearEffectTarget() { m_effect_targets.clear(); }
-        ObjectGuid GetRndEffectTarget() { return Trinity::Containers::SelectRandomContainerElement(m_effect_targets); }
+        ObjectGuid GetRndEffectTarget() { return m_effect_targets.empty() ? ObjectGuid::Empty : Trinity::Containers::SelectRandomContainerElement(m_effect_targets); }
 
         // Helpers for targets
         ApplicationMap const & GetApplicationMap();
@@ -300,7 +292,7 @@ class TC_GAME_API Aura
         void ModCustomData(int32 data) { m_customData += data; }
 
         SpellPowerCost m_powerCost;
-        void SetPowerCost(SpellPowerCost power)
+        void SetPowerCost(SpellPowerCost const& power)
         {
             for (uint32 i = 0; i <= MAX_POWERS; ++i)
                 m_powerCost[i] = power[i];
@@ -313,7 +305,7 @@ class TC_GAME_API Aura
         int8 GetComboPoints() { return m_powerCost[POWER_COMBO_POINTS]; }
         SpellPowerData powerData;
 
-        AuraEffectVector GetAuraEffects() const { return m_effects; }
+        AuraEffectVector const& GetAuraEffects() const { return m_effects; }
 
         std::vector<uint32> durationByStack;
 
@@ -337,8 +329,6 @@ class TC_GAME_API Aura
 
         int32 m_maxDuration;                                // Max aura duration
         int32 m_duration;                                   // Current time
-        int32 m_allDuration;                                // Duration from apply aura
-        int32 m_timeCla;                                    // Timer for power per sec calcultion
         int32 m_updateTargetMapInterval;                    // Timer for UpdateTargetMapOfEffect
 
         uint16 m_casterLevel;                                // Aura level (store caster level for correct show level dep amount)
@@ -366,7 +356,7 @@ class UnitAura : public Aura
     protected:
         explicit UnitAura(SpellInfo const* spellproto, uint32 effMask, WorldObject* owner, Unit* caster, float *baseAmount, Item* castItem, ObjectGuid casterGUID, uint16 stackAmount, SpellPowerCost* powerCost);
     public:
-        void _ApplyForTarget(Unit* target, Unit* caster, AuraApplicationPtr aurApp) override;
+        bool _ApplyForTarget(Unit* target, Unit* caster, AuraApplicationPtr aurApp) override;
         void _UnapplyForTarget(Unit* target, Unit* caster, AuraApplicationPtr aurApp) override;
 
         void Remove(AuraRemoveMode removeMode = AURA_REMOVE_BY_DEFAULT) override;
@@ -391,4 +381,13 @@ class DynObjAura : public Aura
 
         void FillTargetMap(std::map<Unit*, uint32> & targets, Unit* caster) override;
 };
+
+// Dummy rows hold a raw effect index read from the database
+inline float GetDummyBasePoints(SpellInfo const* spellInfo, int32 effIndex)
+{
+    return effIndex >= 0 && effIndex < int32(MAX_SPELL_EFFECTS) && spellInfo->Effects[effIndex] ? float(spellInfo->Effects[effIndex]->BasePoints) : 0.0f;
+}
+
+// Unit::GetUnitForLinkedSpell dereferences the caster for some link types; the caster of an aura may be gone
+Unit* GetLinkedSpellUnit(Unit* source, Unit* caster, Unit* target, uint8 type);
 #endif

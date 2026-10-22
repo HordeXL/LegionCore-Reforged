@@ -1,3 +1,10 @@
+////////////////////////////////////////////
+///                                      ///
+///         LEGIONCORE REFORGED          ///
+///    Copyright 2026 Titans-Project     ///
+///         All Rights Reserved.         ///
+///                                      ///
+////////////////////////////////////////////
 
 #include "PetBattleSystem.h"
 #include "PetBattle.h"
@@ -5,11 +12,14 @@
 #include "Position.h"
 #include "ObjectAccessor.h"
 #include "WorldSession.h"
+#include "Map.h"
+#include <cmath>
 
 #define PETBATTLE_DELETE_INTERVAL (1 * 30 * IN_MILLISECONDS)
 #define PETBATTLE_LFB_INTERVAL 500
 #define PETBATTLE_LFB_PROPOSAL_TIMEOUT (1 * MINUTE)
 #define PETBATTLE_CREATION_TIMEOUT (2 * MINUTE * IN_MILLISECONDS)
+#define PETBATTLE_REQUEST_TIMEOUT (1 * MINUTE)
 
 struct PetBattleMembersPositions
 {
@@ -55,26 +65,6 @@ namespace
         }, 0, ObjectAccessor::PlayerScope::InWorld);
     }
 
-    // Undoes what a battle that never began left on the player (JoinMatchmakingBattle, DELAYED_PET_BATTLE_INITIAL),
-    // in his own update; another battle he joined since is left alone.
-    void ReleaseFromUnstartedBattle(ObjectGuid const& playerGuid, ObjectGuid const& battleID, bool matchmaking)
-    {
-        ObjectAccessor::PostToPlayer(playerGuid, [battleID, matchmaking](Player* player) -> void
-        {
-            if (player->_petBattleId != battleID)
-                return;
-
-            player->_petBattleId.Clear();
-            player->RemoveFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_PACIFIED | UNIT_FLAG_IMMUNE_TO_NPC);
-            player->SetControlled(false, UNIT_STATE_ROOT);
-            player->GetSession()->SendPetBattleFinished();
-            player->GetSession()->SendBattlePetJournal();
-
-            if (matchmaking)
-                player->TeleportTo(player->m_recallLoc);
-        });
-    }
-
     // Runs in the player's own update: his journal is read and he is moved by his own thread.
     void JoinMatchmakingBattle(Player* player, std::shared_ptr<PetBattle> const& battle, uint32 teamID, uint32 mapID, Position const& position)
     {
@@ -82,6 +72,13 @@ namespace
             std::lock_guard<std::recursive_mutex> guard(battle->BattleLock);
             if (battle->BattleStatus != PETBATTLE_STATUS_CREATION)
                 return;
+
+            // The match was made some seconds ago: the player may have started something else since.
+            if (!player->IsAlive() || player->_petBattleId || player->duel || player->InBattleground() || (player->GetMap() && player->GetMap()->Instanceable()))
+            {
+                battle->AbortBeforeStart();
+                return;
+            }
 
             auto petSlots = player->GetBattlePetCombatTeam();
             size_t petCount = 0;
@@ -101,6 +98,13 @@ namespace
                 battle->AddPet(teamID, pet);
 
                 ++petCount;
+            }
+
+            // The other player waits for this one: end the match now rather than at the creation timeout.
+            if (!battle->Teams[teamID]->GetFirstLivingPet())
+            {
+                battle->AbortBeforeStart();
+                return;
             }
         }
 
@@ -184,6 +188,24 @@ namespace
     }
 }
 
+void PetBattleSystem::ReleaseFromUnstartedBattle(ObjectGuid const& playerGuid, ObjectGuid const& battleID, bool matchmaking)
+{
+    ObjectAccessor::PostToPlayer(playerGuid, [battleID, matchmaking](Player* player) -> void
+    {
+        if (player->_petBattleId != battleID)
+            return;
+
+        player->_petBattleId.Clear();
+        player->RemoveFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_PACIFIED | UNIT_FLAG_IMMUNE_TO_NPC);
+        player->SetControlled(false, UNIT_STATE_ROOT);
+        player->GetSession()->SendPetBattleFinished();
+        player->GetSession()->SendBattlePetJournal();
+
+        if (matchmaking)
+            player->TeleportTo(player->m_recallLoc);
+    });
+}
+
 PetBattleSystem::PetBattleSystem()
 {
     _maxPetBattleID = 1;
@@ -222,38 +244,12 @@ std::shared_ptr<PetBattle> PetBattleSystem::AcquireBattle(ObjectGuid battleID)
     return itr != _petBattles.end() ? itr->second : nullptr;
 }
 
-PetBattle* PetBattleSystem::CreateBattle()
-{
-    return NewBattle().get();
-}
-
-PetBattle* PetBattleSystem::GetBattle(ObjectGuid battleID)
-{
-    return AcquireBattle(battleID).get();
-}
-
-PetBattleRequest* PetBattleSystem::CreateRequest(ObjectGuid requesterGuid)
-{
-    auto request = std::make_shared<PetBattleRequest>();
-    request->RequesterGuid = requesterGuid;
-
-    std::lock_guard<std::mutex> guard(_lock);
-    // A new request replaces the previous one of the same player.
-    _battleRequests[requesterGuid] = request;
-    return request.get();
-}
-
 void PetBattleSystem::AddRequest(std::shared_ptr<PetBattleRequest> const& request)
 {
+    request->RequestTime = uint32(GameTime::GetGameTime());
+
     std::lock_guard<std::mutex> guard(_lock);
     _battleRequests[request->RequesterGuid] = request;
-}
-
-std::shared_ptr<PetBattleRequest> PetBattleSystem::GetRequest(ObjectGuid requesterGuid)
-{
-    std::lock_guard<std::mutex> guard(_lock);
-    auto itr = _battleRequests.find(requesterGuid);
-    return itr != _battleRequests.end() ? itr->second : nullptr;
 }
 
 std::shared_ptr<PetBattleRequest> PetBattleSystem::TakeRequest(ObjectGuid requesterGuid, ObjectGuid opponentGuid)
@@ -265,21 +261,11 @@ std::shared_ptr<PetBattleRequest> PetBattleSystem::TakeRequest(ObjectGuid reques
 
     std::shared_ptr<PetBattleRequest> request = std::move(itr->second);
     _battleRequests.erase(itr);
+
+    if (uint32(GameTime::GetGameTime()) - request->RequestTime > PETBATTLE_REQUEST_TIMEOUT)
+        return nullptr;
+
     return request;
-}
-
-void PetBattleSystem::RemoveBattle(ObjectGuid battleID)
-{
-    std::shared_ptr<PetBattle> battle;
-    {
-        std::lock_guard<std::mutex> guard(_lock);
-        auto itr = _petBattles.find(battleID);
-        if (itr == _petBattles.end())
-            return;
-
-        battle = std::move(itr->second);
-        _petBattles.erase(itr);
-    }
 }
 
 void PetBattleSystem::RemoveRequest(ObjectGuid requesterGuid)
@@ -430,8 +416,7 @@ void PetBattleSystem::Update(uint32 diff)
         {
             std::lock_guard<std::mutex> guard(_lock);
 
-            // A battle waits one full interval in the pending list, so a raw GetBattle() pointer taken
-            // just before it ended is not freed under its user.
+            // A battle waits one full interval in the pending list before it is dropped.
             for (ObjectGuid const& battleID : _deleteQueueReady)
             {
                 auto itr = _petBattles.find(battleID);
@@ -444,6 +429,16 @@ void PetBattleSystem::Update(uint32 diff)
 
             _deleteQueueReady.swap(_deleteQueuePending);
             _deleteQueuePending.clear();
+
+            // Challenges nobody answered, among them those of players who left.
+            uint32 const now = uint32(GameTime::GetGameTime());
+            for (auto itr = _battleRequests.begin(); itr != _battleRequests.end();)
+            {
+                if (!itr->second || now - itr->second->RequestTime > PETBATTLE_REQUEST_TIMEOUT)
+                    itr = _battleRequests.erase(itr);
+                else
+                    ++itr;
+            }
         }
     }
 
@@ -456,15 +451,7 @@ void PetBattleSystem::Update(uint32 diff)
                 battles.push_back(itr.second);
     }
 
-    struct UnstartedRelease
-    {
-        ObjectGuid BattleID;
-        ObjectGuid PlayerGuids[MAX_PETBATTLE_TEAM];
-        bool Matchmaking;
-    };
-
     std::vector<ObjectGuid> finished;
-    std::vector<UnstartedRelease> unstarted;
     for (auto const& battle : battles)
     {
         std::lock_guard<std::recursive_mutex> guard(battle->BattleLock);
@@ -482,18 +469,9 @@ void PetBattleSystem::Update(uint32 diff)
             // in a battle that never begins: give up, the next pass queues it for deletion
             battle->CreationElapsed += diff;
             if (battle->CreationElapsed >= PETBATTLE_CREATION_TIMEOUT)
-            {
-                battle->BattleStatus = PETBATTLE_STATUS_FINISHED;
-                unstarted.push_back({ battle->ID, { battle->Teams[PETBATTLE_TEAM_1]->PlayerGuid, battle->Teams[PETBATTLE_TEAM_2]->PlayerGuid },
-                    battle->BattleType == PETBATTLE_TYPE_PVP_MATCHMAKING });
-            }
+                battle->AbortBeforeStart();
         }
     }
-
-    for (UnstartedRelease const& release : unstarted)
-        for (ObjectGuid const& playerGuid : release.PlayerGuids)
-            if (!playerGuid.IsEmpty())
-                ReleaseFromUnstartedBattle(playerGuid, release.BattleID, release.Matchmaking);
 
     if (!finished.empty())
     {
@@ -540,10 +518,6 @@ void PetBattleSystem::UpdateQueue()
             if (std::find(ticketsToRemove.begin(), ticketsToRemove.end(), ticket->RequesterGUID) != ticketsToRemove.end())
                 continue;
 
-            auto queuedTime = uint32(GameTime::GetGameTime() - ticket->JoinTime);
-            auto oldNumber = _LFBNumWaitTimeAvg++;
-            _LFBAvgWaitTime = int32((_LFBAvgWaitTime * oldNumber + queuedTime) / _LFBNumWaitTimeAvg);
-
             switch (ticket->State)
             {
                 case LFBState::LFB_STATE_QUEUED:
@@ -586,6 +560,10 @@ void PetBattleSystem::UpdateQueue()
                             l_Left->State = LFBState::LFB_STATE_PROPOSAL;
                             l_Right->State = LFBState::LFB_STATE_PROPOSAL;
 
+                            // An answer left from a proposal that fell through must not count for this one.
+                            l_Left->ProposalAnswer = LFBAnswer::LFB_ANSWER_PENDING;
+                            l_Right->ProposalAnswer = LFBAnswer::LFB_ANSWER_PENDING;
+
                             l_Left->ProposalTime = GameTime::GetGameTime();
                             l_Right->ProposalTime = GameTime::GetGameTime();
 
@@ -619,6 +597,9 @@ void PetBattleSystem::UpdateQueue()
 
                             l_Left->State = LFBState::LFB_STATE_IN_COMBAT;
                             l_Right->State = LFBState::LFB_STATE_IN_COMBAT;
+
+                            RecordQueueWait(uint32(GameTime::GetGameTime() - l_Left->JoinTime));
+                            RecordQueueWait(uint32(GameTime::GetGameTime() - l_Right->JoinTime));
 
                             actions.emplace_back();
                             LFBAction& match = actions.back();
@@ -735,10 +716,39 @@ void PetBattleSystem::UpdateQueue()
     }
 }
 
-void PetBattleSystem::ForfeitBattle(ObjectGuid battleID, ObjectGuid forfeiterGuid, bool ignoreAbandonPenalty)
+// Running average over the last matches; called under _LFBRequestsMutex.
+void PetBattleSystem::RecordQueueWait(uint32 queuedTime)
 {
-    if (std::shared_ptr<PetBattle> battle = AcquireBattle(battleID))
-        battle->Forfeit(forfeiterGuid, ignoreAbandonPenalty);
+    uint64 const sampleCount = std::min<uint32>(_LFBNumWaitTimeAvg + 1, 100);
+    _LFBAvgWaitTime = uint32((uint64(_LFBAvgWaitTime) * (sampleCount - 1) + queuedTime) / sampleCount);
+    _LFBNumWaitTimeAvg = uint32(sampleCount);
+}
+
+void PetBattleSystem::OnPlayerLogout(Player* player)
+{
+    ObjectGuid const playerGuid = player->GetGUID();
+    RemoveRequest(playerGuid);
+
+    ObjectGuid const battleID = player->_petBattleId;
+    if (battleID.IsEmpty())
+        return;
+
+    player->_petBattleId.Clear();
+
+    std::shared_ptr<PetBattle> battle = AcquireBattle(battleID);
+    if (!battle)
+        return;
+
+    std::lock_guard<std::recursive_mutex> guard(battle->BattleLock);
+
+    // He was moved to the match ground: he must not be saved there.
+    if (battle->BattleType == PETBATTLE_TYPE_PVP_MATCHMAKING && player->m_recallLoc.GetMapId() != MAPID_INVALID)
+        player->WorldRelocate(player->m_recallLoc);
+
+    if (battle->BattleStatus == PETBATTLE_STATUS_CREATION)
+        battle->AbortBeforeStart(player);
+    else if (battle->BattleStatus == PETBATTLE_STATUS_RUNNING)
+        battle->Forfeit(playerGuid, false, player);
 }
 
 eBattlePetRequests PetBattleSystem::CanPlayerEnterInPetBattle(Player* player, PetBattleRequest* petBattleRequest)
@@ -753,6 +763,12 @@ eBattlePetRequests PetBattleSystem::CanPlayerEnterInPetBattle(Player* player, Pe
     if (player->_petBattleId)
         return PETBATTLE_REQUEST_IN_BATTLE;
 
+    if (player->IsFlying())
+        return PETBATTLE_REQUEST_NOT_WHILE_FLYING;
+
+    if (petBattleRequest->OpponentGuid == player->GetGUID())
+        return PETBATTLE_REQUEST_TARGET_INVALID;
+
     if (petBattleRequest->OpponentGuid.IsPlayer())
     {
         // Only a player of the same map belongs to this thread.
@@ -762,6 +778,8 @@ eBattlePetRequests PetBattleSystem::CanPlayerEnterInPetBattle(Player* player, Pe
 
         if (player2)
         {
+            if (player2->isDead())
+                return PETBATTLE_REQUEST_TARGET_INVALID;
 
             if (player2->_petBattleId)
                 return PETBATTLE_REQUEST_IN_BATTLE;
@@ -780,7 +798,24 @@ eBattlePetRequests PetBattleSystem::CanPlayerEnterInPetBattle(Player* player, Pe
             return PETBATTLE_REQUEST_TARGET_INVALID;
 
         if (creature->_petBattleId)
-            return PETBATTLE_REQUEST_WILD_PET_TAPPED;
+        {
+            // A wild pet left locked by a battle that is gone is freed here, in the thread of its map.
+            std::shared_ptr<PetBattle> other = AcquireBattle(creature->_petBattleId);
+            bool stillFighting = false;
+            if (other)
+            {
+                std::lock_guard<std::recursive_mutex> guard(other->BattleLock);
+                stillFighting = other->BattleStatus == PETBATTLE_STATUS_CREATION || other->BattleStatus == PETBATTLE_STATUS_RUNNING;
+            }
+
+            if (stillFighting)
+                return PETBATTLE_REQUEST_WILD_PET_TAPPED;
+
+            creature->RemoveFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_PACIFIED | UNIT_FLAG_IMMUNE_TO_PC);
+            creature->SetControlled(false, UNIT_STATE_ROOT);
+            creature->SetTarget(ObjectGuid::Empty);
+            creature->_petBattleId.Clear();
+        }
 
         if (!player->IsWithinDist3d(creature, INTERACTION_DISTANCE))
             return PETBATTLE_REQUEST_TARGET_OUT_OF_RANGE;
@@ -791,6 +826,20 @@ eBattlePetRequests PetBattleSystem::CanPlayerEnterInPetBattle(Player* player, Pe
 
     if (player->isInCombat())
         return PETBATTLE_REQUEST_NOT_WHILE_IN_COMBAT;
+
+    // The positions come from the client: finite, and near the player
+    auto const isUsablePosition = [player](Position const& position) -> bool
+    {
+        return std::isfinite(position.GetPositionX()) && std::isfinite(position.GetPositionY()) && std::isfinite(position.GetPositionZ())
+            && player->GetExactDist(&position) <= 60.0f;
+    };
+
+    if (!isUsablePosition(petBattleRequest->PetBattleCenterPosition))
+        return PETBATTLE_REQUEST_NOT_HERE;
+
+    for (const auto& itr : petBattleRequest->TeamPosition)
+        if (!isUsablePosition(itr))
+            return PETBATTLE_REQUEST_NOT_HERE;
 
     // Check positions
     for (const auto& itr : petBattleRequest->TeamPosition)

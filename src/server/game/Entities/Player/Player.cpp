@@ -1,20 +1,14 @@
-/*
- * Copyright (C) 2008-2012 TrinityCore <http://www.trinitycore.org/>
- * Copyright (C) 2005-2009 MaNGOS <http://getmangos.com/>
- *
- * This program is free software; you can redistribute it and/or modify it
- * under the terms of the GNU General Public License as published by the
- * Free Software Foundation; either version 2 of the License, or (at your
- * option) any later version.
- *
- * This program is distributed in the hope that it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for
- * more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program. If not, see <http://www.gnu.org/licenses/>.
- */
+////////////////////////////////////////////
+///                                      ///
+///         LEGIONCORE REFORGED          ///
+///    Copyright 2026 Titans-Project     ///
+///         All Rights Reserved.         ///
+///                                      ///
+///      Based on TrinityCore code       ///
+///   Copyright 2008-2012 TrinityCore    ///
+///   <http://www.trinitycore.org/>      ///
+///                                      ///
+////////////////////////////////////////////
 
 #include "Player.h"
 
@@ -6941,6 +6935,14 @@ void Player::DeleteFromDB(ObjectGuid playerguid, uint32 accountId, bool updateRe
             trans->Append(stmt);
 
             stmt = CharacterDatabase.GetPreparedStatement(CHAR_DEL_CHALLENGE_MEMBER);
+            stmt->setUInt64(0, guid);
+            trans->Append(stmt);
+
+            stmt = CharacterDatabase.GetPreparedStatement(CHAR_DEL_ITEM_REFUND_INSTANCE_BY_OWNER);
+            stmt->setUInt64(0, guid);
+            trans->Append(stmt);
+
+            stmt = CharacterDatabase.GetPreparedStatement(CHAR_DEL_LFG_DATA);
             stmt->setUInt64(0, guid);
             trans->Append(stmt);
 
@@ -18652,6 +18654,10 @@ void Player::PrepareAreaQuest(uint32 area)
         if (CanCompleteQuest(quest_id))
             CompleteQuest(quest_id);
 
+        // Hidden server-side flags: the client never shows them, so no quest window either.
+        if (quest->HasFlag(QUEST_FLAGS_TRACKING))
+            continue;
+
         if ((quest->IsAutoComplete() && quest->IsRepeatable() && !quest->IsDailyOrWeekly())/* || quest->HasFlag(QUEST_FLAGS_AUTOCOMPLETE)*/)
             PlayerTalkClass->SendQuestGiverRequestItems(quest, GetGUID(), CanCompleteRepeatableQuest(quest), true);
         else
@@ -20736,14 +20742,12 @@ void Player::GroupEventHappens(uint32 questId, WorldObject const* pEventObject)
 {
     if (Group* group = GetGroup())
     {
-        for (GroupReference* itr = group->GetFirstMember(); itr != NULL; itr = itr->next())
+        group->ForEachMemberInMap(GetMap(), [&](Player* player)
         {
-            Player* player = itr->getSource();
-
             // for any leave or dead (with not released body) group member at appropriate distance
-            if (player && player->IsAtGroupRewardDistance(pEventObject) && !player->GetCorpse())
+            if (player->IsAtGroupRewardDistance(pEventObject) && !player->GetCorpse())
                 player->AreaExploredOrEventHappens(questId);
-        }
+        });
     }
     else
         AreaExploredOrEventHappens(questId);
@@ -29777,6 +29781,18 @@ void Player::LeaveBattleground(bool teleportToEntryPoint)
     }
 }
 
+void Player::RefreshBgPenaltyFlags(uint32 spellId)
+{
+    if (spellId != SPELL_BG_DESERTER && spellId != SPELL_BG_CRAVEN)
+        return;
+
+    uint8 const bit = spellId == SPELL_BG_DESERTER ? 1 : 2;
+    if (HasAura(spellId))
+        m_bgPenaltyFlags.fetch_or(bit);
+    else
+        m_bgPenaltyFlags.fetch_and(uint8(~bit));
+}
+
 bool Player::CanJoinToBattleground(uint8 pvpIternalType) const
 {
     if (pvpIternalType >= MS::Battlegrounds::IternalPvpTypes::Max)
@@ -29786,10 +29802,10 @@ bool Player::CanJoinToBattleground(uint8 pvpIternalType) const
     {
         case MS::Battlegrounds::IternalPvpTypes::Brawl:
         case MS::Battlegrounds::IternalPvpTypes::Battleground:
-            return !(HasAura(SPELL_BG_DESERTER));
+            return !(m_bgPenaltyFlags.load() & 1);
         case MS::Battlegrounds::IternalPvpTypes::Arena:
         case MS::Battlegrounds::IternalPvpTypes::Skirmish:
-            return !(HasAura(SPELL_BG_CRAVEN));
+            return !(m_bgPenaltyFlags.load() & 2);
         // case ashran:
         // return !(HasAura(194958));
         default:
@@ -31818,22 +31834,22 @@ float Player::GetsAFriendBonus(bool /*forXP*/)
     uint32 const accountId = GetSession()->GetAccountId();
     uint32 const recruiterId = GetSession()->GetRecruiterId();
 
-    for (GroupReference* itr = group->GetFirstMember(); itr != nullptr; itr = itr->next())
+    bool linked = false;
+    group->ForEachLinkedMember([&](Player* member)
     {
-        Player* member = itr->getSource();
-        if (!member || member == this)
-            continue;
+        if (member == this)
+            return;
 
         WorldSession* session = member->GetSession();
         if (!session)
-            continue;
+            return;
 
         // Either direction of the link counts: recruiter and recruit both get the bonus.
         if (session->GetRecruiterId() == accountId || recruiterId == session->GetAccountId())
-            return RECRUIT_A_FRIEND_BONUS_RATE;
-    }
+            linked = true;
+    });
 
-    return 0.0f;
+    return linked ? RECRUIT_A_FRIEND_BONUS_RATE : 0.0f;
 }
 
 void Player::RewardPlayerAndGroupAtKill(Unit* victim, bool isBattleGround)
@@ -31853,19 +31869,18 @@ void Player::RewardPlayerAndGroupAtEvent(uint32 creatureID, WorldObject* pReward
     // prepare data for near group iteration
     if (Group* group = GetGroup())
     {
-        for (GroupReference* itr = group->GetFirstMember(); itr != nullptr; itr = itr->next())
+        group->ForEachMemberInMap(GetMap(), [&](Player* player)
         {
-            Player* player = itr->getSource();
-            if (!player || !player->IsInWorld())
-                continue;
+            if (!player->IsInWorld())
+                return;
 
             if (!player->IsAtGroupRewardDistance(pRewardSource))
-                continue; // member (alive or dead) or his corpse at req. distance
+                return; // member (alive or dead) or his corpse at req. distance
 
             // quest objectives updated only for alive group member or dead but with not released body
             if (player->IsAlive() || !player->GetCorpse())
                 player->KilledMonsterCredit(creatureID, creatureGUID);
-        }
+        });
     }
     else // if (!group)
         KilledMonsterCredit(creatureID, creatureGUID);
@@ -32280,15 +32295,13 @@ Player* Player::GetNextRandomRaidMember(float radius)
     std::vector<Player*> nearMembers;
     nearMembers.reserve(group->GetMembersCount());
 
-    for (GroupReference* itr = group->GetFirstMember(); itr != NULL; itr = itr->next())
+    group->ForEachMemberInMap(GetMap(), [&](Player* Target)
     {
-        Player* Target = itr->getSource();
-
         // IsHostileTo check duel and controlled by enemy
-        if (Target && Target != this && IsWithinDistInMap(Target, radius) &&
+        if (Target != this && IsWithinDistInMap(Target, radius) &&
             !Target->HasInvisibilityAura() && !IsHostileTo(Target))
             nearMembers.push_back(Target);
-    }
+    });
 
     if (nearMembers.empty())
         return NULL;
@@ -32327,9 +32340,14 @@ PartyResult Player::CanUninviteFromGroup() const
             return ERR_PARTY_LFG_BOOT_LOOT_ROLLS;
 
         // TODO: Should also be sent when anyone has recently left combat, with an aprox ~5 seconds timer.
-        for (GroupReference const* itr = grp->GetFirstMember(); itr != NULL; itr = itr->next())
-            if (itr->getSource() && itr->getSource()->isInCombat())
-                return ERR_PARTY_LFG_BOOT_IN_COMBAT;
+        bool anyInCombat = false;
+        grp->ForEachLinkedMember([&anyInCombat](Player* member)
+        {
+            if (member->isInCombat())
+                anyInCombat = true;
+        });
+        if (anyInCombat)
+            return ERR_PARTY_LFG_BOOT_IN_COMBAT;
 
         /* Missing support for these types
             return ERR_PARTY_LFG_BOOT_COOLDOWN_S;
@@ -33034,6 +33052,9 @@ bool Player::AutoStoreLoot(uint8 bag, uint8 slot, uint32 loot_id, LootStore cons
     for (uint32 i = 0; i < max_slot; ++i)
     {
         LootItem* lootItem = loot.LootItemInSlot(i, this);
+        if (!lootItem)
+            continue;
+
         if (!loot.AllowedForPlayer(this, lootItem->item.ItemID, lootItem->item.CurrencyID, lootItem->type, lootItem->needs_quest, lootItem))
             continue;
 

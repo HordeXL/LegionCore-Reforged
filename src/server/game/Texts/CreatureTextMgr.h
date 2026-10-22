@@ -1,19 +1,14 @@
-/*
- * Copyright (C) 2008-2012 TrinityCore <http://www.trinitycore.org/>
- *
- * This program is free software; you can redistribute it and/or modify it
- * under the terms of the GNU General Public License as published by the
- * Free Software Foundation; either version 2 of the License, or (at your
- * option) any later version.
- *
- * This program is distributed in the hope that it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for
- * more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program. If not, see <http://www.gnu.org/licenses/>.
- */
+////////////////////////////////////////////
+///                                      ///
+///         LEGIONCORE REFORGED          ///
+///    Copyright 2026 Titans-Project     ///
+///         All Rights Reserved.         ///
+///                                      ///
+///      Based on TrinityCore code       ///
+///   Copyright 2008-2012 TrinityCore    ///
+///   <http://www.trinitycore.org/>      ///
+///                                      ///
+////////////////////////////////////////////
 
 #ifndef TRINITY_CREATURE_TEXT_MGR_H
 #define TRINITY_CREATURE_TEXT_MGR_H
@@ -21,6 +16,8 @@
 #include "GridNotifiers.h"
 #include "SharedDefines.h"
 #include "Opcodes.h"
+#include <list>
+#include <shared_mutex>
 
 struct CreatureTextEntry
 {
@@ -99,7 +96,8 @@ typedef std::vector<CreatureTextHolder*> CreatureTextList;     //all creatures b
 //used for handling non-repeatable random texts
 typedef std::vector<uint8> CreatureTextRepeatIds;
 typedef std::map<uint8, CreatureTextRepeatIds> CreatureTextRepeatGroup;
-typedef std::map<ObjectGuid::LowType, CreatureTextRepeatGroup> CreatureTextRepeatMap;//guid based
+typedef std::map<ObjectGuid, CreatureTextRepeatGroup> CreatureTextRepeatMap;//guid based, the full guid: summon counters repeat across maps
+typedef std::map<CreatureTextId, std::vector<std::string>> CreatureTextLocaleMap;
 
 class TC_GAME_API CreatureTextMgr
 {
@@ -111,7 +109,6 @@ class TC_GAME_API CreatureTextMgr
 
         void LoadCreatureTexts();
         void LoadCreatureTextLocales();
-        CreatureTextMap  const& GetTextMap() const { return mTextMap; }
         std::vector<std::string> const* GetLocaleTexts(uint32 entry, uint8 textGroup, uint8 dbId) const;
 
         void SendSound(Creature* source, uint32 sound, ChatMsg msgType, ObjectGuid whisperGuid, TextRange range, Team team, bool gmOnly);
@@ -129,17 +126,22 @@ class TC_GAME_API CreatureTextMgr
 
         bool HasBroadCastText(uint32 entry, uint32 BroadcastTextID, uint8& groupId);
         CreatureTextEntry const* FindSpellInText(uint32 entry, uint32 SpellID);
-        bool IsDuplicateText(uint32 entry, const std::string& text);
 
         static float GetRangeForChatType(ChatMsg msgType);
 
     private:
+        CreatureTextHolder* FindHolder(uint32 entry) const;
         CreatureTextRepeatIds GetRepeatGroup(Creature* source, uint8 textGroup);
         void SetRepeatId(Creature* source, uint8 textGroup, uint8 id);
 
+        // .reload runs in the world thread while map threads read: swapped under i_lockTexts, and the replaced
+        // tables are kept alive because AI and spell data cache pointers into them
+        mutable std::shared_mutex i_lockTexts;
         CreatureTextMap mTextMap;
         CreatureTextList mTextList;
-        std::map<CreatureTextId, std::vector<std::string>> mLocaleTextMap;
+        CreatureTextLocaleMap mLocaleTextMap;
+        std::list<CreatureTextMap> mRetiredTextMaps;
+        std::list<CreatureTextLocaleMap> mRetiredLocaleMaps;
         CreatureTextRepeatMap mTextRepeatMap;
         sf::contention_free_shared_mutex< > i_lockTextRepeat;
 };

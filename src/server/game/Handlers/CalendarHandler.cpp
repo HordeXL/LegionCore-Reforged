@@ -1,26 +1,21 @@
-/*
- * Copyright (C) 2008-2012 TrinityCore <http://www.trinitycore.org/>
- * Copyright (C) 2005-2009 MaNGOS <http://getmangos.com/>
- *
- * This program is free software; you can redistribute it and/or modify it
- * under the terms of the GNU General Public License as published by the
- * Free Software Foundation; either version 2 of the License, or (at your
- * option) any later version.
- *
- * This program is distributed in the hope that it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for
- * more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program. If not, see <http://www.gnu.org/licenses/>.
- */
+////////////////////////////////////////////
+///                                      ///
+///         LEGIONCORE REFORGED          ///
+///    Copyright 2026 Titans-Project     ///
+///         All Rights Reserved.         ///
+///                                      ///
+///      Based on TrinityCore code       ///
+///   Copyright 2008-2012 TrinityCore    ///
+///   <http://www.trinitycore.org/>      ///
+///                                      ///
+////////////////////////////////////////////
 
 #include "CalendarPackets.h"
 #include "GuildMgr.h"
 #include "InstanceSaveMgr.h"
 #include "DatabaseEnv.h"
 #include "SocialMgr.h"
+#include "Util.h"
 
 void WorldSession::HandleCalendarGetCalendar(WorldPackets::Calendar::CalendarGetCalendar& /*packet*/)
 {
@@ -161,6 +156,9 @@ void WorldSession::HandleCalendarAddEvent(WorldPackets::Calendar::CalendarAddEve
     if (packet.EventInfo.Time < (GameTime::GetGameTime() - time_t(86400L)))
         return;
 
+    // calendar_events.Description is varchar(255), the packet allows 2047
+    utf8truncate(packet.EventInfo.Description, 255);
+
     // Strip invisible characters for non-addon messages
     if (sWorld->getBoolConfig(CONFIG_CHAT_FAKE_MESSAGE_PREVENTING))
     {
@@ -255,6 +253,9 @@ void WorldSession::HandleCalendarUpdateEvent(WorldPackets::Calendar::CalendarUpd
 
     if (packet.EventInfo.Time < (GameTime::GetGameTime() - time_t(86400L)))
         return;
+
+    // calendar_events.Description is varchar(255), the packet allows 2047
+    utf8truncate(packet.EventInfo.Description, 255);
 
     // Strip invisible characters for non-addon messages
     if (sWorld->getBoolConfig(CONFIG_CHAT_FAKE_MESSAGE_PREVENTING))

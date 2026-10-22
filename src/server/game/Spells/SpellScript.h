@@ -1,19 +1,14 @@
-/*
- * Copyright (C) 2008-2012 TrinityCore <http://www.trinitycore.org/>
- *
- * This program is free software; you can redistribute it and/or modify it
- * under the terms of the GNU General Public License as published by the
- * Free Software Foundation; either version 2 of the License, or (at your
- * option) any later version.
- *
- * This program is distributed in the hope that it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for
- * more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program. If not, see <http://www.gnu.org/licenses/>.
- */
+////////////////////////////////////////////
+///                                      ///
+///         LEGIONCORE REFORGED          ///
+///    Copyright 2026 Titans-Project     ///
+///         All Rights Reserved.         ///
+///                                      ///
+///      Based on TrinityCore code       ///
+///   Copyright 2008-2012 TrinityCore    ///
+///   <http://www.trinitycore.org/>      ///
+///                                      ///
+////////////////////////////////////////////
 
 #ifndef __SPELL_SCRIPT_H
 #define __SPELL_SCRIPT_H
@@ -288,8 +283,8 @@ class TC_GAME_API SpellScript : public _SpellScript
         bool _Validate(SpellInfo const* entry) override;
         bool _Load(Spell* spell);
         void _InitHit();
-        bool _IsEffectPrevented(SpellEffIndex effIndex) { return (m_hitPreventEffectMask & (1 << effIndex)) != 0; }
-        bool _IsDefaultEffectPrevented(SpellEffIndex effIndex) { return (m_hitPreventDefaultEffectMask & (1 << effIndex)) != 0; }
+        bool _IsEffectPrevented(SpellEffIndex effIndex) { return (m_hitPreventEffectMask & (1u << effIndex)) != 0; }
+        bool _IsDefaultEffectPrevented(SpellEffIndex effIndex) { return (m_hitPreventDefaultEffectMask & (1u << effIndex)) != 0; }
         void _PrepareScriptCall(SpellScriptHookType hookType);
         void _FinishScriptCall();
         bool IsInCheckCastHook() const;
@@ -298,8 +293,8 @@ class TC_GAME_API SpellScript : public _SpellScript
         bool IsInEffectHook() const;
     private:
         Spell* m_spell = nullptr;
-        uint8 m_hitPreventEffectMask = 0;
-        uint8 m_hitPreventDefaultEffectMask = 0;
+        uint32 m_hitPreventEffectMask = 0;
+        uint32 m_hitPreventDefaultEffectMask = 0;
     public:
         //
         // SpellScript interface

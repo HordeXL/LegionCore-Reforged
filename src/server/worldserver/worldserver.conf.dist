@@ -2175,9 +2175,10 @@ Ra.Enable = 0
 #
 #    Ra.IP
 #        Bind remote access to this IP address.
-#        Default: "0.0.0.0" - (All interfaces)
+#        Default: "127.0.0.1" - (This machine only)
+#                 "0.0.0.0"   - (All interfaces)
 
-Ra.IP = "0.0.0.0"
+Ra.IP = "127.0.0.1"
 
 #
 #    Ra.Port

@@ -1,21 +1,14 @@
-/*
- * Copyright (C) 2008-2017 TrinityCore <http://www.trinitycore.org/>
- * Copyright (C) 2005-2011 MaNGOS <http://getmangos.com/>
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
- */
+////////////////////////////////////////////
+///                                      ///
+///         LEGIONCORE REFORGED          ///
+///    Copyright 2026 Titans-Project     ///
+///         All Rights Reserved.         ///
+///                                      ///
+///      Based on TrinityCore code       ///
+///   Copyright 2008-2017 TrinityCore    ///
+///   <http://www.trinitycore.org/>      ///
+///                                      ///
+////////////////////////////////////////////
 
 #include "PathGenerator.h"
 #include "Creature.h"
@@ -485,6 +478,9 @@ void PathGenerator::BuildPolyPath(G3D::Vector3 const& startPos, G3D::Vector3 con
             // and hopefully recover on the next Update
             // we still need to copy our preffix
             TC_LOG_ERROR("maps", "%lu's Path Build failed: 0 length path", _source->GetGUID().GetCounter());
+
+            // Only the overlapping poly is left: without this a one-poly prefix gives a length of 0 and the index below underflows
+            suffixPolyLength = 1;
         }
 
         TC_LOG_DEBUG("maps.mmaps", "++  m_polyLength=%u prefixPolyLength=%u suffixPolyLength=%u", _polyLength, prefixPolyLength, suffixPolyLength);
@@ -594,6 +590,13 @@ void PathGenerator::BuildPolyPath(G3D::Vector3 const& startPos, G3D::Vector3 con
             _type = PATHFIND_NOPATH;
             return;
         }
+    }
+
+    if (!_polyLength)
+    {
+        BuildShortcut();
+        _type = PATHFIND_NOPATH;
+        return;
     }
 
     // by now we know what type of path we can get

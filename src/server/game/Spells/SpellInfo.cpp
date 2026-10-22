@@ -1,19 +1,14 @@
-/*
- * Copyright (C) 2008-2012 TrinityCore <http://www.trinitycore.org/>
- *
- * This program is free software; you can redistribute it and/or modify it
- * under the terms of the GNU General Public License as published by the
- * Free Software Foundation; either version 2 of the License, or (at your
- * option) any later version.
- *
- * This program is distributed in the hope that it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for
- * more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program. If not, see <http://www.gnu.org/licenses/>.
- */
+////////////////////////////////////////////
+///                                      ///
+///         LEGIONCORE REFORGED          ///
+///    Copyright 2026 Titans-Project     ///
+///         All Rights Reserved.         ///
+///                                      ///
+///      Based on TrinityCore code       ///
+///   Copyright 2008-2012 TrinityCore    ///
+///   <http://www.trinitycore.org/>      ///
+///                                      ///
+////////////////////////////////////////////
 
 #include "SpellAuraDefines.h"
 #include "SpellInfo.h"
@@ -1099,7 +1094,7 @@ SpellInfo::SpellInfo(SpellInfoLoadHelper const& data, SpellEntry const* spellEnt
                     insert = true;
                 }
                 EffectMask |= 1 << i;
-                if (_effect->EffectMechanic)
+                if (_effect->EffectMechanic && _effect->EffectMechanic < 32)       // the mask has 32 bits, MECHANIC_UNK_33-35 do not fit
                     EffectMechanicMask |= 1 << _effect->EffectMechanic;
                 if (_effect->EffectTriggerSpell)
                     HasTriggerSpell = true;
@@ -1134,6 +1129,11 @@ SpellInfo::SpellInfo(SpellInfoLoadHelper const& data, SpellEntry const* spellEnt
         }
     }
 
+    // these have no constructor and a spell may have no DB2 row to fill them
+    Misc = SpellMiscData();
+    _AuraOptions = SpellAuraOptions();
+    AuraOptions = SpellAuraOptions();
+
     for (uint8 difficulty = DIFFICULTY_NONE; difficulty < MAX_DIFFICULTY; ++difficulty)
     {
         Miscs[difficulty] = &Misc;
@@ -1142,6 +1142,12 @@ SpellInfo::SpellInfo(SpellInfoLoadHelper const& data, SpellEntry const* spellEnt
 
     for (auto miscData : data.Misc)
     {
+        if (miscData->DifficultyID >= MAX_DIFFICULTY)
+        {
+            TC_LOG_ERROR("spells", "Spell %u has SpellMisc row with invalid DifficultyID %u, skipped", Id, uint32(miscData->DifficultyID));
+            continue;
+        }
+
         MiscDifficultyMask |= SI64LIT(1) << miscData->DifficultyID;
         SpellMiscData& MiscDiff = miscData->DifficultyID == DIFFICULTY_NONE ? Misc : MiscsMap[miscData->DifficultyID];
         MiscDiff.miscStore = miscData;
@@ -1178,6 +1184,12 @@ SpellInfo::SpellInfo(SpellInfoLoadHelper const& data, SpellEntry const* spellEnt
 
     for (auto auraOpStore : data.AuraOptions)
     {
+        if (auraOpStore->DifficultyID >= MAX_DIFFICULTY)
+        {
+            TC_LOG_ERROR("spells", "Spell %u has SpellAuraOptions row with invalid DifficultyID %u, skipped", Id, uint32(auraOpStore->DifficultyID));
+            continue;
+        }
+
         AuraOptionsDifficultyMask |= SI64LIT(1) << auraOpStore->DifficultyID;
         SpellAuraOptions& optionsDiff = auraOpStore->DifficultyID == DIFFICULTY_NONE ? _AuraOptions : AuraOptions;
         optionsDiff.ProcCharges = auraOpStore ? auraOpStore->ProcCharges : 0;
@@ -2384,7 +2396,8 @@ SpellCastResult SpellInfo::CheckTarget(Unit const* caster, WorldObject const* ta
         if (corpseTarget->GetType() == CORPSE_BONES)
             return SPELL_FAILED_BAD_TARGETS;
         // we have to use owner for some checks (aura preventing resurrection for example)
-        if (Player* owner = ObjectAccessor::FindPlayer(corpseTarget->GetOwnerGUID()))
+        // the owner is read on the corpse's map only: a Player of another map belongs to another thread
+        if (Player* owner = ObjectAccessor::GetPlayer(*corpseTarget, corpseTarget->GetOwnerGUID()))
             unitTarget = owner;
         // we're not interested in corpses without owner
         else
@@ -2430,7 +2443,7 @@ SpellCastResult SpellInfo::CheckTarget(Unit const* caster, WorldObject const* ta
     // not allow passengers to be implicitly hit by spells, however this target type should be an exception,
     // if this is left it kills spells that award kill credit from vehicle to master and some or all* spells,
     // the use of these 2 covers passenger target check
-    if (!(TargetRestrictions.Targets & TARGET_UNIT_MASTER) && !caster->IsVehicle())
+    if (!HasTargetABit.test(TARGET_UNIT_MASTER) && !HasTargetBBit.test(TARGET_UNIT_MASTER) && !caster->IsVehicle())
     {
         if (AuraRestrictions.TargetAuraState && !unitTarget->HasAuraState(AuraStateType(AuraRestrictions.TargetAuraState), this, caster))
             return SPELL_FAILED_TARGET_AURASTATE;
@@ -2511,7 +2524,7 @@ SpellSchoolMask SpellInfo::GetSchoolMask() const
 uint32 SpellInfo::GetAllEffectsMechanicMask() const
 {
     uint32 mask = 0;
-    if (Categories.Mechanic)
+    if (Categories.Mechanic && Categories.Mechanic < 32)
         mask |= 1 << Categories.Mechanic;
     mask |= EffectMechanicMask;
     return mask;
@@ -2520,9 +2533,9 @@ uint32 SpellInfo::GetAllEffectsMechanicMask() const
 uint32 SpellInfo::GetEffectMechanicMask(uint8 effIndex) const
 {
     uint32 mask = 0;
-    if (Categories.Mechanic)
+    if (Categories.Mechanic && Categories.Mechanic < 32)
         mask |= 1 << Categories.Mechanic;
-    if (Effects[effIndex]->IsEffect() && Effects[effIndex]->Mechanic)
+    if (Effects[effIndex]->IsEffect() && Effects[effIndex]->Mechanic && Effects[effIndex]->Mechanic < 32)
         mask |= 1 << Effects[effIndex]->Mechanic;
     return mask;
 }
@@ -2530,14 +2543,14 @@ uint32 SpellInfo::GetEffectMechanicMask(uint8 effIndex) const
 uint32 SpellInfo::GetSpellMechanicMaskByEffectMask(uint32 effectMask) const
 {
     uint32 mask = 0;
-    if (Categories.Mechanic)
+    if (Categories.Mechanic && Categories.Mechanic < 32)
         mask |= 1 << Categories.Mechanic;
     for (int i = 0; i < MAX_SPELL_EFFECTS; ++i)
     {
         if (EffectMask < uint32(1 << i)) // Prevent circle if effect not exist
             break;
 
-        if (effectMask & 1 << i && Effects[i]->Mechanic)
+        if (effectMask & 1 << i && Effects[i]->Mechanic && Effects[i]->Mechanic < 32)
             mask |= 1 << Effects[i]->Mechanic;
     }
     return mask;
@@ -3181,7 +3194,7 @@ bool SpellInfo::_IsPositiveEffect(uint8 effIndex, bool deep) const
                                     continue;
                                 // if non-positive trigger cast targeted to positive target this main cast is non-positive
                                 // this will place this spell auras as debuffs
-                                if (_IsPositiveTarget(spellTriggeredProto->Effects[i]->TargetA.GetTarget(), spellTriggeredProto->Effects[effIndex]->TargetB.GetTarget()) && !spellTriggeredProto->_IsPositiveEffect(i, true))
+                                if (_IsPositiveTarget(spellTriggeredProto->Effects[i]->TargetA.GetTarget(), spellTriggeredProto->Effects[i]->TargetB.GetTarget()) && !spellTriggeredProto->_IsPositiveEffect(i, true))
                                     return false;
                             }
                         }
@@ -3341,6 +3354,65 @@ bool SpellInfo::_IsPositiveTarget(uint32 targetA, uint32 targetB)
     if (targetB)
         return _IsPositiveTarget(targetB, 0);
     return true;
+}
+
+// the constructor computes these once from the DB2 rows; load-time corrections change the effects afterwards
+void SpellInfo::_RebuildEffectBits()
+{
+    EffectMask = 0;
+    EffectMechanicMask = 0;
+    NeedAuraUpdateTarget = false;
+    HasTriggerSpell = false;
+    HasAuraBit.reset();
+    HasEffectBit.reset();
+    HasTargetABit.reset();
+    HasTargetBBit.reset();
+    HasTargetCategoryBit.reset();
+
+    for (auto const& itr : EffectsMap)
+    {
+        SpellEffectInfo const& effect = itr.second;
+
+        EffectMask |= 1 << effect.EffectIndex;
+        if (effect.Mechanic && effect.Mechanic < 32)
+            EffectMechanicMask |= 1 << uint32(effect.Mechanic);
+        if (effect.TriggerSpell)
+            HasTriggerSpell = true;
+
+        if (effect.ApplyAuraName < HasAuraBit.size())
+            HasAuraBit.set(effect.ApplyAuraName);
+        if (effect.Effect < HasEffectBit.size())
+            HasEffectBit.set(effect.Effect);
+        if (uint32(effect.TargetA.GetTarget()) < HasTargetABit.size())
+            HasTargetABit.set(uint32(effect.TargetA.GetTarget()));
+        if (uint32(effect.TargetB.GetTarget()) < HasTargetBBit.size())
+            HasTargetBBit.set(uint32(effect.TargetB.GetTarget()));
+
+        switch (effect.Effect)
+        {
+            case SPELL_EFFECT_APPLY_AREA_AURA_PARTY:
+            case SPELL_EFFECT_APPLY_AREA_AURA_RAID:
+            case SPELL_EFFECT_APPLY_AREA_AURA_FRIEND:
+            case SPELL_EFFECT_APPLY_AREA_AURA_ENEMY:
+            case SPELL_EFFECT_APPLY_AREA_AURA_PET:
+            case SPELL_EFFECT_APPLY_AREA_AURA_OWNER:
+            case SPELL_EFFECT_APPLY_AURA_ON_PET_OR_SELF:
+            case SPELL_EFFECT_APPLY_AURA_WITH_VALUE:
+                NeedAuraUpdateTarget = true;
+                break;
+            default:
+                break;
+        }
+    }
+
+    for (uint8 i = 0; i < MAX_SPELL_EFFECTS; ++i)
+    {
+        if (Effects[i] == &NullEffect)
+            continue;
+
+        HasTargetCategoryBit.set(Effects[i]->TargetA.GetSelectionCategory());
+        HasTargetCategoryBit.set(Effects[i]->TargetB.GetSelectionCategory());
+    }
 }
 
 void SpellInfo::_LoadSpellSpecific()
@@ -4290,7 +4362,8 @@ bool SpellInfo::CanAutoCast(Unit* m_caster, Unit* target) const
             {
                 if (!withDamage)
                 {
-                    if (AuraOptions.CumulativeAura <= 1)
+                    SpellAuraOptions const* auraOptions = GetAuraOptions(m_caster->GetMap() ? m_caster->GetMap()->GetDifficultyID() : 0);
+                    if (auraOptions->CumulativeAura <= 1)
                     {
                         if (target->HasAuraEffect(Id, j))
                             return false;
@@ -4298,7 +4371,7 @@ bool SpellInfo::CanAutoCast(Unit* m_caster, Unit* target) const
                     else
                     {
                         if (AuraEffect* aureff = target->GetAuraEffect(Id, j))
-                            if (aureff->GetBase()->GetStackAmount() >= GetAuraOptions(m_caster->GetMap() ? m_caster->GetMap()->GetDifficultyID() : 0)->CumulativeAura)
+                            if (aureff->GetBase()->GetStackAmount() >= auraOptions->CumulativeAura)
                                 return false;
                     }
                 }

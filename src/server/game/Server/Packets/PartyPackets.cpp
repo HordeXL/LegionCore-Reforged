@@ -1,19 +1,14 @@
-/*
- * Copyright (C) 2008-2015 TrinityCore <http://www.trinitycore.org/>
- *
- * This program is free software; you can redistribute it and/or modify it
- * under the terms of the GNU General Public License as published by the
- * Free Software Foundation; either version 2 of the License, or (at your
- * option) any later version.
- *
- * This program is distributed in the hope that it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for
- * more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program. If not, see <http://www.gnu.org/licenses/>.
- */
+////////////////////////////////////////////
+///                                      ///
+///         LEGIONCORE REFORGED          ///
+///    Copyright 2026 Titans-Project     ///
+///         All Rights Reserved.         ///
+///                                      ///
+///      Based on TrinityCore code       ///
+///   Copyright 2008-2015 TrinityCore    ///
+///   <http://www.trinitycore.org/>      ///
+///                                      ///
+////////////////////////////////////////////
 
 #include "PartyPackets.h"
 
@@ -277,7 +272,9 @@ void WorldPackets::Party::PartyMemberStatseUpdate::Initialize(Player* player)
         uint8 VehicleSeat = 0;
         if (auto const veh = player->GetVehicle())
             if (auto const vehInfo = veh->GetVehicleInfo())
-                VehicleSeat = vehInfo->SeatID[player->m_movementInfo.transport.VehicleSeatIndex];
+                // the seat index comes from the client's movement packets
+                if (player->m_movementInfo.transport.VehicleSeatIndex >= 0 && player->m_movementInfo.transport.VehicleSeatIndex < int8(std::size(vehInfo->SeatID)))
+                    VehicleSeat = vehInfo->SeatID[player->m_movementInfo.transport.VehicleSeatIndex];
 
         MemberState.VehicleSeat = VehicleSeat;
     }
@@ -412,7 +409,7 @@ ByteBuffer& operator<<(ByteBuffer& data, WorldPackets::Party::PartyMemberState c
 
     if (memberState.PartyType[0].has_value() || memberState.PartyType[1].has_value())
         for (auto const& partyType : memberState.PartyType)
-            data << *partyType;
+            data << partyType.value_or(0);
 
     if (memberState.Status)
         data << *memberState.Status;
@@ -791,7 +788,7 @@ void WorldPackets::Party::PartyMemberStats::Initialize(Player* player)
     // Vehicle
     if (auto const veh = player->GetVehicle())
         if (auto const vehInfo = veh->GetVehicleInfo())
-            if (player->m_movementInfo.transport.VehicleSeatIndex <= 8 && player->m_movementInfo.transport.VehicleSeatIndex >= 0)
+            if (player->m_movementInfo.transport.VehicleSeatIndex < 8 && player->m_movementInfo.transport.VehicleSeatIndex >= 0)
                 MemberStats.VehicleSeat = vehInfo->SeatID[player->m_movementInfo.transport.VehicleSeatIndex];
 
     // Auras

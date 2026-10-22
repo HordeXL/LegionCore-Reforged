@@ -1,20 +1,14 @@
-/*
- * Copyright (C) 2008-2012 TrinityCore <http://www.trinitycore.org/>
- * Copyright (C) 2005-2009 MaNGOS <http://getmangos.com/>
- *
- * This program is free software; you can redistribute it and/or modify it
- * under the terms of the GNU General Public License as published by the
- * Free Software Foundation; either version 2 of the License, or (at your
- * option) any later version.
- *
- * This program is distributed in the hope that it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for
- * more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program. If not, see <http://www.gnu.org/licenses/>.
- */
+////////////////////////////////////////////
+///                                      ///
+///         LEGIONCORE REFORGED          ///
+///    Copyright 2026 Titans-Project     ///
+///         All Rights Reserved.         ///
+///                                      ///
+///      Based on TrinityCore code       ///
+///   Copyright 2008-2012 TrinityCore    ///
+///   <http://www.trinitycore.org/>      ///
+///                                      ///
+////////////////////////////////////////////
 
 #include "MotionMaster.h"
 #include "ConfusedMovementGenerator.h"
@@ -62,7 +56,13 @@ void MotionMaster::Initialize()
         MovementGenerator *curr = top();
         pop();
         if (curr)
-            DirectDelete(curr);
+        {
+            // Called from a generator's own update (MovementInform...): it must outlive the rest of that update
+            if (_cleanFlag & MMCF_UPDATE)
+                DelayedDelete(curr);
+            else
+                DirectDelete(curr);
+        }
     }
 
     InitDefault();
@@ -146,7 +146,7 @@ void MotionMaster::MovementExpired(bool reset /*= true*/)
         if (reset)
             _cleanFlag |= MMCF_RESET;
         else
-            _cleanFlag &= MMCF_RESET;
+            _cleanFlag &= ~MMCF_RESET;
         DelayedExpire();
     }
     else
@@ -388,9 +388,9 @@ void MotionMaster::MovePointWithRot(uint32 id, float x, float y, float z, float 
         generatePath = false;
 
     if (_owner->IsPlayer())
-        Mutate(new PointMovementGenerator<Player>(id, x, y, z, generatePath), MOTION_SLOT_ACTIVE);
+        Mutate(new PointMovementGenerator<Player>(id, x, y, z, generatePath, 0.0f, ObjectGuid::Empty, nullptr, orientation), MOTION_SLOT_ACTIVE);
     else
-        Mutate(new PointMovementGenerator<Creature>(id, x, y, z, generatePath), MOTION_SLOT_ACTIVE);
+        Mutate(new PointMovementGenerator<Creature>(id, x, y, z, generatePath, 0.0f, ObjectGuid::Empty, nullptr, orientation), MOTION_SLOT_ACTIVE);
 }
 
 void MotionMaster::MoveLand(uint32 id, Position const& pos)
@@ -424,22 +424,28 @@ void MotionMaster::MoveCharge(float x, float y, float z, float speed /*= SPEED_C
     if (_slot[MOTION_SLOT_CONTROLLED] && _slot[MOTION_SLOT_CONTROLLED]->GetMovementGeneratorType() != DISTRACT_MOTION_TYPE)
         return;
 
+    ObjectGuid const faceTargetGuid = target ? target->GetGUID() : ObjectGuid::Empty;
+
     if (_owner->GetTypeId() == TYPEID_PLAYER)
     {
         TC_LOG_DEBUG("misc", "Player (%s) charged point (X: %f Y: %f Z: %f).", _owner->GetGUID().ToString().c_str(), x, y, z);
-        Mutate(new PointMovementGenerator<Player>(id, x, y, z, generatePath, speed, target, spellEffectExtraData), MOTION_SLOT_CONTROLLED);
+        Mutate(new PointMovementGenerator<Player>(id, x, y, z, generatePath, speed, faceTargetGuid, spellEffectExtraData), MOTION_SLOT_CONTROLLED);
     }
     else
     {
         TC_LOG_DEBUG("misc", "Creature (Entry: %u %s) charged point (X: %f Y: %f Z: %f).",
             _owner->GetEntry(), _owner->GetGUID().ToString().c_str(), x, y, z);
-        Mutate(new PointMovementGenerator<Creature>(id, x, y, z, generatePath, speed, target, spellEffectExtraData), MOTION_SLOT_CONTROLLED);
+        Mutate(new PointMovementGenerator<Creature>(id, x, y, z, generatePath, speed, faceTargetGuid, spellEffectExtraData), MOTION_SLOT_CONTROLLED);
     }
 }
 
 void MotionMaster::MoveCharge(PathGenerator const& path, float speed /*= SPEED_CHARGE*/, Unit const* target /*= nullptr*/,
     Movement::SpellEffectExtraData const* spellEffectExtraData /*= nullptr*/)
 {
+    // The inner MoveCharge is a no-op in this case: launching the spline anyway would move the unit without an owning generator
+    if (_slot[MOTION_SLOT_CONTROLLED] && _slot[MOTION_SLOT_CONTROLLED]->GetMovementGeneratorType() != DISTRACT_MOTION_TYPE)
+        return;
+
     G3D::Vector3 dest = path.GetActualEndPosition();
 
     MoveCharge(dest.x, dest.y, dest.z, speed, EVENT_CHARGE_PREPATH);
@@ -530,8 +536,6 @@ void MotionMaster::MoveJump(float x, float y, float z, float o, float speedXY, f
     float moveTimeHalf = speedZ / Movement::gravity;
     float max_height = -Movement::computeFallElevation(moveTimeHalf, false, -speedZ);
 
-    _owner->AddUnitState(UNIT_STATE_LONG_JUMP);
-
     if ((id == 49575 || id == 102401) && _owner->IsPlayer())
     {
         speedXY *= 50.0f;
@@ -557,6 +561,9 @@ void MotionMaster::MoveJump(float x, float y, float z, float o, float speedXY, f
     }
 
     Mutate(new EffectMovementGenerator(id, arrivalSpellId, arrivalSpellTargetGuid), MOTION_SLOT_CONTROLLED);
+
+    // After Mutate: finalizing the replaced generator clears this state on creatures
+    _owner->AddUnitState(UNIT_STATE_LONG_JUMP);
 }
 
 void MotionMaster::MoveFall(uint32 id/*=0*/)
@@ -597,6 +604,10 @@ void MotionMaster::MoveFall(uint32 id/*=0*/)
 
 void MotionMaster::MoveCirclePath(float x, float y, float z, float radius, bool clockwise, uint8 stepCount)
 {
+    // A cyclic spline needs at least two points, and the step divides by the count
+    if (stepCount < 2)
+        return;
+
     float step = 2 * float(M_PI) / stepCount * (clockwise ? -1.0f : 1.0f);
     Position const& pos = { x, y, z, 0.0f };
     float angle = pos.GetAngle(_owner->GetPositionX(), _owner->GetPositionY());
@@ -767,15 +778,6 @@ void MotionMaster::MovePath(uint32 pathId, bool repeatable, float randomMoveX, f
                  _owner->GetGUID().GetCounter(), pathId, repeatable ? "YES" : "NO");
 }
 
-void MotionMaster::MovePath(WaypointPath& path, bool repeatable)
-{
-    Mutate(new WaypointMovementGenerator<Creature>(path, repeatable), MOTION_SLOT_IDLE);
-
-    TC_LOG_DEBUG("misc", "%s (GUID: %lu) start moving over path(repeatable: %s)",
-                 _owner->GetTypeId() == TYPEID_PLAYER ? "Player" : "Creature",
-                 _owner->GetGUID().GetCounter(), repeatable ? "YES" : "NO");
-}
-
 void MotionMaster::MoveRotate(uint32 time, RotateDirection direction, bool repeat /* = false*/)
 {
     if (!time)
@@ -792,9 +794,9 @@ void MotionMaster::MoveBackward(uint32 id, float x, float y, float z, float spee
     Movement::MoveSplineInit init(*_owner);
     init.MoveTo(x, y, z);
     init.SetBackward();
-    init.Launch();
     if (speed > 0.0f)
         init.SetVelocity(speed);
+    init.Launch();
     Mutate(new EffectMovementGenerator(id), MOTION_SLOT_CONTROLLED);
 }
 
@@ -844,6 +846,14 @@ void MotionMaster::Mutate(MovementGenerator *m, MovementSlot slot)
             DelayedDelete(curr);
         else
             DirectDelete(curr);
+
+        // Finalize may have started another movement in this slot: it is superseded by m and must be finalized, not overwritten
+        for (uint8 i = 0; i < 3 && _slot[slot]; ++i)
+        {
+            MovementGenerator* nested = _slot[slot];
+            _slot[slot] = nullptr;
+            DirectDelete(nested);
+        }
     }
     else if (_top < slot)
     {

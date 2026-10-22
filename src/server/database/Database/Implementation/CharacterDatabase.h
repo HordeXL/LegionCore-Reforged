@@ -1,19 +1,14 @@
-/*
- * Copyright (C) 2008-2018 TrinityCore <https://www.trinitycore.org/>
- *
- * This program is free software; you can redistribute it and/or modify it
- * under the terms of the GNU General Public License as published by the
- * Free Software Foundation; either version 2 of the License, or (at your
- * option) any later version.
- *
- * This program is distributed in the hope that it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for
- * more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program. If not, see <http://www.gnu.org/licenses/>.
- */
+////////////////////////////////////////////
+///                                      ///
+///         LEGIONCORE REFORGED          ///
+///    Copyright 2026 Titans-Project     ///
+///         All Rights Reserved.         ///
+///                                      ///
+///      Based on TrinityCore code       ///
+///   Copyright 2008-2018 TrinityCore    ///
+///   <http://www.trinitycore.org/>      ///
+///                                      ///
+////////////////////////////////////////////
 
 #ifndef _CHARACTERDATABASE_H
 #define _CHARACTERDATABASE_H
@@ -386,6 +381,7 @@ enum CharacterDatabaseStatements : uint32
     CHAR_DEL_GROUP_INSTANCE_PERM_BINDING,
     CHAR_UPD_GROUP_LEADER,
     CHAR_UPD_GROUP_TYPE,
+    CHAR_UPD_GROUP_LOOT,
     CHAR_UPD_GROUP_MEMBER_SUBGROUP,
     CHAR_UPD_GROUP_MEMBER_FLAG,
     CHAR_UPD_GROUP_MEMBER_ROLE,
@@ -465,6 +461,7 @@ enum CharacterDatabaseStatements : uint32
     CHAR_DEL_CHAR_ACHIEVEMENT_PROGRESS,
     CHAR_REP_CHAR_REPUTATION_BY_FACTION,
     CHAR_DEL_ITEM_REFUND_INSTANCE,
+    CHAR_DEL_ITEM_REFUND_INSTANCE_BY_OWNER,
     CHAR_INS_ITEM_REFUND_INSTANCE,
     CHAR_DEL_GROUP,
     CHAR_DEL_GROUP_MEMBER_ALL,

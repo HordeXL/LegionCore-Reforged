@@ -1,22 +1,18 @@
-/*
- * Copyright (C) 2008-2012 TrinityCore <http://www.trinitycore.org/>
- *
- * This program is free software; you can redistribute it and/or modify it
- * under the terms of the GNU General Public License as published by the
- * Free Software Foundation; either version 2 of the License, or (at your
- * option) any later version.
- *
- * This program is distributed in the hope that it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for
- * more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program. If not, see <http://www.gnu.org/licenses/>.
- */
+////////////////////////////////////////////
+///                                      ///
+///         LEGIONCORE REFORGED          ///
+///    Copyright 2026 Titans-Project     ///
+///         All Rights Reserved.         ///
+///                                      ///
+///      Based on TrinityCore code       ///
+///   Copyright 2008-2012 TrinityCore    ///
+///   <http://www.trinitycore.org/>      ///
+///                                      ///
+////////////////////////////////////////////
 
 #include "ScriptMgr.h"
 #include "Chat.h"
+#include "ObjectAccessor.h"
 #include "ScenarioMgr.h"
 #include "Scenario.h"
 
@@ -79,25 +75,55 @@ public:
     static bool HandleScenarioInfoCommand(ChatHandler* handler, char const* args)
     {
         Player* target = NULL;
+        ObjectGuid targetGuid;
         std::string playerName;
-        if (!handler->extractPlayerTarget((char*)args, &target, NULL, &playerName))
+        if (!handler->extractOnlinePlayerTarget((char*)args, &target, &targetGuid, &playerName))
             return false;
 
-        Map* map = target->GetMap();
-        if (!map)
+        // a target on another map is read once, under the accessor lock; only ids leave it
+        bool hasMap = false;
+        bool isInstance = false;
+        uint32 mapId = 0;
+        uint32 instanceId = 0;
+        Difficulty difficulty = DIFFICULTY_NONE;
+        auto readMap = [&](Player* player)
+        {
+            Map* map = player->GetMap();
+            if (!map)
+                return;
+
+            hasMap = true;
+            difficulty = map->GetDifficultyID();
+            if (InstanceMap* instance = map->ToInstanceMap())
+            {
+                isInstance = true;
+                mapId = instance->GetId();
+                instanceId = instance->GetInstanceId();
+            }
+        };
+
+        if (target)
+            readMap(target);
+        else if (!ObjectAccessor::WithPlayer(targetGuid, readMap, ObjectAccessor::PlayerScope::InOrOutOfWorld))
+        {
+            handler->SendSysMessage(LANG_PLAYER_NOT_FOUND);
+            handler->SetSentErrorMessage(true);
+            return false;
+        }
+
+        if (!hasMap)
             return false;
 
-        InstanceMap* instance = map->ToInstanceMap();
-        if (!instance)
+        if (!isInstance)
         {
             handler->PSendSysMessage("Target is not in instance.");
             return false;
         }
 
-        Scenario* progress = sScenarioMgr->GetScenario(instance->GetInstanceId());
+        Scenario* progress = sScenarioMgr->GetScenario(instanceId);
         if (!progress)
         {
-            handler->PSendSysMessage("There is no scenario progress for map %u instanceId %u", instance->GetId(), instance->GetInstanceId());
+            handler->PSendSysMessage("There is no scenario progress for map %u instanceId %u", mapId, instanceId);
             return false;
         }
 
@@ -106,7 +132,7 @@ public:
             scenario->Name[DEFAULT_LOCALE].Str[DEFAULT_LOCALE], progress->GetScenarioId(), progress->GetCurrentStep(), progress->GetStepCount(false), progress->IsCompleted(false) ? "true" : "false",
             progress->IsCompleted(true) ? "true" : "false");
         handler->PSendSysMessage("Scenario Type: %s Difficulty: %s (%u)",
-            GetScenarioTypeString(scenario->Type).c_str(), GetScenarioDifficultyString(map->GetDifficultyID()).c_str(), map->GetDifficultyID());
+            GetScenarioTypeString(scenario->Type).c_str(), GetScenarioDifficultyString(difficulty).c_str(), difficulty);
         return true;
     }
 

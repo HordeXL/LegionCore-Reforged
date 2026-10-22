@@ -1,20 +1,14 @@
-/*
-* Copyright (C) 2008-2014 TrinityCore <http://www.trinitycore.org/>
-* Copyright (C) 2005-2009 MaNGOS <http://getmangos.com/>
-*
-* This program is free software; you can redistribute it and/or modify it
-* under the terms of the GNU General Public License as published by the
-* Free Software Foundation; either version 2 of the License, or (at your
-* option) any later version.
-*
-* This program is distributed in the hope that it will be useful, but WITHOUT
-* ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
-* FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for
-* more details.
-*
-* You should have received a copy of the GNU General Public License along
-* with this program. If not, see <http://www.gnu.org/licenses/>.
-*/
+////////////////////////////////////////////
+///                                      ///
+///         LEGIONCORE REFORGED          ///
+///    Copyright 2026 Titans-Project     ///
+///         All Rights Reserved.         ///
+///                                      ///
+///      Based on TrinityCore code       ///
+///   Copyright 2008-2014 TrinityCore    ///
+///   <http://www.trinitycore.org/>      ///
+///                                      ///
+////////////////////////////////////////////
 
 #include <memory>
 #include <boost/asio/write.hpp>
@@ -153,23 +147,10 @@ bool RASession::CheckAccessLevel(const std::string& user)
 bool RASession::CheckPassword(const std::string& user, const std::string& pass)
 {
     std::string safe_user = user;
-    std::transform(safe_user.begin(), safe_user.end(), safe_user.begin(), ::toupper);
     Utf8ToUpperOnlyLatin(safe_user);
 
-    std::string safe_pass = pass;
-    Utf8ToUpperOnlyLatin(safe_pass);
-    std::transform(safe_pass.begin(), safe_pass.end(), safe_pass.begin(), ::toupper);
-
-    std::string hash = AccountMgr::CalculateShaPassHash(safe_user, safe_pass);
-
-    LoginDatabasePreparedStatement* stmt = LoginDatabase.GetPreparedStatement(LOGIN_SEL_CHECK_PASSWORD_BY_NAME);
-
-    stmt->setString(0, safe_user);
-    stmt->setString(1, hash);
-
-    PreparedQueryResult result = LoginDatabase.Query(stmt);
-
-    if (!result)
+    uint32 const accountId = AccountMgr::GetId(safe_user);
+    if (!accountId || !AccountMgr::CheckPassword(accountId, pass))
     {
         TC_LOG_INFO("commands.ra", "Wrong password for user: %s", user.c_str());
         return false;
@@ -183,7 +164,20 @@ bool RASession::ProcessCommand(std::string& command)
     if (command.length() == 0)
         return true;
 
-    TC_LOG_INFO("commands.ra", "Received command: %s", command.c_str());
+    // passwords stay out of the log, same rule as the in-game command log (case-insensitive here)
+    std::string logged = command;
+    {
+        std::string lowered = command;
+        std::transform(lowered.begin(), lowered.end(), lowered.begin(), ::tolower);
+        if (lowered.find("password") != std::string::npos || lowered.find("account create") != std::string::npos)
+        {
+            size_t const firstSpace = command.find(' ');
+            size_t const secondSpace = firstSpace == std::string::npos ? std::string::npos : command.find(' ', firstSpace + 1);
+            logged = command.substr(0, secondSpace == std::string::npos ? firstSpace : secondSpace) + " ***";
+        }
+    }
+
+    TC_LOG_INFO("commands.ra", "Received command: %s", logged.c_str());
 
     // handle quit, exit and logout commands to terminate connection
     if (command == "quit" || command == "exit" || command == "logout")

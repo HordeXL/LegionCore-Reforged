@@ -1,3 +1,11 @@
+////////////////////////////////////////////
+///                                      ///
+///         LEGIONCORE REFORGED          ///
+///    Copyright 2026 Titans-Project     ///
+///         All Rights Reserved.         ///
+///                                      ///
+////////////////////////////////////////////
+
 #include "CommentatorPackets.h"
 
 void WorldPackets::Commentator::CommentatorEnable::Read()
@@ -8,19 +16,15 @@ void WorldPackets::Commentator::CommentatorEnable::Read()
 void WorldPackets::Commentator::CommentatorGetMapInfo::Read()
 {
     uint8 playerNameLen = _worldPacket.ReadBits(6);
-    std::string PlayerName = _worldPacket.ReadString(playerNameLen);
+    PlayerName = _worldPacket.ReadString(playerNameLen);
 }
 
 void WorldPackets::Commentator::CommentatorGetPlayerInfo::Read()
 {
-    uint32 MapId;
-    _worldPacket >> MapId;
-    uint32 Realm;
-    uint16 Server;
-    uint8 Type;
-    _worldPacket >> Realm;
-    _worldPacket >> Server;
-    _worldPacket >> Type;
+    _worldPacket >> MapID;
+    _worldPacket >> WorldServer.Realm;
+    _worldPacket >> WorldServer.Server;
+    _worldPacket >> WorldServer.Type;
 }
 
 void WorldPackets::Commentator::CommentatorEnterInstance::Read()

@@ -1,20 +1,14 @@
-/*
- * Copyright (C) 2008-2012 TrinityCore <http://www.trinitycore.org/>
- * Copyright (C) 2005-2009 MaNGOS <http://getmangos.com/>
- *
- * This program is free software; you can redistribute it and/or modify it
- * under the terms of the GNU General Public License as published by the
- * Free Software Foundation; either version 2 of the License, or (at your
- * option) any later version.
- *
- * This program is distributed in the hope that it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for
- * more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program. If not, see <http://www.gnu.org/licenses/>.
- */
+////////////////////////////////////////////
+///                                      ///
+///         LEGIONCORE REFORGED          ///
+///    Copyright 2026 Titans-Project     ///
+///         All Rights Reserved.         ///
+///                                      ///
+///      Based on TrinityCore code       ///
+///   Copyright 2008-2012 TrinityCore    ///
+///   <http://www.trinitycore.org/>      ///
+///                                      ///
+////////////////////////////////////////////
 
 #ifndef _PLAYER_H
 #define _PLAYER_H
@@ -2859,6 +2853,8 @@ class TC_GAME_API Player : public Unit, public GridObject<Player>
 
         void LeaveBattleground(bool teleportToEntryPoint = true);
         bool CanJoinToBattleground(uint8 pvpIternalType) const;
+        // kept by the player's own thread when the deserter auras come and go, so other maps can read it
+        void RefreshBgPenaltyFlags(uint32 spellId);
         bool CanReportAfkDueToLimit();
         void ReportedAfkBy(Player* reporter);
         void ClearAfkReports() { m_bgData.BgAfkReporter.clear(); }
@@ -3671,6 +3667,7 @@ class TC_GAME_API Player : public Unit, public GridObject<Player>
         GroupReference m_group;
         GroupReference m_originalGroup;
         std::atomic<Group*> m_groupInvite;
+        std::atomic<uint8> m_bgPenaltyFlags{0}; // 1 = battleground deserter, 2 = arena craven
         uint32 m_groupUpdateMask;
         bool m_bPassOnGroupLoot;
         std::array<GroupUpdateCounter, 2> m_groupUpdateSequences;

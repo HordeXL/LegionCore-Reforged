@@ -1,25 +1,24 @@
-/*
- * Copyright (C) 2008-2012 TrinityCore <http://www.trinitycore.org/>
- *
- * This program is free software; you can redistribute it and/or modify it
- * under the terms of the GNU General Public License as published by the
- * Free Software Foundation; either version 2 of the License, or (at your
- * option) any later version.
- *
- * This program is distributed in the hope that it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for
- * more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program. If not, see <http://www.gnu.org/licenses/>.
- */
+////////////////////////////////////////////
+///                                      ///
+///         LEGIONCORE REFORGED          ///
+///    Copyright 2026 Titans-Project     ///
+///         All Rights Reserved.         ///
+///                                      ///
+///      Based on TrinityCore code       ///
+///   Copyright 2008-2012 TrinityCore    ///
+///   <http://www.trinitycore.org/>      ///
+///                                      ///
+////////////////////////////////////////////
 
 #ifndef TRINITYCORE_WORDFILTERMGR_H
 #define TRINITYCORE_WORDFILTERMGR_H
 
 // #include <locale>
 // #include <codecvt>
+#include <atomic>
+#include <memory>
+#include <mutex>
+#include <shared_mutex>
 
 struct BadSentenceInfo
 {
@@ -56,6 +55,21 @@ struct PlayerFloodInfo
 
     std::set<std::string> mailPhrases{};
     std::set<size_t> mailFoundedBadWords{};
+
+    std::recursive_mutex lock; // held by FloodInfoRef
+};
+
+// keeps the entry alive and locked for as long as the caller holds it
+class FloodInfoRef
+{
+public:
+    explicit FloodInfoRef(std::shared_ptr<PlayerFloodInfo> info) : _info(std::move(info)), _guard(_info->lock) { }
+    PlayerFloodInfo* operator->() const { return _info.get(); }
+    PlayerFloodInfo& operator*() const { return *_info; }
+
+private:
+    std::shared_ptr<PlayerFloodInfo> _info;
+    std::unique_lock<std::recursive_mutex> _guard;
 };
 
 class TC_GAME_API WordFilterMgr
@@ -100,9 +114,20 @@ public:
     int32 GetPenaltyForBadSentence(size_t hash);
     uint32 GetSourceMaskForBadSentence(size_t hash);
     std::vector<BadSentenceInfo> GetBadSentenceList(uint32 page);
-    uint32 GetLastIdBadSentences() const { return lastIdBadSentences;}
+    uint32 GetLastIdBadSentences() const { return lastIdBadSentences.load(); }
 
-    PlayerFloodInfo& GetFloodInfo(uint32 accountid) { return m_floodInfo[accountid]; }
+    FloodInfoRef GetFloodInfo(uint32 accountid)
+    {
+        std::shared_ptr<PlayerFloodInfo> info;
+        {
+            std::lock_guard<std::mutex> guard(m_floodLock);
+            std::shared_ptr<PlayerFloodInfo>& slot = m_floodInfo[accountid];
+            if (!slot)
+                slot = std::make_shared<PlayerFloodInfo>();
+            info = slot;
+        }
+        return FloodInfoRef(std::move(info));
+    }
     bool AddComplaintForUser(const ObjectGuid& offender, const ObjectGuid& complainant, uint64 complaintId, const std::string& text);
 private:
     LetterAnalogMap m_letterAnalogs;
@@ -111,11 +136,15 @@ private:
 
     BadSentences m_badSentences{};
     std::map<uint32, size_t> hashById{};
-    uint32 lastIdBadSentences{};
+    std::atomic<uint32> lastIdBadSentences{0};
     std::hash<std::wstring> hash_fn;
+
+    // chat checks run in map threads while commands and reloads change the lists in the world thread
+    mutable std::shared_mutex m_lock;
     
     ComplaintsInfo m_complaints{};
-    std::map<uint32, PlayerFloodInfo> m_floodInfo{}; // account -> info
+    std::mutex m_floodLock; // protects the map only, each entry has its own lock
+    std::map<uint32, std::shared_ptr<PlayerFloodInfo>> m_floodInfo{}; // account -> info
 };
 
 #define sWordFilterMgr WordFilterMgr::instance()

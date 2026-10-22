@@ -1,20 +1,14 @@
-/*
- * Copyright (C) 2008-2012 TrinityCore <http://www.trinitycore.org/>
- * Copyright (C) 2005-2009 MaNGOS <http://getmangos.com/>
- *
- * This program is free software; you can redistribute it and/or modify it
- * under the terms of the GNU General Public License as published by the
- * Free Software Foundation; either version 2 of the License, or (at your
- * option) any later version.
- *
- * This program is distributed in the hope that it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for
- * more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program. If not, see <http://www.gnu.org/licenses/>.
- */
+////////////////////////////////////////////
+///                                      ///
+///         LEGIONCORE REFORGED          ///
+///    Copyright 2026 Titans-Project     ///
+///         All Rights Reserved.         ///
+///                                      ///
+///      Based on TrinityCore code       ///
+///   Copyright 2008-2012 TrinityCore    ///
+///   <http://www.trinitycore.org/>      ///
+///                                      ///
+////////////////////////////////////////////
 
 #include "Common.h"
 #include "ObjectMgr.h"
@@ -44,6 +38,7 @@
 #endif
 #include "SpellAuraEffects.h"
 #include "GuildMgr.h"
+#include "GroupMgr.h"
 
 // Lazy loading of the command table cache from commands and the
 // ScriptMgr should be thread safe since the player commands,
@@ -1200,6 +1195,10 @@ std::string ChatHandler::extractPlayerNameFromLink(char* text)
 
 bool ChatHandler::extractPlayerTarget(char* args, Player** player, ObjectGuid* player_guid /*=NULL*/, std::string* player_name /*= NULL*/)
 {
+    Player* pl = nullptr;
+    ObjectGuid outGuid;
+    std::string outName;
+
     if (args && *args)
     {
         std::string name = extractPlayerNameFromLink(args);
@@ -1210,44 +1209,114 @@ bool ChatHandler::extractPlayerTarget(char* args, Player** player, ObjectGuid* p
             return false;
         }
 
-        Player* pl = sObjectAccessor->FindPlayerByName(name);
-
-        // if allowed player pointer
-        if (player)
-            *player = pl;
+        // the guid of an online player; his pointer may belong to another map's thread
+        outGuid = sObjectAccessor->FindPlayerGuidByName(name);
 
         // if need guid value from DB (in name case for check player existence)
-        ObjectGuid guid = !pl && (player_guid || player_name) ? ObjectMgr::GetPlayerGUIDByName(name) : ObjectGuid::Empty;
+        if (outGuid.IsEmpty() && (player_guid || player_name))
+            outGuid = ObjectMgr::GetPlayerGUIDByName(name);
 
-        // if allowed player guid (if no then only online players allowed)
-        if (player_guid)
-            *player_guid = pl ? pl->GetGUID() : guid;
+        outName = outGuid.IsEmpty() ? "" : name;
 
-        if (player_name)
-            *player_name = pl || !guid.IsEmpty() ? name : "";
+        if (!outGuid.IsEmpty() && m_session && m_session->GetPlayer())
+            pl = ObjectAccessor::GetPlayer(*m_session->GetPlayer(), outGuid);
     }
     else
     {
-        Player* pl = getSelectedPlayer();
-        // if allowed player pointer
-        if (player)
-            *player = pl;
-        // if allowed player guid (if no then only online players allowed)
-        if (player_guid)
-            *player_guid = pl ? pl->GetGUID() : ObjectGuid::Empty;
-
-        if (player_name)
-            *player_name = pl ? pl->GetName() : "";
+        // a selection is on the caller's map
+        pl = getSelectedPlayer();
+        if (pl)
+        {
+            outGuid = pl->GetGUID();
+            outName = pl->GetName();
+        }
     }
 
-    // some from req. data must be provided (note: name is empty if player not exist)
-    if ((!player || !*player) && (!player_guid || !*player_guid) && (!player_name || player_name->empty()))
+    // if allowed player pointer
+    if (player)
+        *player = pl;
+
+    // if allowed player guid (if no then only online players allowed)
+    if (player_guid)
+        *player_guid = outGuid;
+
+    if (player_name)
+        *player_name = outName;
+
+    // some from req. data must be provided; a caller that asks for the pointer alone cannot use a player of another map
+    bool const found = (player_guid || player_name) ? !outGuid.IsEmpty() : pl != nullptr;
+    if (!found)
     {
         SendSysMessage(LANG_PLAYER_NOT_FOUND);
         SetSentErrorMessage(true);
         return false;
     }
 
+    return true;
+}
+
+bool ChatHandler::IsOnlineElsewhere(Player const* target, ObjectGuid guid)
+{
+    return !target && !guid.IsEmpty() && ObjectAccessor::WithPlayer(guid, [](Player*) { }, ObjectAccessor::PlayerScope::InOrOutOfWorld);
+}
+
+bool ChatHandler::extractOnlinePlayerTarget(char* args, Player** player, ObjectGuid* player_guid, std::string* player_name /*= nullptr*/)
+{
+    Player* target = nullptr;
+    ObjectGuid guid;
+    std::string name;
+    if (!extractPlayerTarget(args, &target, &guid, &name))
+        return false;
+
+    if (!target && !IsOnlineElsewhere(target, guid))
+    {
+        SendSysMessage(LANG_PLAYER_NOT_FOUND);
+        SetSentErrorMessage(true);
+        return false;
+    }
+
+    if (player)
+        *player = target;
+    if (player_guid)
+        *player_guid = guid;
+    if (player_name)
+        *player_name = name;
+    return true;
+}
+
+bool ChatHandler::NeedReportToElsewhere(ObjectGuid guid) const
+{
+    bool report = false;
+    ObjectAccessor::WithPlayer(guid, [this, &report](Player* target) { report = needReportToTarget(target); }, ObjectAccessor::PlayerScope::InOrOutOfWorld);
+    return report;
+}
+
+Group* ChatHandler::FindTargetGroup(Player* target, ObjectGuid guid)
+{
+    if (target)
+        return target->GetGroup();
+
+    ObjectGuid groupGuid;
+    ObjectAccessor::WithPlayer(guid, [&groupGuid](Player* player)
+    {
+        if (Group* group = player->GetGroup())
+            groupGuid = group->GetGUID();
+    }, ObjectAccessor::PlayerScope::InOrOutOfWorld);
+
+    return groupGuid.IsEmpty() ? nullptr : sGroupMgr->GetGroupByGUID(groupGuid);
+}
+
+bool ChatHandler::PostToTarget(ObjectGuid guid, std::function<void(Player*)>&& action, char const* announceName /*= nullptr*/)
+{
+    if (!ObjectAccessor::PostToPlayer(guid, std::move(action)))
+    {
+        SendSysMessage(LANG_PLAYER_NOT_FOUND);
+        SetSentErrorMessage(true);
+        return false;
+    }
+
+    if (announceName)
+        PSendSysMessage("Sent to %s, who is on another map.", announceName);
     return true;
 }
 

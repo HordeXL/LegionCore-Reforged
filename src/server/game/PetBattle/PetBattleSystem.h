@@ -1,10 +1,10 @@
-////////////////////////////////////////////////////////////////////////////////
-//
-//  MILLENIUM-STUDIO
-//  Copyright 2016 Millenium-studio SARL
-//  All Rights Reserved.
-//
-////////////////////////////////////////////////////////////////////////////////
+////////////////////////////////////////////
+///                                      ///
+///         LEGIONCORE REFORGED          ///
+///    Copyright 2026 Titans-Project     ///
+///         All Rights Reserved.         ///
+///                                      ///
+////////////////////////////////////////////
 
 #pragma once
 #ifndef _PetBattleSystem
@@ -90,17 +90,10 @@ public:
     std::shared_ptr<PetBattle> NewBattle();
     std::shared_ptr<PetBattle> AcquireBattle(ObjectGuid battleID);
 
-    // Raw access for older callers: the battle stays listed at least 30 s after it ends.
-    PetBattle* CreateBattle();
-    PetBattle* GetBattle(ObjectGuid battleID);
-
-    // Raw access for the requester's own thread; a request can only be taken by the opponent it names.
-    PetBattleRequest* CreateRequest(ObjectGuid requesterGuid);
+    // A request can only be taken by the opponent it names, and while it has not expired.
     void AddRequest(std::shared_ptr<PetBattleRequest> const& request);
-    std::shared_ptr<PetBattleRequest> GetRequest(ObjectGuid requesterGuid);
     std::shared_ptr<PetBattleRequest> TakeRequest(ObjectGuid requesterGuid, ObjectGuid opponentGuid);
 
-    void RemoveBattle(ObjectGuid battleID);
     void RemoveRequest(ObjectGuid requesterGuid);
 
     void JoinQueue(Player* player);
@@ -109,12 +102,18 @@ public:
 
     void Update(uint32 diff);
 
-    void ForfeitBattle(ObjectGuid battleID, ObjectGuid forfeiterGuid, bool ignoreAbandonPenalty);
+    // Called from WorldSession::LogoutPlayer, in the leaving player's own thread, before he is freed:
+    // withdraws his challenge and abandons his battle so the wild creature or the opponent is released.
+    void OnPlayerLogout(Player* player);
+
+    // Undoes what a battle that never began left on the player, in his own update; another battle he joined since is left alone.
+    static void ReleaseFromUnstartedBattle(ObjectGuid const& playerGuid, ObjectGuid const& battleID, bool matchmaking);
 
     eBattlePetRequests CanPlayerEnterInPetBattle(Player* player, PetBattleRequest* petBattleRequest);
 
 private:
     void UpdateQueue();
+    void RecordQueueWait(uint32 queuedTime);
 
     std::map<ObjectGuid, std::shared_ptr<PetBattle>> _petBattles;           ///< All running battles
     std::map<ObjectGuid, std::shared_ptr<PetBattleRequest>> _battleRequests; ///< All pending battles request

@@ -1,19 +1,14 @@
-/*
- * Copyright (C) 2008-2012 TrinityCore <http://www.trinitycore.org/>
- *
- * This program is free software; you can redistribute it and/or modify it
- * under the terms of the GNU General Public License as published by the
- * Free Software Foundation; either version 2 of the License, or (at your
- * option) any later version.
- *
- * This program is distributed in the hope that it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for
- * more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program. If not, see <http://www.gnu.org/licenses/>.
- */
+////////////////////////////////////////////
+///                                      ///
+///         LEGIONCORE REFORGED          ///
+///    Copyright 2026 Titans-Project     ///
+///         All Rights Reserved.         ///
+///                                      ///
+///      Based on TrinityCore code       ///
+///   Copyright 2008-2012 TrinityCore    ///
+///   <http://www.trinitycore.org/>      ///
+///                                      ///
+////////////////////////////////////////////
 
 #include "AccountMgr.h"
 #include "BattlegroundMgr.h"
@@ -23,6 +18,7 @@
 #include "GlobalFunctional.h"
 #include "GridNotifiers.h"
 #include "Group.h"
+#include "GroupMgr.h"
 #include "Guild.h"
 #include "GuildMgr.h"
 #include "InstanceSaveMgr.h"
@@ -39,6 +35,66 @@
 #include "WordFilterMgr.h"
 #include <fstream>
 #include <boost/locale/encoding_utf.hpp>
+
+namespace
+{
+    // What .appear needs from its target; a player of another map is read once, under the accessor lock
+    struct AppearTarget
+    {
+        uint32 mapId = 0;
+        bool battlegroundOrArena = false;
+        bool dungeon = false;
+        bool raid = false;
+        uint32 battlegroundId = 0;
+        uint16 battlegroundTypeId = 0;
+        ObjectGuid groupGuid;
+        uint32 instanceId = 0;
+        Difficulty difficulty = DIFFICULTY_NONE;
+        Difficulty raidDifficulty = DIFFICULTY_NONE;
+        Difficulty dungeonDifficulty = DIFFICULTY_NONE;
+        uint32 phaseMask = 0;
+        float x = 0.0f;
+        float y = 0.0f;
+        float z = 0.0f;
+        float angle = 0.0f;
+    };
+
+    bool ReadAppearTarget(Player* target, Player* gm, bool sameMap, AppearTarget& out)
+    {
+        Map* map = target->GetMap();
+        if (!map)
+            return false;
+
+        out.mapId = target->GetMapId();
+        out.battlegroundOrArena = map->IsBattlegroundOrArena();
+        out.dungeon = map->IsDungeon();
+        out.raid = map->IsRaid();
+        out.battlegroundId = target->GetBattlegroundId();
+        out.battlegroundTypeId = target->GetBattlegroundTypeId();
+        if (Group* group = target->GetGroup())
+            out.groupGuid = group->GetGUID();
+        out.instanceId = target->GetInstanceId();
+        out.difficulty = target->GetDifficultyID(map->GetEntry());
+        out.raidDifficulty = target->GetRaidDifficultyID();
+        out.dungeonDifficulty = target->GetDungeonDifficultyID();
+        out.phaseMask = target->GetPhaseMask();
+
+        if (sameMap)
+        {
+            // to point to see at target with same orientation
+            target->GetContactPoint(gm, out.x, out.y, out.z);
+            out.angle = gm->GetAngle(target);
+        }
+        else
+        {
+            // no map query across threads: a point in front of the target, facing him
+            out.z = target->GetPositionZ();
+            target->GetNearPoint2D(out.x, out.y, CONTACT_DISTANCE + gm->GetObjectSize(), target->GetOrientation());
+            out.angle = Position::NormalizeOrientation(target->GetOrientation() + float(M_PI));
+        }
+        return true;
+    }
+}
 
 class misc_commandscript : public CommandScript
 {
@@ -698,16 +754,28 @@ public:
             return false;
         }
 
-        if (target)
+        if (target || ChatHandler::IsOnlineElsewhere(target, targetGuid))
         {
             // check online security
-            if (handler->HasLowerSecurity(target, ObjectGuid::Empty))
+            if (handler->HasLowerSecurity(target, targetGuid))
                 return false;
 
             std::string chrNameLink = handler->playerLink(targetName);
 
-            Map* map = target->GetMap();
-            if (map->IsBattlegroundOrArena())
+            AppearTarget info;
+            bool read = false;
+            if (target)
+                read = ReadAppearTarget(target, _player, true, info);
+            else
+                ObjectAccessor::WithPlayer(targetGuid, [&](Player* other) { read = ReadAppearTarget(other, _player, false, info); });
+            if (!read)
+            {
+                handler->PSendSysMessage(LANG_IS_TELEPORTED, chrNameLink.c_str());
+                handler->SetSentErrorMessage(true);
+                return false;
+            }
+
+            if (info.battlegroundOrArena)
             {
                 // only allow if gm mode is on
                 if (!_player->isGameMaster())
@@ -717,18 +785,18 @@ public:
                     return false;
                 }
                 // if both players are in different bgs
-                if (_player->GetBattlegroundId() && _player->GetBattlegroundId() != target->GetBattlegroundId())
+                if (_player->GetBattlegroundId() && _player->GetBattlegroundId() != info.battlegroundId)
                     _player->LeaveBattleground(false);
                 // Note: should be changed so _player gets no Deserter debuff
 
                 // all's well, set bg id
                 // when porting out from the bg, it will be reset to 0
-                _player->SetBattlegroundId(target->GetBattlegroundId(), target->GetBattlegroundTypeId());
+                _player->SetBattlegroundId(info.battlegroundId, info.battlegroundTypeId);
                 // remember current position as entry point for return at bg end teleportation
                 if (!_player->GetMap()->IsBattlegroundOrArena())
                     _player->SetBattlegroundEntryPoint();
             }
-            else if (map->IsDungeon())
+            else if (info.dungeon)
             {
                 // we have to go to instance, and can go to player only if:
                 //   1) we are in his group (either as leader or as member)
@@ -736,7 +804,7 @@ public:
                 if (_player->GetGroup())
                 {
                     // we are in group, we can go only if we are in the player group
-                    if (_player->GetGroup() != target->GetGroup())
+                    if (_player->GetGroup()->GetGUID() != info.groupGuid)
                     {
                         handler->PSendSysMessage(LANG_CANNOT_GO_TO_INST_PARTY, chrNameLink.c_str());
                         handler->SetSentErrorMessage(true);
@@ -756,21 +824,21 @@ public:
 
                 // if the player or the player's group is bound to another instance
                 // the player will not be bound to another one
-                InstancePlayerBind const bind = _player->GetBoundInstanceCopy(target->GetMapId(), target->GetDifficultyID(map->GetEntry()));
+                InstancePlayerBind const bind = _player->GetBoundInstanceCopy(info.mapId, info.difficulty);
                 if (!bind.save)
                 {
                     Group* group = _player->GetGroup();
                     // if no bind exists, create a solo bind
-                    InstanceGroupBind gBind = group ? group->GetBoundInstanceCopy(target) : InstanceGroupBind();
+                    InstanceGroupBind gBind = group ? group->GetBoundInstanceCopy(sMapStore.LookupEntry(info.mapId)) : InstanceGroupBind();
                     if (!gBind.save)
-                        if (InstanceSave* save = sInstanceSaveMgr->GetInstanceSave(target->GetInstanceId()))
+                        if (InstanceSave* save = sInstanceSaveMgr->GetInstanceSave(info.instanceId))
                             _player->BindToInstance(save, !save->CanReset());
                 }
 
-                if (map->IsRaid())
-                    _player->SetRaidDifficultyID(target->GetRaidDifficultyID());
+                if (info.raid)
+                    _player->SetRaidDifficultyID(info.raidDifficulty);
                 else
-                    _player->SetDungeonDifficultyID(target->GetDungeonDifficultyID());
+                    _player->SetDungeonDifficultyID(info.dungeonDifficulty);
             }
 
             handler->PSendSysMessage(LANG_APPEARING_AT, chrNameLink.c_str());
@@ -785,12 +853,8 @@ public:
             else
                 _player->SaveRecallPosition();
 
-            // to point to see at target with same orientation
-            float x, y, z;
-            target->GetContactPoint(_player, x, y, z);
-
-            _player->TeleportTo(target->GetMapId(), x, y, z, _player->GetAngle(target), TELE_TO_GM_MODE);
-            _player->SetPhaseMask(target->GetPhaseMask(), true);
+            _player->TeleportTo(info.mapId, info.x, info.y, info.z, info.angle, TELE_TO_GM_MODE);
+            _player->SetPhaseMask(info.phaseMask, true);
         }
         else
         {
@@ -917,6 +981,102 @@ public:
             target->TeleportTo(handler->GetSession()->GetPlayer()->GetMapId(), x, y, z, target->GetOrientation());
             target->SetPhaseMask(handler->GetSession()->GetPlayer()->GetPhaseMask(), true);
         }
+        else if (ChatHandler::IsOnlineElsewhere(target, targetGuid))
+        {
+            std::string nameLink = handler->playerLink(targetName);
+            // check online security
+            if (handler->HasLowerSecurity(nullptr, targetGuid))
+                return false;
+
+            // the target lives in another map thread: read what is needed once, act in his thread
+            bool isTeleported = false;
+            bool report = false;
+            float objectSize = 0.0f;
+            ObjectGuid targetGroupGuid;
+            if (!ObjectAccessor::WithPlayer(targetGuid, [&](Player* other)
+            {
+                isTeleported = other->IsBeingTeleported();
+                report = handler->needReportToTarget(other);
+                objectSize = other->GetObjectSize();
+                if (Group* group = other->GetGroup())
+                    targetGroupGuid = group->GetGUID();
+            }) || isTeleported)
+            {
+                handler->PSendSysMessage(LANG_IS_TELEPORTED, nameLink.c_str());
+                handler->SetSentErrorMessage(true);
+                return false;
+            }
+
+            Map* map = _player->GetMap();
+            bool const toBattleground = map->IsBattlegroundOrArena();
+
+            if (toBattleground)
+            {
+                // only allow if gm mode is on
+                if (!_player->isGameMaster())
+                {
+                    handler->PSendSysMessage(LANG_CANNOT_GO_TO_BG_GM, nameLink.c_str());
+                    handler->SetSentErrorMessage(true);
+                    return false;
+                }
+            }
+            else if (map->IsDungeon())
+            {
+                // we are in instance, and can summon only player in our group with us as lead
+                Group* targetGroup = targetGroupGuid.IsEmpty() ? nullptr : sGroupMgr->GetGroupByGUID(targetGroupGuid);
+                if (!_player->GetGroup() || !targetGroup ||
+                    (targetGroup->GetLeaderGUID() != _player->GetGUID()) ||
+                    (_player->GetGroup()->GetLeaderGUID() != _player->GetGUID()))
+                    // the last check is a bit excessive, but let it be, just in case
+                {
+                    handler->PSendSysMessage(LANG_CANNOT_SUMMON_TO_INST, nameLink.c_str());
+                    handler->SetSentErrorMessage(true);
+                    return false;
+                }
+            }
+
+            handler->PSendSysMessage(LANG_SUMMONING, nameLink.c_str(), "");
+
+            // before GM
+            float x, y, z;
+            _player->GetClosePoint(x, y, z, objectSize);
+
+            return handler->PostToTarget(targetGuid, [report, toBattleground, gmLink = handler->playerLink(_player->GetName()),
+                gmBattlegroundId = _player->GetBattlegroundId(), gmBattlegroundTypeId = _player->GetBattlegroundTypeId(),
+                mapId = _player->GetMapId(), phaseMask = _player->GetPhaseMask(), x, y, z](Player* player)
+            {
+                if (toBattleground)
+                {
+                    // if both players are in different bgs
+                    if (player->GetBattlegroundId() && gmBattlegroundId != player->GetBattlegroundId())
+                        player->LeaveBattleground(false);
+                    // Note: should be changed so target gets no Deserter debuff
+
+                    // all's well, set bg id
+                    // when porting out from the bg, it will be reset to 0
+                    player->SetBattlegroundId(gmBattlegroundId, gmBattlegroundTypeId);
+                    // remember current position as entry point for return at bg end teleportation
+                    if (!player->GetMap()->IsBattlegroundOrArena())
+                        player->SetBattlegroundEntryPoint();
+                }
+
+                if (report)
+                    ChatHandler(player).PSendSysMessage(LANG_SUMMONED_BY, gmLink.c_str());
+
+                // stop flight if need
+                if (player->isInFlight())
+                {
+                    player->GetMotionMaster()->MovementExpired();
+                    player->CleanupAfterTaxiFlight();
+                }
+                // save only in non-flight case
+                else
+                    player->SaveRecallPosition();
+
+                player->TeleportTo(mapId, x, y, z, player->GetOrientation());
+                player->SetPhaseMask(phaseMask, true);
+            });
+        }
         else
         {
             // check offline security
@@ -943,16 +1103,18 @@ public:
     static bool HandleGroupSummonCommand(ChatHandler* handler, char const* args)
     {
         Player* target;
-        if (!handler->extractPlayerTarget((char*)args, &target))
+        ObjectGuid targetGuid;
+        std::string targetName;
+        if (!handler->extractOnlinePlayerTarget((char*)args, &target, &targetGuid, &targetName))
             return false;
 
         // check online security
-        if (handler->HasLowerSecurity(target, ObjectGuid::Empty))
+        if (handler->HasLowerSecurity(target, targetGuid))
             return false;
 
-        Group* group = target->GetGroup();
+        Group* group = ChatHandler::FindTargetGroup(target, targetGuid);
 
-        std::string nameLink = handler->GetNameLink(target);
+        std::string nameLink = handler->playerLink(targetName);
 
         if (!group)
         {
@@ -1086,14 +1248,23 @@ public:
     {
         Player* target;
         ObjectGuid targetGuid;
-        if (!handler->extractPlayerTarget((char*)args, &target, &targetGuid))
+        std::string targetName;
+        if (!handler->extractPlayerTarget((char*)args, &target, &targetGuid, &targetName))
             return false;
 
-        if (target)
+        auto revive = [](Player* player)
         {
-            target->ResurrectPlayer(!AccountMgr::IsPlayerAccount(target->GetSession()->GetSecurity()) ? 1.0f : 0.5f);
-            target->SpawnCorpseBones();
-            target->SaveToDB();
+            player->ResurrectPlayer(!AccountMgr::IsPlayerAccount(player->GetSession()->GetSecurity()) ? 1.0f : 0.5f);
+            player->SpawnCorpseBones();
+            player->SaveToDB();
+        };
+
+        if (target)
+            revive(target);
+        else if (ChatHandler::IsOnlineElsewhere(target, targetGuid))
+        {
+            if (!handler->PostToTarget(targetGuid, revive, targetName.c_str()))
+                return false;
         }
         else
             // will resurrected at login without corpse
@@ -1280,16 +1451,45 @@ public:
     static bool HandleRecallCommand(ChatHandler* handler, char const* args)
     {
         Player* target;
-        if (!handler->extractPlayerTarget((char*)args, &target))
+        ObjectGuid targetGuid;
+        std::string targetName;
+        if (!handler->extractOnlinePlayerTarget((char*)args, &target, &targetGuid, &targetName))
             return false;
 
         // check online security
-        if (handler->HasLowerSecurity(target, ObjectGuid::Empty))
+        if (handler->HasLowerSecurity(target, targetGuid))
             return false;
+
+        std::string nameLink = handler->playerLink(targetName);
+
+        if (!target)
+        {
+            // the target is moved by his own thread, which also reads his recall position
+            bool beingTeleported = false;
+            ObjectAccessor::WithPlayer(targetGuid, [&beingTeleported](Player* other) { beingTeleported = other->IsBeingTeleported(); }, ObjectAccessor::PlayerScope::InOrOutOfWorld);
+            if (beingTeleported)
+            {
+                handler->PSendSysMessage(LANG_IS_TELEPORTED, nameLink.c_str());
+                handler->SetSentErrorMessage(true);
+                return false;
+            }
+
+            return handler->PostToTarget(targetGuid, [](Player* player)
+            {
+                // stop flight if need
+                if (player->isInFlight())
+                {
+                    player->GetMotionMaster()->MovementExpired();
+                    player->CleanupAfterTaxiFlight();
+                }
+
+                player->TeleportTo(player->m_recallLoc);
+            }, targetName.c_str());
+        }
 
         if (target->IsBeingTeleported())
         {
-            handler->PSendSysMessage(LANG_IS_TELEPORTED, handler->GetNameLink(target).c_str());
+            handler->PSendSysMessage(LANG_IS_TELEPORTED, nameLink.c_str());
             handler->SetSentErrorMessage(true);
             return false;
         }
@@ -1343,8 +1543,9 @@ public:
     static bool HandleKickPlayerCommand(ChatHandler* handler, char const* args)
     {
         Player* target = NULL;
+        ObjectGuid targetGuid;
         std::string playerName;
-        if (!handler->extractPlayerTarget((char*)args, &target, NULL, &playerName))
+        if (!handler->extractOnlinePlayerTarget((char*)args, &target, &targetGuid, &playerName))
             return false;
 
         if (handler->GetSession() && target == handler->GetSession()->GetPlayer())
@@ -1355,7 +1556,7 @@ public:
         }
 
         // check online security
-        if (handler->HasLowerSecurity(target, ObjectGuid::Empty))
+        if (handler->HasLowerSecurity(target, targetGuid))
             return false;
 
         if (sWorld->getBoolConfig(CONFIG_SHOW_KICK_IN_WORLD))
@@ -1363,7 +1564,11 @@ public:
         else
             handler->PSendSysMessage(LANG_COMMAND_KICKMESSAGE, playerName.c_str());
 
-        target->GetSession()->KickPlayer();
+        // closing the sockets is safe from any thread
+        if (target)
+            target->GetSession()->KickPlayer();
+        else
+            ObjectAccessor::WithPlayer(targetGuid, [](Player* other) { other->GetSession()->KickPlayer(); }, ObjectAccessor::PlayerScope::InOrOutOfWorld);
 
         return true;
     }
@@ -2038,7 +2243,6 @@ public:
     // show info of player
     static bool HandlePInfoCommand(ChatHandler* handler, char const* args)
     {
-        Player* target = nullptr;
         ObjectGuid targetGuid;
         std::string targetName;
 
@@ -2046,7 +2250,7 @@ public:
 
         if (ObjectMgr::GetPlayerNameByGUID(parseGUID, targetName))
             targetGuid = parseGUID;
-        else if (!handler->extractPlayerTarget((char*)args, &target, &targetGuid, &targetName))
+        else if (!handler->extractPlayerGuidTarget((char*)args, &targetGuid, &targetName))
             return false;
 
         uint32 accId            = 0;
@@ -2378,6 +2582,38 @@ public:
 
         return true;
     }
+    // The character of an account that is logged in, when the target was named offline or by another character:
+    // the pointer if he is on the caller's map, else (onlineGuid) his guid, to act on him through PostToPlayer
+    static void FindLoggedInOfAccount(ChatHandler* handler, Player*& target, ObjectGuid targetGuid, uint32 accountId, ObjectGuid& onlineGuid)
+    {
+        if (target)
+            return;
+
+        if (ChatHandler::IsOnlineElsewhere(target, targetGuid))
+            onlineGuid = targetGuid;
+        else
+        {
+            // find only player from same account if any
+            for (ObjectGuid const& guid : sObjectAccessor->GetOnlinePlayerGuids())
+            {
+                bool sameAccount = false;
+                ObjectAccessor::WithPlayer(guid, [&sameAccount, accountId](Player* other) { sameAccount = other->GetSession()->GetAccountId() == accountId; }, ObjectAccessor::PlayerScope::InOrOutOfWorld);
+                if (sameAccount)
+                {
+                    onlineGuid = guid;
+                    break;
+                }
+            }
+        }
+
+        if (!onlineGuid.IsEmpty() && handler->GetSession() && handler->GetSession()->GetPlayer())
+        {
+            target = ObjectAccessor::GetPlayer(*handler->GetSession()->GetPlayer(), onlineGuid);
+            if (target)
+                onlineGuid = ObjectGuid::Empty;
+        }
+    }
+
     // mute player for some times
     static bool HandleMuteCommand(ChatHandler* handler, char const* args)
     {
@@ -2400,10 +2636,16 @@ public:
 
         uint32 accountId = target ? target->GetSession()->GetAccountId() : ObjectMgr::GetPlayerAccountIdByGUID(targetGuid);
 
-        // find only player from same account if any
-        if (!target)
-            if (WorldSessionPtr session = sWorld->FindSession(accountId))
-                target = session->GetPlayer();
+        ObjectGuid onlineGuid;
+        FindLoggedInOfAccount(handler, target, targetGuid, accountId, onlineGuid);
+        // the mute is applied where the character lives
+        auto applyToOnline = [&target, &onlineGuid](std::function<void(Player*)>&& action)
+        {
+            if (target)
+                action(target);
+            else if (!onlineGuid.IsEmpty())
+                ObjectAccessor::PostToPlayer(onlineGuid, std::move(action));
+        };
 
         int64 notSpeakTime = (int64) atoi(delayStr);
         
@@ -2431,8 +2673,7 @@ public:
             {
                 muteTime = notSpeakTime * MINUTE;
                 LoginDatabase.PQuery("UPDATE account SET mutetime = mutetime + %u WHERE id = %u", muteTime, accountId);
-                if (target)
-                    target->GetSession()->m_muteTime = target->GetSession()->m_muteTime + muteTime;
+                applyToOnline([muteTime](Player* player) { player->GetSession()->m_muteTime = player->GetSession()->m_muteTime + muteTime; });
             }
         }
         else
@@ -2442,20 +2683,18 @@ public:
             else
                 muteTime = GameTime::GetGameTime() + notSpeakTime * MINUTE;
             LoginDatabase.PQuery("UPDATE account SET mutetime = " UI64FMTD " WHERE id = %u", uint64(muteTime), accountId);
-            if (target)
-                target->GetSession()->m_muteTime = muteTime;
+            applyToOnline([muteTime](Player* player) { player->GetSession()->m_muteTime = muteTime; });
         }
 
         WorldDatabase.EscapeString(muteReasonStr);
 
-        if (target)
-            ChatHandler(target).PSendSysMessage(LANG_YOUR_CHAT_DISABLED, notSpeakTime, muteReasonStr.c_str());
+        applyToOnline([notSpeakTime, muteReasonStr](Player* player) { ChatHandler(player).PSendSysMessage(LANG_YOUR_CHAT_DISABLED, notSpeakTime, muteReasonStr.c_str()); });
 
         LoginDatabase.PQuery("INSERT INTO account_muted VALUES (%u, UNIX_TIMESTAMP(), UNIX_TIMESTAMP() + %u, '%s', '%s', 1)", accountId, notSpeakTime*60, handler->GetSession() ? handler->GetSession()->GetPlayerName().c_str() : "Console", muteReasonStr.c_str());
 
         std::string nameLink = handler->playerLink(targetName);
 
-        handler->PSendSysMessage(target ? LANG_YOU_DISABLE_CHAT : LANG_COMMAND_DISABLE_CHAT_DELAYED, nameLink.c_str(), notSpeakTime, muteReasonStr.c_str());
+        handler->PSendSysMessage(target || !onlineGuid.IsEmpty() ? LANG_YOU_DISABLE_CHAT : LANG_COMMAND_DISABLE_CHAT_DELAYED, nameLink.c_str(), notSpeakTime, muteReasonStr.c_str());
 
         if (sWorld->getBoolConfig(CONFIG_ANNOUNCE_MUTE))
         {
@@ -2490,25 +2729,32 @@ public:
 
         uint32 accountId = target ? target->GetSession()->GetAccountId() : ObjectMgr::GetPlayerAccountIdByGUID(targetGuid);
 
-        // find only player from same account if any
-        if (!target)
-            if (WorldSessionPtr session = sWorld->FindSession(accountId))
-                target = session->GetPlayer();
+        ObjectGuid onlineGuid;
+        FindLoggedInOfAccount(handler, target, targetGuid, accountId, onlineGuid);
 
         // must have strong lesser security level
         if (handler->HasLowerSecurity (target, targetGuid, true))
             return false;
 
-        if (target)
+        if (target || !onlineGuid.IsEmpty())
         {
-            if (target->CanSpeak())
+            bool canSpeak = false;
+            if (target)
+                canSpeak = target->CanSpeak();
+            else
+                ObjectAccessor::WithPlayer(onlineGuid, [&canSpeak](Player* other) { canSpeak = other->CanSpeak(); }, ObjectAccessor::PlayerScope::InOrOutOfWorld);
+
+            if (canSpeak)
             {
                 handler->SendSysMessage(LANG_CHAT_ALREADY_ENABLED);
                 handler->SetSentErrorMessage(true);
                 return false;
             }
 
-            target->GetSession()->m_muteTime = 0;
+            if (target)
+                target->GetSession()->m_muteTime = 0;
+            else
+                ObjectAccessor::PostToPlayer(onlineGuid, [](Player* player) { player->GetSession()->m_muteTime = 0; });
         }
 
         LoginDatabasePreparedStatement* stmt = LoginDatabase.GetPreparedStatement(LOGIN_UPD_MUTE_TIME);
@@ -2518,6 +2764,8 @@ public:
 
         if (target)
             ChatHandler(target).PSendSysMessage(LANG_YOUR_CHAT_ENABLED);
+        else if (!onlineGuid.IsEmpty())
+            ObjectAccessor::PostToPlayer(onlineGuid, [](Player* player) { ChatHandler(player).PSendSysMessage(LANG_YOUR_CHAT_ENABLED); });
 
         std::string nameLink = handler->playerLink(targetName);
 
@@ -2750,7 +2998,7 @@ public:
     static bool HandleCombatStopCommand(ChatHandler* handler, char const* args)
     {
         Player* target = nullptr;
-        Creature* creature = handler->getSelectedUnit()->ToCreature();
+        Creature* creature = handler->getSelectedUnit() ? handler->getSelectedUnit()->ToCreature() : nullptr;
 
         if (creature && creature->isInCombat())
         {
@@ -2758,30 +3006,26 @@ public:
             return true;
         }
 
-        if (args && strlen(args) > 0)
-        {
-            std::string name(args);
-            target = sObjectAccessor->FindPlayerByName(name);
-            if (!target)
-            {
-                handler->SendSysMessage(LANG_PLAYER_NOT_FOUND);
-                handler->SetSentErrorMessage(true);
-                return false;
-            }
-        }
-
-        if (!target)
-        {
-            if (!handler->extractPlayerTarget((char*)args, &target))
-                return false;
-        }
-
-        // check online security
-        if (handler->HasLowerSecurity(target, ObjectGuid::Empty))
+        ObjectGuid targetGuid;
+        std::string targetName;
+        if (!handler->extractOnlinePlayerTarget((char*)args, &target, &targetGuid, &targetName))
             return false;
 
-        target->CombatStop();
-        target->getHostileRefManager().deleteReferences();
+        // check online security
+        if (handler->HasLowerSecurity(target, targetGuid))
+            return false;
+
+        auto combatStop = [](Player* player)
+        {
+            player->CombatStop();
+            player->getHostileRefManager().deleteReferences();
+        };
+
+        if (target)
+            combatStop(target);
+        else if (!handler->PostToTarget(targetGuid, combatStop, targetName.c_str()))
+            return false;
+
         return true;
     }
 
@@ -2794,12 +3038,27 @@ public:
     static bool HandleRepairitemsCommand(ChatHandler* handler, char const* args)
     {
         Player* target;
-        if (!handler->extractPlayerTarget((char*)args, &target))
+        ObjectGuid targetGuid;
+        std::string targetName;
+        if (!handler->extractOnlinePlayerTarget((char*)args, &target, &targetGuid, &targetName))
             return false;
 
         // check online security
-        if (handler->HasLowerSecurity(target, ObjectGuid::Empty))
+        if (handler->HasLowerSecurity(target, targetGuid))
             return false;
+
+        if (!target)
+        {
+            // repaired by the target's own thread
+            handler->PSendSysMessage(LANG_YOU_REPAIR_ITEMS, handler->playerLink(targetName).c_str());
+            bool const report = handler->NeedReportToElsewhere(targetGuid);
+            return handler->PostToTarget(targetGuid, [report, gmLink = handler->GetNameLink()](Player* player)
+            {
+                player->DurabilityRepairAll(false, 0, false);
+                if (report)
+                    ChatHandler(player).PSendSysMessage(LANG_YOUR_ITEMS_REPAIRED, gmLink.c_str());
+            });
+        }
 
         // Repair items
         target->DurabilityRepairAll(false, 0, false);
@@ -3019,7 +3278,9 @@ public:
     {
         /// - Find the player
         Player* player;
-        if (!handler->extractPlayerTarget((char*)args, &player))
+        ObjectGuid playerGuid;
+        std::string playerName;
+        if (!handler->extractOnlinePlayerTarget((char*)args, &player, &playerGuid, &playerName))
             return false;
 
         char* msgStr = strtok(NULL, "");
@@ -3027,7 +3288,13 @@ public:
             return false;
 
         ///- Check that he is not logging out.
-        if (player->GetSession()->isLogingOut())
+        bool loggingOut = false;
+        if (player)
+            loggingOut = player->GetSession()->isLogingOut();
+        else
+            ObjectAccessor::WithPlayer(playerGuid, [&loggingOut](Player* other) { loggingOut = other->GetSession()->isLogingOut(); }, ObjectAccessor::PlayerScope::InOrOutOfWorld);
+
+        if (loggingOut)
         {
             handler->SendSysMessage(LANG_PLAYER_NOT_FOUND);
             handler->SetSentErrorMessage(true);
@@ -3040,7 +3307,7 @@ public:
         //player->GetSession()->SendAreaTriggerMessage("|cffff0000[Message from administrator]:|r");
 
         // Confirmation message
-        std::string nameLink = handler->GetNameLink(player);
+        std::string nameLink = handler->playerLink(playerName);
         handler->PSendSysMessage(LANG_SENDMESSAGE, nameLink.c_str(), msgStr);
 
         return true;
@@ -4309,7 +4576,7 @@ public:
         if (!handler->extractPlayerTarget((char*)args, &target, &targetGuid, &targetName))
             return false;
         
-        if (target)
+        if (target || ChatHandler::IsOnlineElsewhere(target, targetGuid))
         {
             handler->PSendSysMessage("Player is online! Error");
             return false;

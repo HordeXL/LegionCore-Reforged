@@ -1,20 +1,14 @@
-/*
- * Copyright (C) 2008-2012 TrinityCore <http://www.trinitycore.org/>
- * Copyright (C) 2005-2009 MaNGOS <http://getmangos.com/>
- *
- * This program is free software; you can redistribute it and/or modify it
- * under the terms of the GNU General Public License as published by the
- * Free Software Foundation; either version 2 of the License, or (at your
- * option) any later version.
- *
- * This program is distributed in the hope that it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for
- * more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program. If not, see <http://www.gnu.org/licenses/>.
- */
+////////////////////////////////////////////
+///                                      ///
+///         LEGIONCORE REFORGED          ///
+///    Copyright 2026 Titans-Project     ///
+///         All Rights Reserved.         ///
+///                                      ///
+///      Based on TrinityCore code       ///
+///   Copyright 2008-2012 TrinityCore    ///
+///   <http://www.trinitycore.org/>      ///
+///                                      ///
+////////////////////////////////////////////
 
 #ifndef TRINITY_LOOTMGR_H
 #define TRINITY_LOOTMGR_H
@@ -38,6 +32,7 @@ namespace WorldPackets
 
 struct Loot;
 class Challenge;
+class Map;
 
 enum RollType
 {
@@ -372,6 +367,7 @@ struct TC_GAME_API Loot
     bool _isLegendaryLoot = false;
     bool _isEventLoot = false;
     bool _specCheck = true;
+    bool _noRegister = false;                               // local loot never looked up by guid
     float rateLegendary;
     uint32 dungeonEncounterID = 0;
     bool _NoneRaidOrScenarioDungeonLoot = false;
@@ -516,11 +512,23 @@ class TC_GAME_API LootMgr
     public:
         static LootMgr* instance();
 
-        typedef std::map<ObjectGuid, Loot*> LootsMap;
+        struct LootEntry
+        {
+            Loot* loot = nullptr;
+            uint32 mapId = 0;
+            uint32 instanceId = 0;
+            bool bound = false;                             // false: registered without an owner, not yet shown to anyone
+        };
+        typedef std::map<ObjectGuid, LootEntry> LootsMap;
 
+        // Any map: only for guids held by the server (group rolls)
         Loot* GetLoot(ObjectGuid const& guid);
+        // For client-chosen guids: only a loot registered by this very map
+        Loot* GetLoot(ObjectGuid const& guid, Map const* map);
         void AddLoot(Loot* loot);
-        void RemoveLoot(ObjectGuid const& guid);
+        void BindLoot(Loot const* loot, Map const* map);
+        // With expected set, the entry is removed only if it still points to that loot
+        void RemoveLoot(ObjectGuid const& guid, Loot const* expected = nullptr);
 
     protected:
         LootsMap m_Loots;

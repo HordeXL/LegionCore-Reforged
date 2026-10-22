@@ -1,20 +1,14 @@
-/*
- * Copyright (C) 2008-2012 TrinityCore <http://www.trinitycore.org/>
- * Copyright (C) 2005-2009 MaNGOS <http://getmangos.com/>
- *
- * This program is free software; you can redistribute it and/or modify it
- * under the terms of the GNU General Public License as published by the
- * Free Software Foundation; either version 2 of the License, or (at your
- * option) any later version.
- *
- * This program is distributed in the hope that it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for
- * more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program. If not, see <http://www.gnu.org/licenses/>.
- */
+////////////////////////////////////////////
+///                                      ///
+///         LEGIONCORE REFORGED          ///
+///    Copyright 2026 Titans-Project     ///
+///         All Rights Reserved.         ///
+///                                      ///
+///      Based on TrinityCore code       ///
+///   Copyright 2008-2012 TrinityCore    ///
+///   <http://www.trinitycore.org/>      ///
+///                                      ///
+////////////////////////////////////////////
 
 #include "DatabaseEnv.h"
 #include "Log.h"
@@ -24,6 +18,7 @@
 #include "SpellMgr.h"
 #include "Player.h"
 #include "SpellInfo.h"
+#include <shared_mutex>
 
 struct SkillDiscoveryEntry
 {
@@ -42,18 +37,25 @@ typedef std::list<SkillDiscoveryEntry> SkillDiscoveryList;
 typedef std::unordered_map<int32, SkillDiscoveryList> SkillDiscoveryMap;
 
 static SkillDiscoveryMap SkillDiscoveryStore;
+// .reload swaps the store while the map threads read it
+static std::shared_mutex SkillDiscoveryLock;
 
 void LoadSkillDiscoveryTable()
 {
     uint32 oldMSTime = getMSTime();
 
-    SkillDiscoveryStore.clear();                            // need for reload
+    SkillDiscoveryMap newStore;
 
     //                                                0        1         2              3
     QueryResult result = WorldDatabase.Query("SELECT spellId, reqSpell, reqSkillValue, chance FROM skill_discovery_template");
 
     if (!result)
     {
+        {
+            std::unique_lock<std::shared_mutex> lock(SkillDiscoveryLock);
+            SkillDiscoveryStore.swap(newStore);
+        }
+
         TC_LOG_ERROR("server.loading", ">> Loaded 0 skill discovery definitions. DB table `skill_discovery_template` is empty.");
 
         return;
@@ -109,7 +111,7 @@ void LoadSkillDiscoveryTable()
                 continue;
             }
 
-            SkillDiscoveryStore[reqSkillOrSpell].push_back(SkillDiscoveryEntry(spellId, reqSkillValue, chance));
+            newStore[reqSkillOrSpell].push_back(SkillDiscoveryEntry(spellId, reqSkillValue, chance));
         }
         else if (reqSkillOrSpell == 0)                      // skill case
         {
@@ -121,8 +123,11 @@ void LoadSkillDiscoveryTable()
                 continue;
             }
 
+            // a spell listed several times for the same skill line must not multiply its chance
+            std::set<uint32> skillLines;
             for (SkillLineAbilityMap::const_iterator _spell_idx = bounds.first; _spell_idx != bounds.second; ++_spell_idx)
-                SkillDiscoveryStore[-int32(_spell_idx->second->SkillLine)].push_back(SkillDiscoveryEntry(spellId, reqSkillValue, chance));
+                if (skillLines.insert(_spell_idx->second->SkillLine).second)
+                    newStore[-int32(_spell_idx->second->SkillLine)].push_back(SkillDiscoveryEntry(spellId, reqSkillValue, chance));
         }
         else
         {
@@ -148,8 +153,13 @@ void LoadSkillDiscoveryTable()
         if (!spellEntry->IsExplicitDiscovery())
             continue;
 
-        if (SkillDiscoveryStore.find(int32(spell_id)) == SkillDiscoveryStore.end())
+        if (newStore.find(int32(spell_id)) == newStore.end())
             TC_LOG_ERROR("sql.sql", "Spell (ID: %u) is 100%% chance random discovery ability but not have data in `skill_discovery_template` table", spell_id);
+    }
+
+    {
+        std::unique_lock<std::shared_mutex> lock(SkillDiscoveryLock);
+        SkillDiscoveryStore.swap(newStore);
     }
 
     TC_LOG_INFO("server.loading", ">> Loaded %u skill discovery definitions in %u ms", count, GetMSTimeDiffToNow(oldMSTime));
@@ -158,6 +168,8 @@ void LoadSkillDiscoveryTable()
 
 uint32 GetExplicitDiscoverySpell(uint32 spellId, Player* player)
 {
+    std::shared_lock<std::shared_mutex> lock(SkillDiscoveryLock);
+
     // explicit discovery spell chances (always success if case exist)
     // in this case we have both skill and spell
     SkillDiscoveryMap::const_iterator tab = SkillDiscoveryStore.find(int32(spellId));
@@ -195,6 +207,8 @@ uint32 GetExplicitDiscoverySpell(uint32 spellId, Player* player)
 
 bool HasDiscoveredAllSpells(uint32 spellId, Player* player)
 {
+    std::shared_lock<std::shared_mutex> lock(SkillDiscoveryLock);
+
     SkillDiscoveryMap::const_iterator tab = SkillDiscoveryStore.find(int32(spellId));
     if (tab == SkillDiscoveryStore.end())
         return true;
@@ -208,6 +222,8 @@ bool HasDiscoveredAllSpells(uint32 spellId, Player* player)
 
 uint32 GetSkillDiscoverySpell(uint32 skillId, uint32 spellId, Player* player)
 {
+    std::shared_lock<std::shared_mutex> lock(SkillDiscoveryLock);
+
     uint32 skillvalue = skillId ? player->GetSkillValue(skillId) : uint32(0);
 
     // check spell case

@@ -1,20 +1,14 @@
-/*
-* Copyright (C) 2008-2014 TrinityCore <http://www.trinitycore.org/>
-* Copyright (C) 2005-2009 MaNGOS <http://getmangos.com/>
-*
-* This program is free software; you can redistribute it and/or modify it
-* under the terms of the GNU General Public License as published by the
-* Free Software Foundation; either version 2 of the License, or (at your
-* option) any later version.
-*
-* This program is distributed in the hope that it will be useful, but WITHOUT
-* ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
-* FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for
-* more details.
-*
-* You should have received a copy of the GNU General Public License along
-* with this program. If not, see <http://www.gnu.org/licenses/>.
-*/
+////////////////////////////////////////////
+///                                      ///
+///         LEGIONCORE REFORGED          ///
+///    Copyright 2026 Titans-Project     ///
+///         All Rights Reserved.         ///
+///                                      ///
+///      Based on TrinityCore code       ///
+///   Copyright 2008-2014 TrinityCore    ///
+///   <http://www.trinitycore.org/>      ///
+///                                      ///
+////////////////////////////////////////////
 
 #include "WorldSocket.h"
 #include "AuthenticationPackets.h"
@@ -456,7 +450,14 @@ WorldSocket::ReadDataHandlerResult WorldSocket::ReadDataHandler()
         {
             LogOpcodeText(opcode, sessionGuard);
             std::shared_ptr<WorldPackets::Auth::LogDisconnect> log = std::make_shared<WorldPackets::Auth::LogDisconnect>(std::move(packet));
-            log->Read();
+            try
+            {
+                log->Read();
+            }
+            catch (ByteBufferException const&)       // an exception here would leave the network thread and end the process
+            {
+                return ReadDataHandlerResult::Error;
+            }
             if (_worldSession)
             {
                 TC_LOG_INFO("network", "WorldPackets::Auth::LogDisconnect: %s was disconnected due to reason %u", _worldSession->GetPlayerName().c_str(), log->Reason);
@@ -485,6 +486,13 @@ WorldSocket::ReadDataHandlerResult WorldSocket::ReadDataHandler()
         }
         case CMSG_ENABLE_ENCRYPTION_ACK:
             LogOpcodeText(opcode, sessionGuard);
+            // only after a successful authentication: before it there is no session, and World::AddSession asserts on null.
+            // An instance socket never sets _authed: its proof of authentication is the key stored once the digest matched.
+            if (GetConnectionType() == CONNECTION_TYPE_REALM ? !_worldSession : !_key)
+            {
+                TC_LOG_ERROR("network.opcode", "WorldSocket::ReadDataHandler(): client %s sent CMSG_ENABLE_ENCRYPTION_ACK before authentication", GetRemoteIpAddress().to_string().c_str());
+                return ReadDataHandlerResult::Error;
+            }
             HandleEnableEncryptionAck();
             break;
         case CMSG_WARDEN_DATA:
@@ -656,6 +664,7 @@ struct AccountInfo
         uint8 Expansion;
         bool IsRectuiter;
         bool IsBanned;
+        bool HasSessionKey;
     } Game;
 
     bool IsBanned() const
@@ -672,7 +681,12 @@ struct AccountInfo
         // FROM account a LEFT JOIN account r ON a.id = r.recruiter LEFT JOIN account_access aa ON a.id = aa.id AND aa.RealmID IN (-1, ?) LEFT JOIN account_banned ab ON a.id = ab.id AND ab.active = 1
         // WHERE a.username = ? ORDER BY aa.RealmID DESC LIMIT 1
         Game.Id = fields[0].GetUInt32();
-        HexStrToByteArray(fields[1].GetString(), Game.KeyData.data());
+        // an account that never joined a realm has no session key: never prove the HMAC against uninitialised memory
+        Game.KeyData.fill(0);
+        std::string const sessionKeyHex = fields[1].GetString();
+        Game.HasSessionKey = sessionKeyHex.size() == Game.KeyData.size() * 2;
+        if (Game.HasSessionKey)
+            HexStrToByteArray(sessionKeyHex, Game.KeyData.data());
         BattleNet.LastIP = fields[2].GetString();
         BattleNet.FirstIP = fields[3].GetString();
         BattleNet.IsLockedToIP = fields[4].GetBool();
@@ -725,6 +739,13 @@ void WorldSocket::HandleAuthSessionCallback(std::shared_ptr<WorldPackets::Auth::
 
 
     AccountInfo account(result->Fetch());
+    if (!account.Game.HasSessionKey)
+    {
+        SendAuthResponseError(ERROR_DENIED);
+        TC_LOG_ERROR("network", "WorldSocket::HandleAuthSession: account %u has no session key (%s).", account.Game.Id, GetRemoteIpAddress().to_string().c_str());
+        DelayedCloseSocket();
+        return;
+    }
 
     // For hook purposes, we get Remoteaddress at this point.
     auto address = GetRemoteIpAddress().to_string();
@@ -981,6 +1002,8 @@ void WorldSocket::HandleAuthContinuedSession(std::shared_ptr<WorldPackets::Auth:
         return;
     }
 
+    TC_LOG_INFO("network.opcode", "WorldSocket::HandleAuthContinuedSession: instance socket from %s, querying account", GetRemoteIpAddress().to_string().c_str());
+
     LoginDatabasePreparedStatement* stmt = LoginDatabase.GetPreparedStatement(LOGIN_SEL_ACCOUNT_INFO_CONTINUED_SESSION);
     stmt->setUInt32(0, uint32(key.Fields.AccountId));
 
@@ -1000,7 +1023,7 @@ void WorldSocket::HandleAuthContinuedSessionCallback(std::shared_ptr<WorldPacket
     }
 
     WorldSession::ConnectToKey key;
-    _key = key.Raw = authSession->Key;
+    key.Raw = authSession->Key;
 
     Field* fields = result->Fetch();
     _sessionKey.SetHexStr(fields[1].GetCString());
@@ -1020,6 +1043,9 @@ void WorldSocket::HandleAuthContinuedSessionCallback(std::shared_ptr<WorldPacket
         return;
     }
 
+    _key = key.Raw;
+
+    TC_LOG_INFO("network.opcode", "WorldSocket::HandleAuthContinuedSessionCallback: account %u authenticated, encryption requested", uint32(key.Fields.AccountId));
     SendPacket(*WorldPackets::Auth::EnableEncryption().Write());
     AsyncRead();
 }
@@ -1083,6 +1109,7 @@ void WorldSocket::HandleEnableEncryptionAck()
     else
     {
         _authCrypt.Init(&_sessionKey, _encryptSeed.AsByteArray().get(), _decryptSeed.AsByteArray().get());
+        TC_LOG_INFO("network.opcode", "WorldSocket::HandleEnableEncryptionAck: instance socket queued for linking");
         sWorld->AddInstanceSocket(shared_from_this(), _key);
     }
 }
@@ -1129,9 +1156,6 @@ bool WorldSocket::HandlePing(WorldPackets::Auth::Ping& ping)
     {
         _worldSession->SetLatency(ping.Latency);
         _worldSession->ResetClientTimeDelay();
-
-        if (Player* plr = _worldSession->GetPlayer())
-            plr->SetPing(ping.Latency);
     }
     else
     {

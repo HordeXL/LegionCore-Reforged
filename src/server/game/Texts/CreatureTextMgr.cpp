@@ -1,19 +1,14 @@
-/*
- * Copyright (C) 2008-2012 TrinityCore <http://www.trinitycore.org/>
- *
- * This program is free software; you can redistribute it and/or modify it
- * under the terms of the GNU General Public License as published by the
- * Free Software Foundation; either version 2 of the License, or (at your
- * option) any later version.
- *
- * This program is distributed in the hope that it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for
- * more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program. If not, see <http://www.gnu.org/licenses/>.
- */
+////////////////////////////////////////////
+///                                      ///
+///         LEGIONCORE REFORGED          ///
+///    Copyright 2026 Titans-Project     ///
+///         All Rights Reserved.         ///
+///                                      ///
+///      Based on TrinityCore code       ///
+///   Copyright 2008-2012 TrinityCore    ///
+///   <http://www.trinitycore.org/>      ///
+///                                      ///
+////////////////////////////////////////////
 
 #include "Common.h"
 #include "CreatureTextMgrImpl.h"
@@ -25,6 +20,7 @@
 #include "GridNotifiersImpl.h"
 #include "CreatureTextMgr.h"
 #include <utility>
+#include <set>
 #include <mutex>
 #include <shared_mutex>
 #include "MiscPackets.h"
@@ -115,13 +111,28 @@ void CreatureTextMgr::LoadCreatureTexts()
 {
     uint32 oldMSTime = getMSTime();
 
-    mTextMap.clear(); // for reload case
-    mTextRepeatMap.clear(); //reset all currently used temp texts
+    CreatureTextMap newTextMap;
+    CreatureTextList newTextList;
+
+    auto installTexts = [&]()
+    {
+        {
+            std::unique_lock<std::shared_mutex> lock(i_lockTexts);
+            if (!mTextMap.empty())
+                mRetiredTextMaps.push_back(std::move(mTextMap));
+            mTextMap = std::move(newTextMap);
+            mTextList = std::move(newTextList);
+        }
+
+        std::unique_lock<decltype(i_lockTextRepeat)> lock(i_lockTextRepeat);
+        mTextRepeatMap.clear(); //reset all currently used temp texts
+    };
 
                                       //      0           1        2   3     4     5         6            7      8         9      10                 11      12         13
-    auto result = WorldDatabase.Query("SELECT CreatureID, GroupID, ID, Text, Type, Language, Probability, Emote, Duration, Sound, BroadcastTextID, MinTimer, MaxTimer, SpellID FROM creature_text ORDER BY GroupID");
+    auto result = WorldDatabase.Query("SELECT CreatureID, GroupID, ID, Text, Type, Language, Probability, Emote, Duration, Sound, BroadcastTextID, MinTimer, MaxTimer, SpellID FROM creature_text ORDER BY CreatureID, GroupID, ID");
     if (!result)
     {
+        installTexts();
         TC_LOG_INFO("server.loading", ">> Loaded 0 ceature texts. DB table `creature_text` is empty.");
         return;
     }
@@ -149,6 +160,13 @@ void CreatureTextMgr::LoadCreatureTexts()
         temp.MinTimer = fields[11].GetUInt32();
         temp.MaxTimer = fields[12].GetUInt32();
         temp.SpellID = fields[13].GetUInt32();
+
+        // the entry field of a guid is 23 bits wide and mTextList is indexed by it
+        if (temp.creatureId > 0x7FFFFF)
+        {
+            TC_LOG_ERROR("sql.sql", "CreatureTextMgr: Entry %u, Group %u in table `creature_text` has an entry out of range, row skipped.", temp.creatureId, uint32(temp.group));
+            continue;
+        }
 
         if (!GetLanguageDescByID(temp.lang))
         {
@@ -189,36 +207,57 @@ void CreatureTextMgr::LoadCreatureTexts()
         // }
 
         //entry not yet added, add empty TextHolder (list of groups)
-        if (mTextMap.find(temp.creatureId) == mTextMap.end())
+        if (newTextMap.find(temp.creatureId) == newTextMap.end())
             ++creatureCount;
 
-        if (mTextList.size() <= temp.creatureId)
-            mTextList.resize(temp.creatureId + 1, nullptr);
+        if (newTextList.size() <= temp.creatureId)
+            newTextList.resize(temp.creatureId + 1, nullptr);
 
         //add the text into our entry's group
         if (!temp.id)
-            temp.id = mTextMap[temp.creatureId][temp.group].size();
+            temp.id = newTextMap[temp.creatureId][temp.group].size();
 
-        mTextMap[temp.creatureId][temp.group].push_back(temp);
-        mTextList[temp.creatureId] = &mTextMap[temp.creatureId];
+        newTextMap[temp.creatureId][temp.group].push_back(temp);
+        newTextList[temp.creatureId] = &newTextMap[temp.creatureId];
 
         ++textCount;
     } while (result->NextRow());
 
-    // sort text by timer
-    for (auto& textEntry : mTextMap)
+    for (auto& textEntry : newTextMap)
     {
         for (auto& text : textEntry.second)
         {
+            // an ID 0 row is numbered by its position, which can land on an explicit ID read later: the repeat filter
+            // keys on id, so rows must not share one (dbId stays as stored for the locales)
+            std::set<uint8> usedIds;
+            std::vector<CreatureTextEntry*> clashing;
+            for (auto& entry : text.second)
+                if (!usedIds.insert(entry.id).second)
+                    clashing.push_back(&entry);
+
+            uint32 nextId = 0;
+            for (CreatureTextEntry* entry : clashing)
+            {
+                while (nextId < 256 && usedIds.count(uint8(nextId)))
+                    ++nextId;
+                if (nextId >= 256)
+                    break;
+                entry->id = uint8(nextId);
+                usedIds.insert(entry->id);
+            }
+
             if (text.second.size() < 2)
                 continue;
 
-            std::sort(text.second.begin(), text.second.end(), [](CreatureTextEntry const& a, CreatureTextEntry const& b) -> bool
+            // sort text by timer
+            std::stable_sort(text.second.begin(), text.second.end(), [](CreatureTextEntry const& a, CreatureTextEntry const& b) -> bool
             {
                 return a.MinTimer < b.MinTimer;
             });
         }
     }
+
+    installTexts();
     TC_LOG_INFO("server.loading", ">> Loaded %u creature texts for %u creatures in %u ms", textCount, creatureCount, GetMSTimeDiffToNow(oldMSTime));
 
     LoadCreatureTextLocales();
@@ -228,11 +267,20 @@ void CreatureTextMgr::LoadCreatureTextLocales()
 {
     uint32 oldMSTime = getMSTime();
 
-    mLocaleTextMap.clear(); // for reload case
+    CreatureTextLocaleMap newLocaleMap;
+
+    auto installLocales = [&]()
+    {
+        std::unique_lock<std::shared_mutex> lock(i_lockTexts);
+        if (!mLocaleTextMap.empty())
+            mRetiredLocaleMaps.push_back(std::move(mLocaleTextMap));
+        mLocaleTextMap = std::move(newLocaleMap);
+    };
 
     QueryResult result = WorldDatabase.Query("SELECT CreatureID, GroupID, ID, Locale, Text FROM creature_text_locale");
     if (!result)
     {
+        installLocales();
         TC_LOG_INFO("server.loading", ">> Loaded 0 creature text locales. DB table `creature_text_locale` is empty.");
         return;
     }
@@ -249,17 +297,20 @@ void CreatureTextMgr::LoadCreatureTextLocales()
             continue;
         }
 
-        std::vector<std::string>& texts = mLocaleTextMap[CreatureTextId(fields[0].GetUInt32(), fields[1].GetUInt8(), fields[2].GetUInt8())];
+        std::vector<std::string>& texts = newLocaleMap[CreatureTextId(fields[0].GetUInt32(), fields[1].GetUInt8(), fields[2].GetUInt8())];
         texts.resize(MAX_LOCALES);
         texts[locale] = fields[4].GetString();
         ++count;
     } while (result->NextRow());
+
+    installLocales();
 
     TC_LOG_INFO("server.loading", ">> Loaded %u creature text locales in %u ms", count, GetMSTimeDiffToNow(oldMSTime));
 }
 
 std::vector<std::string> const* CreatureTextMgr::GetLocaleTexts(uint32 entry, uint8 textGroup, uint8 dbId) const
 {
+    std::shared_lock<std::shared_mutex> lock(i_lockTexts);
     auto itr = mLocaleTextMap.find(CreatureTextId(entry, textGroup, dbId));
     return itr != mLocaleTextMap.end() ? &itr->second : nullptr;
 }
@@ -270,11 +321,9 @@ uint32 CreatureTextMgr::SendChat(Creature* source, uint8 textGroup, ObjectGuid w
         return 0;
 
     uint32 entry = source->GetGUID().GetEntry();
-    if (mTextList.size() <= entry)
-        return 0;
 
     //! Use entry from guid. as we could overvrite it by new texnology from Blizzzzzzzzzz
-    CreatureTextHolder* textHolder = mTextList[entry];
+    CreatureTextHolder* textHolder = FindHolder(entry);
     if (!textHolder)
     {
         TC_LOG_DEBUG("entities.unit", "CreatureTextMgr: Could not find Text for Creature(%s) Entry %u in 'creature_text' table. Ignoring.", source->GetName(), source->GetEntry());
@@ -290,18 +339,18 @@ uint32 CreatureTextMgr::SendChat(Creature* source, uint8 textGroup, ObjectGuid w
 
     CreatureTextGroup const& textGroupContainer = itr->second;  //has all texts in the group
     CreatureTextRepeatIds repeatGroup = GetRepeatGroup(source, textGroup);//has all textIDs from the group that were already said
-    CreatureTextGroup tempGroup;//will use this to talk after sorting repeatGroup
+    std::vector<CreatureTextEntry const*> tempGroup;//will use this to talk after sorting repeatGroup
 
     for (const auto& giter : textGroupContainer)
         if (std::find(repeatGroup.begin(), repeatGroup.end(), giter.id) == repeatGroup.end())
-            tempGroup.push_back(giter);
+            tempGroup.push_back(&giter);
 
     if (tempGroup.empty())
     {
         {
             // every map thread has creatures talking: the repeat map is shared
             std::unique_lock<decltype(i_lockTextRepeat)> lock(i_lockTextRepeat);
-            auto mapItr = mTextRepeatMap.find(source->GetGUIDLow());
+            auto mapItr = mTextRepeatMap.find(source->GetGUID());
             if (mapItr != mTextRepeatMap.end())
             {
                 auto groupItr = mapItr->second.find(textGroup);
@@ -310,13 +359,14 @@ uint32 CreatureTextMgr::SendChat(Creature* source, uint8 textGroup, ObjectGuid w
             }
         }
 
-        tempGroup = textGroupContainer;
+        for (const auto& giter : textGroupContainer)
+            tempGroup.push_back(&giter);
     }
 
-    auto iter = &(ingoreProbality ? Trinity::Containers::SelectRandomContainerElement(tempGroup) : *Trinity::Containers::SelectRandomWeightedContainerElement(tempGroup, [](CreatureTextEntry const& t) -> double
+    CreatureTextEntry const* iter = ingoreProbality ? Trinity::Containers::SelectRandomContainerElement(tempGroup) : *Trinity::Containers::SelectRandomWeightedContainerElement(tempGroup, [](CreatureTextEntry const* t) -> double
     {
-        return t.probability;
-    }));
+        return t->probability;
+    });
 
     SendText(source, iter, whisperGuid, msgType, language, range, sound, team, gmOnly, srcPlr);
 
@@ -365,14 +415,13 @@ void CreatureTextMgr::SendText(Creature* source, CreatureTextEntry const* text, 
             if (auto broadcastTextSoundId = bct->EmoteID[i])
                 data.emplace_back(std::make_pair(broadcastTextSoundId, bct->EmoteDelay[i]));
 
-    if (bct)
+    if (bct && bct->EmotesID)
         SendEmote(finalSource, bct->EmotesID);
 
     if (!data.empty())
     {
-        for (auto v : data)
-            if (auto unit = ObjectAccessor::FindUnit(finalSource->GetGUID()))
-                unit->AddDelayedEvent(v.second, [this, finalSource, v]() -> void
+        for (auto const& v : data)
+            finalSource->AddDelayedEvent(v.second, [this, finalSource, v]() -> void
             {
                 SendEmote(finalSource, v.first);
             });
@@ -517,13 +566,18 @@ void CreatureTextMgr::SetRepeatId(Creature* source, uint8 textGroup, uint8 id)
     if (!source)
         return;
 
-    i_lockTextRepeat.lock();
-    CreatureTextRepeatIds& repeats = mTextRepeatMap[source->GetGUIDLow()][textGroup];
+    std::unique_lock<decltype(i_lockTextRepeat)> lock(i_lockTextRepeat);
+    CreatureTextRepeatIds& repeats = mTextRepeatMap[source->GetGUID()][textGroup];
     if (std::find(repeats.begin(), repeats.end(), id) == repeats.end())
         repeats.push_back(id);
     else
         TC_LOG_ERROR("entities.unit", "CreatureTextMgr: TextGroup %u for Creature(%s) GuidLow %u Entry %u, id %u already added", uint32(textGroup), source->GetName(), source->GetGUIDLow(), source->GetEntry(), uint32(id));
-    i_lockTextRepeat.unlock();
+}
+
+CreatureTextHolder* CreatureTextMgr::FindHolder(uint32 entry) const
+{
+    std::shared_lock<std::shared_mutex> lock(i_lockTexts);
+    return entry < mTextList.size() ? mTextList[entry] : nullptr;
 }
 
 CreatureTextRepeatIds CreatureTextMgr::GetRepeatGroup(Creature* source, uint8 textGroup)
@@ -532,7 +586,7 @@ CreatureTextRepeatIds CreatureTextMgr::GetRepeatGroup(Creature* source, uint8 te
     CreatureTextRepeatIds ids;
 
     std::shared_lock<decltype(i_lockTextRepeat)> lock(i_lockTextRepeat);
-    CreatureTextRepeatMap::const_iterator mapItr = mTextRepeatMap.find(source->GetGUIDLow());
+    CreatureTextRepeatMap::const_iterator mapItr = mTextRepeatMap.find(source->GetGUID());
     if (mapItr != mTextRepeatMap.end())
     {
         auto groupItr = (*mapItr).second.find(textGroup);
@@ -544,11 +598,11 @@ CreatureTextRepeatIds CreatureTextMgr::GetRepeatGroup(Creature* source, uint8 te
 
 bool CreatureTextMgr::TextExist(uint32 sourceEntry, uint8 textGroup)
 {
-    if (!sourceEntry || mTextList.size() <= sourceEntry)
+    if (!sourceEntry)
         return false;
 
     //! Use entry from guid. as we could overvrite it by new texnology from Blizzzzzzzzzz
-    CreatureTextHolder* textHolder = mTextList[sourceEntry];
+    CreatureTextHolder* textHolder = FindHolder(sourceEntry);
     if (!textHolder)
     {
         TC_LOG_DEBUG("entities.unit", "CreatureTextMgr::TextExist: Could not find Text for Creature (entry %u) in 'creature_text' table.", sourceEntry);
@@ -567,11 +621,11 @@ bool CreatureTextMgr::TextExist(uint32 sourceEntry, uint8 textGroup)
 
 CreatureTextGroup const* CreatureTextMgr::GetTextGroup(uint32 sourceEntry, uint8 textGroup)
 {
-    if (!sourceEntry || mTextList.size() <= sourceEntry)
+    if (!sourceEntry)
         return nullptr;
 
     //! Use entry from guid. as we could overvrite it by new texnology from Blizzzzzzzzzz
-    CreatureTextHolder* textHolder = mTextList[sourceEntry];
+    CreatureTextHolder* textHolder = FindHolder(sourceEntry);
     if (!textHolder)
         return nullptr;
 
@@ -596,10 +650,10 @@ CreatureTextGroup const* CreatureTextMgr::GetTextGroup(uint32 sourceEntry, uint8
 
 bool CreatureTextMgr::HasBroadCastText(uint32 entry, uint32 BroadcastTextID, uint8& groupId)
 {
-    if (!entry || mTextList.size() <= entry)
+    if (!entry)
         return false;
 
-    CreatureTextHolder* textHolder = mTextList[entry];
+    CreatureTextHolder* textHolder = FindHolder(entry);
     if (!textHolder)
         return false;
 
@@ -620,10 +674,10 @@ bool CreatureTextMgr::HasBroadCastText(uint32 entry, uint32 BroadcastTextID, uin
 
 CreatureTextEntry const* CreatureTextMgr::FindSpellInText(uint32 entry, uint32 SpellID)
 {
-    if (!entry || mTextList.size() <= entry)
+    if (!entry)
         return nullptr;
 
-    CreatureTextHolder* textHolder = mTextList[entry];
+    CreatureTextHolder* textHolder = FindHolder(entry);
     if (!textHolder)
         return nullptr;
 
@@ -641,21 +695,4 @@ CreatureTextEntry const* CreatureTextMgr::FindSpellInText(uint32 entry, uint32 S
     }
 
     return nullptr;
-}
-
-bool CreatureTextMgr::IsDuplicateText(uint32 entry, const std::string& text)
-{
-    if (!entry || mTextList.size() <= entry)
-        return false;
-
-    CreatureTextHolder* textHolder = mTextList[entry];
-    if (!textHolder)
-        return false;
-
-    for (auto const& giter : *textHolder)
-        for (auto const& iter : giter.second)
-            if (iter.text.find(text) != std::string::npos)
-                return true;
-
-    return false;
 }

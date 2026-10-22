@@ -1,19 +1,14 @@
-/*
- * Copyright (C) 2008-2012 TrinityCore <http://www.trinitycore.org/>
- *
- * This program is free software; you can redistribute it and/or modify it
- * under the terms of the GNU General Public License as published by the
- * Free Software Foundation; either version 2 of the License, or (at your
- * option) any later version.
- *
- * This program is distributed in the hope that it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for
- * more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program. If not, see <http://www.gnu.org/licenses/>.
- */
+////////////////////////////////////////////
+///                                      ///
+///         LEGIONCORE REFORGED          ///
+///    Copyright 2026 Titans-Project     ///
+///         All Rights Reserved.         ///
+///                                      ///
+///      Based on TrinityCore code       ///
+///   Copyright 2008-2012 TrinityCore    ///
+///   <http://www.trinitycore.org/>      ///
+///                                      ///
+////////////////////////////////////////////
 
 /*
  * Scripts for spells with SPELLFAMILY_MONK and SPELLFAMILY_GENERIC spells used by monk players.
@@ -2254,33 +2249,32 @@ class spell_monk_renewing_mist_main : public SpellScriptLoader
                                     std::vector<Player*> tempList;
                                     bool findTarget = false;
 
-                                    for (GroupReference* itr = group->GetFirstMember(); itr != nullptr; itr = itr->next())
+                                    group->ForEachMemberInMap(plr->GetMap(), [&](Player* player)
                                     {
-                                        if (Player* player = itr->getSource())
+                                        if (findTarget)
+                                            return;
+
+                                        if (player->GetGUID() == target->GetGUID())
+                                            return;
+
+                                        if (!player->IsInWorld() || !player->IsAlive())
+                                            return;
+
+                                        if (!player->IsWithinDistInMap(target, 50.f))
+                                            return;
+
+                                        if (!caster->IsValidAssistTarget(player))
+                                            return;
+
+                                        if (player->HasAura(119611, caster->GetGUID()))
                                         {
-                                            if (player->GetGUID() == target->GetGUID())
-                                                continue;
-
-                                            if (!player->IsInWorld() || !player->IsAlive())
-                                                continue;
-
-                                            if (!player->IsWithinDistInMap(target, 50.f))
-                                                continue;
-
-                                            if (!caster->IsValidAssistTarget(player))
-                                                continue;
-
-                                            if (player->HasAura(119611, caster->GetGUID()))
-                                            {
-                                                tempList.push_back(player);
-                                                continue;
-                                            }
-
-                                            caster->CastSpell(player, 119611, true);
-                                            findTarget = true;
-                                            break;
+                                            tempList.push_back(player);
+                                            return;
                                         }
-                                    }
+
+                                        caster->CastSpell(player, 119611, true);
+                                        findTarget = true;
+                                    });
 
                                     if (!findTarget && !tempList.empty())
                                     {
@@ -2350,29 +2344,30 @@ class spell_monk_renewing_mist : public SpellScriptLoader
 
                             if (Group* group = plr->GetGroup())
                             {
-                                for (GroupReference* itr = group->GetFirstMember(); itr != nullptr; itr = itr->next())
+                                bool jumped = false;
+                                group->ForEachMemberInMap(plr->GetMap(), [&](Player* player)
                                 {
-                                    if (Player* player = itr->getSource())
-                                    {
-                                        if (player->GetGUID() == target->GetGUID())
-                                            continue;
+                                    if (jumped)
+                                        return;
 
-                                        if (!player->IsInWorld() || !player->IsAlive())
-                                            continue;
+                                    if (player->GetGUID() == target->GetGUID())
+                                        return;
 
-                                        if (player->IsFullHealth())
-                                            continue;
+                                    if (!player->IsInWorld() || !player->IsAlive())
+                                        return;
 
-                                        if (!player->IsWithinDistInMap(target, 20.f))
-                                            continue;
+                                    if (player->IsFullHealth())
+                                        return;
 
-                                        if (!caster->IsValidAssistTarget(player))
-                                            continue;
+                                    if (!player->IsWithinDistInMap(target, 20.f))
+                                        return;
 
-                                        if (JumpOnTarget(target, player, caster, aurEff))
-                                            return;
-                                    }
-                                }
+                                    if (!caster->IsValidAssistTarget(player))
+                                        return;
+
+                                    if (JumpOnTarget(target, player, caster, aurEff))
+                                        jumped = true;
+                                });
                             }
                             else if (!caster->IsFullHealth())
                             {

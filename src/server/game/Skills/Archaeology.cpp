@@ -1,20 +1,10 @@
-/*
- * Copyright (C) 2005-2013 MaNGOS <http://getmangos.com/>
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
- */
+////////////////////////////////////////////
+///                                      ///
+///         LEGIONCORE REFORGED          ///
+///    Copyright 2026 Titans-Project     ///
+///         All Rights Reserved.         ///
+///                                      ///
+////////////////////////////////////////////
 
 #include "Containers.h"
 #include "ObjectMgr.h"
@@ -96,17 +86,19 @@ bool Player::OnSurvey(uint32& entry, float& x, float& y, float& z, float &orient
     if (!site_id)
         return false;
 
-    uint8 i = 0;
+    size_t i = 0;
     std::vector<uint32> const research = GetDynamicValues(PLAYER_DYNAMIC_FIELD_RESEARCH_SITES);
-    for(; i < MAX_RESEARCH_SITES; ++i)
+    for (; i < research.size() && i < MAX_RESEARCH_SITES; ++i)
         if (research[i] == site_id)
             break;
 
-    if(i > MAX_RESEARCH_SITES)
+    // a site of the map that is not in the player's list (or beyond the array) has no slot
+    if (i >= research.size() || i >= MAX_RESEARCH_SITES)
         return false;
 
     DigSite &site = _digSites[i];
-    if (site.site_id != site_id)
+    // the slot keeps the count of the site; the loot is empty until the first survey
+    if (site.site_id != site_id || (!site.find_id && !site.loot_x && !site.loot_y))
     {
         if (!GenerateDigSiteLoot(site_id, site))
             return false;
@@ -161,6 +153,7 @@ bool Player::OnSurvey(uint32& entry, float& x, float& y, float& z, float &orient
     if (site.count < MAX_DIGSITE_FINDS - 1)
     {
         ++site.count;
+        _archaeologyChanged = true;
         if (!GenerateDigSiteLoot(site_id, site))
             return true;
     }
@@ -369,15 +362,48 @@ void Player::ShowResearchSites()
     if (!GetSkillValue(SKILL_ARCHAEOLOGY))
         return;
 
-    for (ResearchSiteSet::const_iterator itr = _researchSites.begin(); itr != _researchSites.end(); ++itr)
+    // the dig site slots follow the order of the list: carry them over to the new order
+    DigSite oldSlots[MAX_RESEARCH_SITES];
+    bool hadSlots = false;
+    for (uint8 j = 0; j < MAX_RESEARCH_SITES; ++j)
+    {
+        oldSlots[j] = _digSites[j];
+        if (oldSlots[j].site_id)
+            hadSlots = true;
+    }
+
+    ClearDynamicValue(PLAYER_DYNAMIC_FIELD_RESEARCH_SITES);
+
+    uint8 slot = 0;
+    for (ResearchSiteSet::const_iterator itr = _researchSites.begin(); itr != _researchSites.end() && slot < MAX_RESEARCH_SITES; ++itr, ++slot)
     {
         uint32 id = *itr;
+
+        if (hadSlots)
+        {
+            _digSites[slot].clear();
+            for (uint8 j = 0; j < MAX_RESEARCH_SITES; ++j)
+                if (oldSlots[j].site_id == id)
+                {
+                    _digSites[slot] = oldSlots[j];
+                    break;
+                }
+        }
+        else
+        {
+            // first display after loading: the slots hold only the saved counts
+            _digSites[slot].site_id = id;
+        }
+
         ResearchSiteEntry const* rs = sDB2Manager.GetResearchSiteEntryById(id);
         if (!rs || CanResearchWithSkillLevel(rs->ID) == 2)
             id = 0;
 
         AddDynamicValue(PLAYER_DYNAMIC_FIELD_RESEARCH_SITES, id);
     }
+
+    for (uint8 j = slot; j < MAX_RESEARCH_SITES; ++j)
+        _digSites[j].clear();
 }
 
 bool Player::CanResearchWithLevel(uint32 site_id)
@@ -464,7 +490,11 @@ void Player::GenerateResearchSiteInMap(uint32 mapId)
     }
 
     if (tempSites.empty())
+    {
+        // the caller may have removed a site: the displayed list must follow
+        ShowResearchSites();
         return;
+    }
 
     uint32 site_id = Trinity::Containers::SelectRandomContainerElement(tempSites);
     _researchSites.insert(site_id);
@@ -557,8 +587,11 @@ void Player::GenerateResearchProjects()
 
         if (tempRareProjects[itr->first].size() > 0 && roll_chance_f(rare_chance))
             project_id = Trinity::Containers::SelectRandomContainerElement(tempRareProjects[itr->first]);
-        else
+        else if (!itr->second.empty())
             project_id = Trinity::Containers::SelectRandomContainerElement(itr->second);
+
+        if (!project_id)
+            continue;
 
         ReplaceResearchProject(0, project_id);
     }
@@ -643,7 +676,10 @@ bool Player::SolveResearchProject(uint32 spellId, SpellCastTargets& targets)
         if (!currencyEntry)
             return false;
 
+        // the client may list the same keystone several times: count each item once with its total
         ArchaeologyWeights weights = targets.GetWeights();
+        std::map<uint32, uint32> keystones;
+        uint32 keystoneTotal = 0;
         for (ArchaeologyWeights::iterator itr = weights.begin(); itr != weights.end(); ++itr)
         {
             ArchaeologyWeight& w = *itr;
@@ -659,24 +695,31 @@ bool Player::SolveResearchProject(uint32 spellId, SpellCastTargets& targets)
                 if (w.keystone.itemCount > entry->NumSockets)
                     return false;
 
-                if (!HasItemCount(w.keystone.itemId, w.keystone.itemCount))
-                    return false;
-
-                currencyAmt -= int32(proto->GetSpellWeight() * w.keystone.itemCount);
+                keystones[w.keystone.itemId] += w.keystone.itemCount;
+                keystoneTotal += w.keystone.itemCount;
             }
+        }
+
+        if (keystoneTotal > entry->NumSockets)
+            return false;
+
+        for (auto const& keystone : keystones)
+        {
+            if (!HasItemCount(keystone.first, keystone.second))
+                return false;
+
+            currencyAmt -= int32(sObjectMgr->GetItemTemplate(keystone.first)->GetSpellWeight() * keystone.second);
         }
 
         if (currencyAmt > 0 && !HasCurrency(currencyId, currencyAmt))
             return false;
 
-        ModifyCurrency(currencyId, -currencyAmt);
+        // keystones worth more than the project must not credit fragments back
+        if (currencyAmt > 0)
+            ModifyCurrency(currencyId, -currencyAmt);
 
-        for (ArchaeologyWeights::iterator itr = weights.begin(); itr != weights.end(); ++itr)
-        {
-            ArchaeologyWeight& w = *itr;
-            if (w.type == WEIGHT_KEYSTONE)
-                DestroyItemCount(w.keystone.itemId, w.keystone.itemCount, true);
-        }
+        for (auto const& keystone : keystones)
+            DestroyItemCount(keystone.first, keystone.second, true);
     }
 
     UpdateAchievementCriteria(CRITERIA_TYPE_COMPLETE_ARCHAEOLOGY_PROJECTS, entry->ID, 1);
@@ -714,10 +757,14 @@ bool Player::SolveResearchProject(uint32 spellId, SpellCastTargets& targets)
     uint32 project_id = 0;
     if (tempRareProjects.size() > 0 && roll_chance_f(rare_chance))
         project_id = Trinity::Containers::SelectRandomContainerElement(tempRareProjects);
-    else
+    else if (!tempProjects.empty())
         project_id = Trinity::Containers::SelectRandomContainerElement(tempProjects);
+    else if (!tempRareProjects.empty())
+        project_id = Trinity::Containers::SelectRandomContainerElement(tempRareProjects);
 
-    ReplaceResearchProject(entry->ID, project_id);
+    // no project left in the branch: the solved one stays in its slot
+    if (project_id)
+        ReplaceResearchProject(entry->ID, project_id);
 
     _archaeologyChanged = true;
 
@@ -788,8 +835,10 @@ void Player::_SaveArchaeology(CharacterDatabaseTransaction& trans)
 
 void Player::_LoadArchaeology(PreparedQueryResult result)
 {
+    _archaeologyChanged = false;
+
     for (uint8 i = 0; i < MAX_RESEARCH_SITES; ++i)
-        _digSites[i].count = 0;
+        _digSites[i].clear();
 
     if (!sWorld->getBoolConfig(CONFIG_ARCHAEOLOGY_ENABLED))
         return;
@@ -805,7 +854,8 @@ void Player::_LoadArchaeology(PreparedQueryResult result)
 
     // Loading current zones
     Tokenizer tokens(fields[0].GetString(), ' ');
-    if (tokens.size() == MAX_RESEARCH_SITES)
+    // the saved list holds the sites of the player (a few per map), not always MAX_RESEARCH_SITES of them
+    if (tokens.size() > 0)
     {
         _researchSites.clear();
 
@@ -820,7 +870,7 @@ void Player::_LoadArchaeology(PreparedQueryResult result)
     if (tokens2.size() == MAX_RESEARCH_SITES)
     {
         for (uint8 i = 0; i < MAX_RESEARCH_SITES; ++i)
-            _digSites[i].count = uint32(atoi(tokens2[i]));
+            _digSites[i].count = uint8(std::max(0, std::min<int>(atoi(tokens2[i]), MAX_DIGSITE_FINDS - 1)));
     }
 
     // Loading current projects

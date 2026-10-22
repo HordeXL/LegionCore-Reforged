@@ -1,20 +1,14 @@
-/*
- * Copyright (C) 2008-2012 TrinityCore <http://www.trinitycore.org/>
- * Copyright (C) 2005-2009 MaNGOS <http://getmangos.com/>
- *
- * This program is free software; you can redistribute it and/or modify it
- * under the terms of the GNU General Public License as published by the
- * Free Software Foundation; either version 2 of the License, or (at your
- * option) any later version.
- *
- * This program is distributed in the hope that it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for
- * more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program. If not, see <http://www.gnu.org/licenses/>.
- */
+////////////////////////////////////////////
+///                                      ///
+///         LEGIONCORE REFORGED          ///
+///    Copyright 2026 Titans-Project     ///
+///         All Rights Reserved.         ///
+///                                      ///
+///      Based on TrinityCore code       ///
+///   Copyright 2008-2012 TrinityCore    ///
+///   <http://www.trinitycore.org/>      ///
+///                                      ///
+////////////////////////////////////////////
 
 #include "HomeMovementGenerator.h"
 #include "Creature.h"
@@ -47,12 +41,9 @@ void HomeMovementGenerator<Creature>::SetTargetLocation(Creature& owner)
 
     Movement::MoveSplineInit init(owner);
     float x, y, z, o;
-    // at apply we can select more nice return points base at current movegen
-    if (owner.GetMotionMaster()->empty() || !owner.GetMotionMaster()->top()->GetResetPosition(owner, x, y, z))
-    {
-        owner.GetHomePosition(x, y, z, o);
-        init.SetFacing(o);
-    }
+    // The generator on top is this one, so asking it for a reset position never gave anything but the home position
+    owner.GetHomePosition(x, y, z, o);
+    init.SetFacing(o);
     owner.UpdateAllowedPositionZ(x, y, z);
     // Pathed, as in TrinityCore: MoveTo does not path by default here, so evading creatures walked
     // back to their spawn in a straight line, through walls. The destination is forced so that a path
@@ -91,7 +82,8 @@ void HomeMovementGenerator<Creature>::DoFinalize(Creature& owner)
         owner.LoadCreaturesAddon(true);
         if (owner.IsVehicle())
             owner.GetVehicleKit()->Reset(true);
-        owner.AI()->JustReachedHome();
+        if (owner.AI())
+            owner.AI()->JustReachedHome();
         owner.SetSpawnHealth();
     }
 }

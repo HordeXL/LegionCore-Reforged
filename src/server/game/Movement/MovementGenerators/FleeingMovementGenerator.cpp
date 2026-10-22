@@ -1,20 +1,14 @@
-/*
- * Copyright (C) 2008-2012 TrinityCore <http://www.trinitycore.org/>
- * Copyright (C) 2005-2009 MaNGOS <http://getmangos.com/>
- *
- * This program is free software; you can redistribute it and/or modify it
- * under the terms of the GNU General Public License as published by the
- * Free Software Foundation; either version 2 of the License, or (at your
- * option) any later version.
- *
- * This program is distributed in the hope that it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for
- * more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program. If not, see <http://www.gnu.org/licenses/>.
- */
+////////////////////////////////////////////
+///                                      ///
+///         LEGIONCORE REFORGED          ///
+///    Copyright 2026 Titans-Project     ///
+///         All Rights Reserved.         ///
+///                                      ///
+///      Based on TrinityCore code       ///
+///   Copyright 2008-2012 TrinityCore    ///
+///   <http://www.trinitycore.org/>      ///
+///                                      ///
+////////////////////////////////////////////
 
 #include "FleeingMovementGenerator.h"
 #include "Creature.h"
@@ -169,7 +163,8 @@ void FleeingMovementGenerator<T>::GetPoint(T& owner, Position& position)
         angle = frand(0.0f, 2.0f * float(M_PI));
     }
 
-    owner.MovePositionToFirstCollision(position, distance, angle);
+    // casterAngle is absolute while MovePositionToFirstCollision adds the owner's orientation
+    owner.MovePositionToFirstCollision(position, distance, angle - owner.GetOrientation());
 }
 
 template void FleeingMovementGenerator<Player>::DoInitialize(Player&);
@@ -209,7 +204,9 @@ void TimedFleeingMovementGenerator::Finalize(Unit& owner)
         if (owner.IsAlive())
         {
             owner.AttackStop();
-            owner.ToCreature()->AI()->AttackStart(victim);
+            if (Creature* creature = owner.ToCreature())
+                if (creature->AI())
+                    creature->AI()->AttackStart(victim);
         }
     }
 }

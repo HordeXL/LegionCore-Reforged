@@ -1,20 +1,14 @@
-/*
-* Copyright (C) 2008-2012 TrinityCore <http://www.trinitycore.org/>
-* Copyright (C) 2005-2011 MaNGOS <http://getmangos.com/>
-*
-* This program is free software; you can redistribute it and/or modify it
-* under the terms of the GNU General Public License as published by the
-* Free Software Foundation; either version 2 of the License, or (at your
-* option) any later version.
-*
-* This program is distributed in the hope that it will be useful, but WITHOUT
-* ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
-* FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for
-* more details.
-*
-* You should have received a copy of the GNU General Public License along
-* with this program. If not, see <http://www.gnu.org/licenses/>.
-*/
+////////////////////////////////////////////
+///                                      ///
+///         LEGIONCORE REFORGED          ///
+///    Copyright 2026 Titans-Project     ///
+///         All Rights Reserved.         ///
+///                                      ///
+///      Based on TrinityCore code       ///
+///   Copyright 2008-2012 TrinityCore    ///
+///   <http://www.trinitycore.org/>      ///
+///                                      ///
+////////////////////////////////////////////
 
 #include "Common.h"
 #include "WorldPacket.h"
@@ -71,11 +65,20 @@ void WardenMgr::LoadWardenChecks()
 
     Field* fields = result->Fetch();
 
+    if (fields[0].IsNull())
+    {
+        TC_LOG_INFO("server.loading", ">> Loaded 0 Warden checks. DB table `warden_checks` is empty!");
+        return;
+    }
+
     uint16 maxCheckId = fields[0].GetUInt16();
     checkStore.resize(maxCheckId + 1);
 
     //                                    0    1    2    3     4     5        6      7         8        9       10
     result = WorldDatabase.Query("SELECT id, type, os, data, str, address, length, result, banreason, action, comment FROM warden_checks ORDER BY id ASC");
+
+    if (!result)
+        return;
 
     uint32 count = 0;
     do
@@ -103,6 +106,7 @@ void WardenMgr::LoadWardenChecks()
         else
             wardenCheck->Comment = comment;
 
+        delete checkStore[id];
         checkStore[id] = wardenCheck;
 
         ++count;
@@ -136,10 +140,10 @@ void WardenMgr::LoadWardenOverrides()
         bool enabled = fields[3].GetBool();
 
         // Check if action value is in range (0-4, see WardenActions enum)
-        if (action >= MAX_WARDEN_ACTIONS)
+        if (action < 0 || action >= MAX_WARDEN_ACTIONS)
             TC_LOG_ERROR("sql.sql", "Warden check override action out of range (ID: %u, action: %u)", checkId, action);
         // Check if check actually exists before accessing the CheckStore vector
-        else if (checkId > checkStore.size())
+        else if (checkId >= checkStore.size() || !checkStore[checkId])
             TC_LOG_ERROR("sql.sql", "Warden check action override for non-existing check (ID: %u, action: %u), skipped", checkId, action);
         else
         {
@@ -238,8 +242,16 @@ bool WardenMgr::LoadModule(const char * fileName, std::string os)
 
     // read module
     fseek(f_mod, 0, SEEK_END);
-    uint32 len = ftell(f_mod);
+    long fileSize = ftell(f_mod);
     fseek(f_mod, 0, SEEK_SET);
+
+    if (fileSize <= 0)
+    {
+        fclose(f_mod);
+        return false;
+    }
+
+    uint32 len = uint32(fileSize);
 
     // data assign
     WardenModule *mod = new WardenModule();
@@ -267,7 +279,11 @@ bool WardenMgr::LoadModule(const char * fileName, std::string os)
     FILE * f_key = fopen(path.c_str(), "rb");
 
     if (f_key == nullptr)
+    {
+        delete[] mod->CompressedData;
+        delete mod;
         return false;
+    }
 
     // read key and other data
     fread(mod->Key, 16, 1, f_key);
@@ -320,6 +336,9 @@ std::string WardenMgr::ByteArrayToString(const uint8 * data, uint16 length)
 std::vector<uint16>::iterator WardenMgr::GetRandomCheckFromList(std::vector<uint16>::iterator begin, std::vector<uint16>::iterator end)
 {
     const unsigned long n = std::distance(begin, end);
+    if (!n)
+        return end;
+
     const unsigned long divisor = (RAND_MAX + 1l) / n;
 
     unsigned long k;

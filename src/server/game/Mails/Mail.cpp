@@ -1,20 +1,14 @@
-/*
- * Copyright (C) 2008-2012 TrinityCore <http://www.trinitycore.org/>
- * Copyright (C) 2005-2009 MaNGOS <http://getmangos.com/>
- *
- * This program is free software; you can redistribute it and/or modify it
- * under the terms of the GNU General Public License as published by the
- * Free Software Foundation; either version 2 of the License, or (at your
- * option) any later version.
- *
- * This program is distributed in the hope that it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for
- * more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program. If not, see <http://www.gnu.org/licenses/>.
- */
+////////////////////////////////////////////
+///                                      ///
+///         LEGIONCORE REFORGED          ///
+///    Copyright 2026 Titans-Project     ///
+///         All Rights Reserved.         ///
+///                                      ///
+///      Based on TrinityCore code       ///
+///   Copyright 2008-2012 TrinityCore    ///
+///   <http://www.trinitycore.org/>      ///
+///                                      ///
+////////////////////////////////////////////
 
 #include "DatabaseEnv.h"
 #include "Mail.h"
@@ -142,6 +136,14 @@ MailDraft::MailDraft(std::string subject, std::string body): m_mailTemplateId(0)
 
 MailDraft& MailDraft::AddItem(Item* item)
 {
+    MailItemMap::const_iterator existing = m_items.find(item->GetGUIDLow());
+    if (existing != m_items.end())
+    {
+        if (existing->second != item)
+            TC_LOG_ERROR("misc", "MailDraft::AddItem - item guid " UI64FMTD " already in the draft, the first one is kept", uint64(item->GetGUIDLow()));
+        return *this;
+    }
+
     if (item->GetOwnerGUID())
     {
         // just for disable error log and possible something else.
@@ -164,6 +166,7 @@ void MailDraft::prepareItems(Player* receiver, CharacterDatabaseTransaction& tra
     m_mailTemplateItemsNeed = false;
 
     Loot mailLoot;
+    mailLoot._noRegister = true;                                // never looked up by guid
 
     // can be empty
     mailLoot.FillLoot(m_mailTemplateId, LootTemplates_Mail, receiver, true, true);
@@ -173,13 +176,16 @@ void MailDraft::prepareItems(Player* receiver, CharacterDatabaseTransaction& tra
     {
         if (LootItem* lootitem = mailLoot.LootItemInSlot(i, receiver))
         {
+            // LootItemInSlot already filters the free for all and conditional slots through the receiver's lists
+            if (lootitem->currency)
+                continue;
+
+            if (sDB2Manager.GetHeirloomByItemId(lootitem->item.ItemID))
+                continue;
+
             if (Item* item = Item::CreateItem(lootitem->item.ItemID, lootitem->count, receiver))
             {
                 item->SaveToDB(trans);                           // save for prevent lost at next mail load, if send fail then item will deleted
-                
-                if (sDB2Manager.GetHeirloomByItemId(item->GetEntry()))
-                    continue;
-
                 AddItem(item);
             }
         }
@@ -237,9 +243,7 @@ void MailDraft::SendReturnToSender(uint32 sender_acc, ObjectGuid::LowType sender
     // the receiver may stand on another map: only his presence is tested, SendMailTo delivers by guid
     bool const receiverOnline = ObjectAccessor::IsPlayerOnline(receiverGuid);
 
-    uint32 rc_account = 0;
-    if (!receiverOnline)
-        rc_account = ObjectMgr::GetPlayerAccountIdByGUID(ObjectGuid::Create<HighGuid::Player>(receiver_guid));
+    uint32 const rc_account = ObjectMgr::GetPlayerAccountIdByGUID(receiverGuid);
 
     if (!receiverOnline && !rc_account)                      // sender not exist
     {
@@ -355,9 +359,6 @@ void MailDraft::SendMailTo(CharacterDatabaseTransaction& trans, MailReceiver con
         {
             Item* item = mailItemIter->second;
             items.push_back(item);
-
-            if (sDB2Manager.GetHeirloomByItemId(item->GetEntry()))
-                continue;
 
             m->AddItem(item->GetGUIDLow(), item->GetEntry());
         }

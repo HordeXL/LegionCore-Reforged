@@ -1,21 +1,17 @@
-/*
- * Copyright (C) 2008-2015 TrinityCore <http://www.trinitycore.org/>
- *
- * This program is free software; you can redistribute it and/or modify it
- * under the terms of the GNU General Public License as published by the
- * Free Software Foundation; either version 2 of the License, or (at your
- * option) any later version.
- *
- * This program is distributed in the hope that it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for
- * more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program. If not, see <http://www.gnu.org/licenses/>.
- */
+////////////////////////////////////////////
+///                                      ///
+///         LEGIONCORE REFORGED          ///
+///    Copyright 2026 Titans-Project     ///
+///         All Rights Reserved.         ///
+///                                      ///
+///      Based on TrinityCore code       ///
+///   Copyright 2008-2015 TrinityCore    ///
+///   <http://www.trinitycore.org/>      ///
+///                                      ///
+////////////////////////////////////////////
 
 #include "GarrisonPackets.h"
+#include "PacketUtilities.h"
 
 ByteBuffer& operator<<(ByteBuffer& data, WorldPackets::Garrison::GarrisonPlotInfo const* plotInfo)
 {
@@ -441,10 +437,11 @@ WorldPacket const* WorldPackets::Garrison::GarrisonMissionBonusRollResult::Write
 void WorldPackets::Garrison::GarrisonStartMission::Read()
 {
     _worldPacket >> NpcGUID;
-    auto followerCount = _worldPacket.read<uint32>();
+    // a mission holds a handful of followers at most; the count is client data
+    uint32 followerCount = CheckElementCount(_worldPacket, _worldPacket.read<uint32>(), sizeof(uint64), 32);
     _worldPacket >> MissionRecID;
     FollowerDBIDs.clear();
-    for (uint8 i = 0; i < followerCount; ++i)
+    for (uint32 i = 0; i < followerCount; ++i)
         FollowerDBIDs.push_back(_worldPacket.read<uint64>());
 }
 

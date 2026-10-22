@@ -1,20 +1,14 @@
-/*
- * Copyright (C) 2008-2012 TrinityCore <http://www.trinitycore.org/>
- * Copyright (C) 2005-2009 MaNGOS <http://getmangos.com/>
- *
- * This program is free software; you can redistribute it and/or modify it
- * under the terms of the GNU General Public License as published by the
- * Free Software Foundation; either version 2 of the License, or (at your
- * option) any later version.
- *
- * This program is distributed in the hope that it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for
- * more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program. If not, see <http://www.gnu.org/licenses/>.
- */
+////////////////////////////////////////////
+///                                      ///
+///         LEGIONCORE REFORGED          ///
+///    Copyright 2026 Titans-Project     ///
+///         All Rights Reserved.         ///
+///                                      ///
+///      Based on TrinityCore code       ///
+///   Copyright 2008-2012 TrinityCore    ///
+///   <http://www.trinitycore.org/>      ///
+///                                      ///
+////////////////////////////////////////////
 
 #ifndef CHAT_H
 #define CHAT_H
@@ -27,6 +21,7 @@ class ChatHandler;
 class WorldSession;
 class WorldObject;
 class Creature;
+class Group;
 class Player;
 class Unit;
 struct GameTele;
@@ -121,8 +116,22 @@ class TC_GAME_API ChatHandler
         GameTele const* extractGameTeleFromLink(char* text);
         bool GetPlayerGroupAndGUIDByName(const char* cname, Player* &player, Group* &group, ObjectGuid &guid, bool offline = false);
         std::string extractPlayerNameFromLink(char* text);
-        // select by arg (name/link) or in-game selection online/offline player
+        // select by arg (name/link) or in-game selection online/offline player.
+        // *player is set only for a player standing on the caller's own map (never from the console): another map's player belongs
+        // to another thread. The guid and name are still filled for an online player of another map, see IsOnlineElsewhere.
         bool extractPlayerTarget(char* args, Player** player, ObjectGuid* player_guid = nullptr, std::string* player_name = nullptr);
+        // true for a target that is logged in but has no pointer from extractPlayerTarget: read it with ObjectAccessor::WithPlayer,
+        // change it with ObjectAccessor::PostToPlayer, and never take the offline database path for him
+        static bool IsOnlineElsewhere(Player const* target, ObjectGuid guid);
+        // extractPlayerTarget for a command that needs a logged-in player: an offline name or guid is refused
+        bool extractOnlinePlayerTarget(char* args, Player** player, ObjectGuid* player_guid, std::string* player_name = nullptr);
+        // needReportToTarget for a logged-in player of another map
+        bool NeedReportToElsewhere(ObjectGuid guid) const;
+        // group of a target (null without group): read under the accessor lock when he is on another map
+        static Group* FindTargetGroup(Player* target, ObjectGuid guid);
+        // runs action in the own thread of a logged-in target of another map; false (and "player not found") if he just left.
+        // With announceName the caller is told at once that the action was queued.
+        bool PostToTarget(ObjectGuid guid, std::function<void(Player*)>&& action, char const* announceName = nullptr);
         // same selection, but only the guid and name are returned: a player found by name may stand on another map, so no pointer
         bool extractPlayerGuidTarget(char* args, ObjectGuid* player_guid, std::string* player_name = nullptr);
 

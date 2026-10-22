@@ -1,20 +1,14 @@
-/*
- * Copyright (C) 2008-2012 TrinityCore <http://www.trinitycore.org/>
- * Copyright (C) 2005-2009 MaNGOS <http://getmangos.com/>
- *
- * This program is free software; you can redistribute it and/or modify it
- * under the terms of the GNU General Public License as published by the
- * Free Software Foundation; either version 2 of the License, or (at your
- * option) any later version.
- *
- * This program is distributed in the hope that it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for
- * more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program. If not, see <http://www.gnu.org/licenses/>.
- */
+////////////////////////////////////////////
+///                                      ///
+///         LEGIONCORE REFORGED          ///
+///    Copyright 2026 Titans-Project     ///
+///         All Rights Reserved.         ///
+///                                      ///
+///      Based on TrinityCore code       ///
+///   Copyright 2008-2012 TrinityCore    ///
+///   <http://www.trinitycore.org/>      ///
+///                                      ///
+////////////////////////////////////////////
 
 #include "AreaTriggerData.h"
 
@@ -591,8 +585,22 @@ Aura* Aura::Create(SpellInfo const* spellproto, uint32 effMask, WorldObject* own
                 delete aura;
                 return nullptr;
             }
+
+            // the caster can be missing or on another map: refuse the aura instead of stopping the server
+            if (Unit* dynCaster = aura->GetCaster())
+            {
+                if (dynCaster->GetMap() != aura->GetDynobjOwner()->GetMap())
+                {
+                    delete aura;
+                    return nullptr;
+                }
+            }
+            else
+            {
+                delete aura;
+                return nullptr;
+            }
             aura->GetDynobjOwner()->SetAura(aura);
-            ASSERT(aura->GetDynobjOwner()->GetMap() == aura->GetCaster()->GetMap());
             break;
         default:
             ASSERT(false);
@@ -735,7 +743,7 @@ void Aura::CalculateDurationFromDummy(int32 &duration)
                 {
                     float bp = itr.custombp;
                     if (!bp)
-                        bp = dummyInfo->Effects[itr.effectDummy]->BasePoints;
+                        bp = GetDummyBasePoints(dummyInfo, itr.effectDummy);
                     duration += CalculatePct(duration, bp);
                     check = true;
                 }
@@ -746,7 +754,7 @@ void Aura::CalculateDurationFromDummy(int32 &duration)
                 {
                     float bp = itr.custombp;
                     if (!bp)
-                        bp = dummyInfo->Effects[itr.effectDummy]->BasePoints;
+                        bp = GetDummyBasePoints(dummyInfo, itr.effectDummy);
                     duration -= CalculatePct(duration, bp);
                     check = true;
                 }
@@ -766,7 +774,7 @@ void Aura::CalculateDurationFromDummy(int32 &duration)
                 {
                     float bp = itr.custombp;
                     if (!bp)
-                        bp = dummyInfo->Effects[itr.effectDummy]->BasePoints;
+                        bp = GetDummyBasePoints(dummyInfo, itr.effectDummy);
                     duration += bp;
                     check = true;
                 }
@@ -777,7 +785,7 @@ void Aura::CalculateDurationFromDummy(int32 &duration)
                 {
                     float bp = itr.custombp;
                     if (!bp)
-                        bp = dummyInfo->Effects[itr.effectDummy]->BasePoints;
+                        bp = GetDummyBasePoints(dummyInfo, itr.effectDummy);
                     duration -= bp;
                     check = true;
                 }
@@ -793,8 +801,8 @@ void Aura::CalculateDurationFromDummy(int32 &duration)
 }
 
 Aura::Aura(SpellInfo const* spellproto, WorldObject* owner, Unit* caster, Item* castItem, ObjectGuid casterGUID, uint16 stackAmount, SpellPowerCost* powerCost) :
-m_damage_amount(0), TimeMod(1.0f), m_spellInfo(spellproto), m_casterGuid(!casterGUID.IsEmpty() ? casterGUID : caster->GetGUID()), m_castItemGuid(castItem ? castItem->GetGUID() : ObjectGuid::Empty),
-m_applyTime(GameTime::GetGameTime()), m_applyMSTime(GameTime::GetGameTimeMS()), m_owner(owner), m_SpellVisual(0), m_timeCla(0), m_updateTargetMapInterval(0), m_casterLevel(caster ? caster->GetLevelForTarget(owner) : m_spellInfo->SpellLevel),
+m_damage_amount(0), TimeMod(1.0f), m_spellInfo(spellproto), m_casterGuid(!casterGUID.IsEmpty() ? casterGUID : (caster ? caster->GetGUID() : ObjectGuid::Empty)), m_castItemGuid(castItem ? castItem->GetGUID() : ObjectGuid::Empty),
+m_applyTime(GameTime::GetGameTime()), m_applyMSTime(GameTime::GetGameTimeMS()), m_owner(owner), m_SpellVisual(0), m_updateTargetMapInterval(0), m_casterLevel(caster ? caster->GetLevelForTarget(owner) : m_spellInfo->SpellLevel),
 m_procCharges(0), m_stackAmount(stackAmount ? stackAmount: 1), m_diffMode(caster ? caster->GetSpawnMode() : 0), m_customData(0), m_isRemoved(0), m_auraId(spellproto->Id), _triggeredCastFlags(0)
 {
     m_powerCost.assign(MAX_POWERS + 1, 0);
@@ -826,7 +834,6 @@ m_procCharges(0), m_stackAmount(stackAmount ? stackAmount: 1), m_diffMode(caster
 
     m_maxDuration = CalcMaxDuration(caster);
     m_duration = m_maxDuration;
-    m_allDuration = 0;
     m_procCharges = CalcMaxCharges(caster);
     SetAuraAttribute(AURA_ATTR_IS_USING_CHARGES, m_procCharges != 0);
     int32 _level = 0;
@@ -926,17 +933,17 @@ AuraObjectType Aura::GetType() const
     return (m_owner->IsDynObject()) ? DYNOBJ_AURA_TYPE : UNIT_AURA_TYPE;
 }
 
-void Aura::_ApplyForTarget(Unit* target, Unit* caster, AuraApplicationPtr auraApp)
+bool Aura::_ApplyForTarget(Unit* target, Unit* caster, AuraApplicationPtr auraApp)
 {
     if (IsRemoved())
-        return;
+        return false;
 
     ASSERT(target);
     ASSERT(auraApp);
     // aura mustn't be already applied on target
     // ASSERT (!IsAppliedOnTarget(target->GetGUID()) && "Aura::_ApplyForTarget: aura musn't be already applied on target");
     if (IsAppliedOnTarget(target->GetGUID()))
-        return;
+        return false;
 
     m_applications[target->GetGUID()] = auraApp;
 
@@ -954,6 +961,8 @@ void Aura::_ApplyForTarget(Unit* target, Unit* caster, AuraApplicationPtr auraAp
         if (Creature* creature = target->ToCreature())
             if (creature->IsAIEnabled)
                 creature->AI()->OnApplyOrRemoveAura(auraApp->GetBase()->GetId(), auraApp->GetRemoveMode(), true);
+
+    return true;
 }
 
 void Aura::_UnapplyForTarget(Unit* target, Unit* caster, AuraApplicationPtr auraApp)
@@ -982,17 +991,18 @@ void Aura::_Remove(AuraRemoveMode removeMode)
     ASSERT (!m_isRemoved);
     m_isRemoved = 1;
 
-    ApplicationMap::iterator appItr = m_applications.begin();
-    for (appItr = m_applications.begin(); appItr != m_applications.end();)
+    while (!m_applications.empty())
     {
-        if (AuraApplicationPtr aurApp = appItr->second)
-        {
+        auto appItr = m_applications.begin();
+        ObjectGuid const targetGuid = appItr->first;
+        AuraApplicationPtr aurApp = appItr->second;
+
+        if (aurApp)
             if (Unit* target = aurApp->GetTarget())
-            {
                 target->_UnapplyAura(aurApp.get(), removeMode);
-                appItr = m_applications.begin();
-            }
-        }
+
+        // _UnapplyAura leaves the entry when the target no longer lists the application (and an empty entry is never handled): drop it so the loop always ends
+        m_applications.erase(targetGuid);
     }
 
     UpdateConcatenateAura(GetCaster(), 0, 0, CONCATENATE_ON_REMOVE_AURA);
@@ -1265,7 +1275,6 @@ void Aura::Update(uint32 diff, Unit* caster)
         if (m_duration > 0)
         {
             m_duration -= diff;
-            m_allDuration += diff;
             if (m_duration < 0)
                 m_duration = 0;
         }
@@ -1590,26 +1599,6 @@ void Aura::RefreshSpellMods()
                 player->RestoreAllSpellMods(0, this);
 }
 
-bool Aura::HasMoreThanOneEffectForType(AuraType auraType) const
-{
-    uint32 count = 0;
-
-    for (uint8 effIndex = 0; effIndex < MAX_SPELL_EFFECTS; ++effIndex)
-    {
-        if (GetSpellInfo()->EffectMask < uint32(1 << effIndex))
-            break;
-
-        if (!HasEffect(effIndex))
-            continue;
-
-        if (auto const& effect = GetSpellInfo()->GetEffect(effIndex, m_diffMode))
-            if (effect && HasEffect(effect->EffectIndex) && AuraType(effect->ApplyAuraName) == auraType)
-                ++count;
-    }
-
-    return count > 1;
-}
-
 bool Aura::IsArea() const
 {
     return m_spellInfo->HasAreaAuraEffect();
@@ -1920,6 +1909,17 @@ void Aura::SetNeedClientUpdateForTargets()
             aurApp->SetNeedClientUpdate();
 }
 
+Unit* GetLinkedSpellUnit(Unit* source, Unit* caster, Unit* target, uint8 type)
+{
+    if (!source)
+        return nullptr;
+
+    if (!caster && (type == LINK_UNIT_TYPE_ATTACKER || type == LINK_UNIT_TYPE_LAST_TARGET || type == LINK_UNIT_TYPE_TOP_AGGRO))
+        return nullptr;
+
+    return source->GetUnitForLinkedSpell(caster, target, type);
+}
+
 // trigger effects on real aura apply/remove
 void Aura::HandleAuraSpecificMods(AuraApplication const* aurApp, Unit* caster, bool apply, bool onReapply)
 {
@@ -1983,10 +1983,10 @@ void Aura::HandleAuraSpecificMods(AuraApplication const* aurApp, Unit* caster, b
                     Unit* _caster = caster;
 
                     if (itr.target)
-                        _target = target->GetUnitForLinkedSpell(caster, target, itr.target);
+                        _target = GetLinkedSpellUnit(target, caster, target, itr.target);
 
                     if (itr.caster && caster)
-                        _caster = caster->GetUnitForLinkedSpell(caster, target, itr.caster);
+                        _caster = GetLinkedSpellUnit(caster, caster, target, itr.caster);
 
                     if(itr.hastalent)
                         if(target->HasAuraLinkedSpell(_caster, _target, itr.hastype, itr.hastalent, itr.hasparam))
@@ -2057,10 +2057,10 @@ void Aura::HandleAuraSpecificMods(AuraApplication const* aurApp, Unit* caster, b
                     Unit* _caster = caster;
 
                     if (itr.target)
-                        _target = target->GetUnitForLinkedSpell(caster, target, itr.target);
+                        _target = GetLinkedSpellUnit(target, caster, target, itr.target);
 
                     if (itr.caster && caster)
-                        _caster = caster->GetUnitForLinkedSpell(caster, target, itr.caster);
+                        _caster = GetLinkedSpellUnit(caster, caster, target, itr.caster);
 
                     if(itr.hastalent)
                         if(target->HasAuraLinkedSpell(_caster, _target, itr.hastype, itr.hastalent, itr.hasparam))
@@ -2145,10 +2145,10 @@ void Aura::HandleAuraSpecificMods(AuraApplication const* aurApp, Unit* caster, b
                         Unit* _caster = caster ? caster : target;
 
                         if (itr.target)
-                            _target = target->GetUnitForLinkedSpell(caster, target, itr.target);
+                            _target = GetLinkedSpellUnit(target, caster, target, itr.target);
 
                         if (itr.caster && caster)
-                            _caster = caster->GetUnitForLinkedSpell(caster, target, itr.caster);
+                            _caster = GetLinkedSpellUnit(caster, caster, target, itr.caster);
 
                         if(itr.hastalent)
                             if(target->HasAuraLinkedSpell(_caster, _target, itr.hastype, itr.hastalent, itr.hasparam))
@@ -2294,7 +2294,7 @@ void Aura::HandleAuraSpecificMods(AuraApplication const* aurApp, Unit* caster, b
                         Unit* _target = target;
 
                         if (itr.target)
-                            _target = target->GetUnitForLinkedSpell(caster, target, itr.target);
+                            _target = GetLinkedSpellUnit(target, caster, target, itr.target);
 
                         if(!_target)
                             continue;
@@ -2322,6 +2322,18 @@ void Aura::HandleAuraSpecificMods(AuraApplication const* aurApp, Unit* caster, b
                         else
                             _target->RemoveAura(itr.effect, GetCasterGUID(), 0, removeMode);
                     }
+                }
+            }
+            // caster logging out: the other removals are skipped but the immunity set at apply must not stay on the target
+            else if (std::vector<SpellLinked> const* spellTriggered = sSpellMgr->GetSpellLinked(SPELL_LINK_AURA, GetId()))
+            {
+                for (const auto& itr : *spellTriggered)
+                {
+                    if (itr.effect >= 0 || itr.actiontype != LINK_ACTION_DEFAULT)
+                        continue;
+
+                    if (Unit* _target = itr.target ? GetLinkedSpellUnit(target, caster, target, itr.target) : target)
+                        _target->ApplySpellImmune(GetId(), IMMUNITY_ID, -(itr.effect), false);
                 }
             }
         }
@@ -2376,7 +2388,7 @@ void Aura::HandleAuraSpecificMods(AuraApplication const* aurApp, Unit* caster, b
     {
         //Hack use AT for auras, when AT very big radius and not visible
         std::vector<AreaTriggerForce> const* forceData = sAreaTriggerDataStore->GetAreaTriggerForce(GetId());
-        if (forceData && !forceData->empty())
+        if (!onReapply && forceData && !forceData->empty())
         {
             for (const auto& itr : *forceData)
             {
@@ -2393,7 +2405,7 @@ void Aura::HandleAuraSpecificMods(AuraApplication const* aurApp, Unit* caster, b
                 switch (GetId())
                 {
                     case 32474: // Buffeting Winds of Susurrus
-                        if (target->IsPlayer())
+                        if (!onReapply && target->IsPlayer())
                             target->ToPlayer()->ActivateTaxiPathTo(506, GetId());
                         break;
                     case 33572: // Gronn Lord's Grasp, becomes stoned
@@ -2410,7 +2422,7 @@ void Aura::HandleAuraSpecificMods(AuraApplication const* aurApp, Unit* caster, b
                 break;
             case SPELLFAMILY_ROGUE:
             {
-                if (!caster)
+                if (!caster || onReapply)
                     break;
 
                 switch (m_spellInfo->Id)
@@ -2429,8 +2441,8 @@ void Aura::HandleAuraSpecificMods(AuraApplication const* aurApp, Unit* caster, b
                 break;
         }
     }
-    // mods at aura remove
-    else
+    // mods at aura remove (a stack change or refresh is not a removal)
+    else if (!onReapply)
     {
         if (m_areaTrGuid)
         {
@@ -2452,6 +2464,9 @@ void Aura::HandleAuraSpecificMods(AuraApplication const* aurApp, Unit* caster, b
                     }
                     case 72368:  // Shared Suffering
                     {
+                        if (!caster)
+                            break;
+
                         if (AuraEffect* aurEff = GetEffect(0))
                         {
                             float remainingDamage = aurEff->GetAmount() * (aurEff->GetTotalTicks() - aurEff->GetTickNumber());
@@ -2468,7 +2483,7 @@ void Aura::HandleAuraSpecificMods(AuraApplication const* aurApp, Unit* caster, b
                     }
                     case 224121: // Lightning Burst Aura
                     {
-                        if (removeMode != AURA_REMOVE_BY_EXPIRE)
+                        if (caster && removeMode != AURA_REMOVE_BY_EXPIRE)
                         {
                             caster->CastSpell(caster, 224128, true);
                         }
@@ -2487,6 +2502,9 @@ void Aura::HandleAuraSpecificMods(AuraApplication const* aurApp, Unit* caster, b
                     case 148015:
                     case 148016:
                     {
+                        if (!caster)
+                            break;
+
                         if (Aura* aur = caster->GetAura(205473))
                             aur->ModStackAmount(-1);
 
@@ -2515,12 +2533,13 @@ void Aura::HandleAuraSpecificMods(AuraApplication const* aurApp, Unit* caster, b
                 {
                     case 1784:  // Stealth
                     {
-                        caster->RemoveAurasDueToSpell(158185);
+                        if (caster)
+                            caster->RemoveAurasDueToSpell(158185);
                         break;
                     }
                     case 11327: // Vanish
                     {
-                        if (removeMode != AURA_REMOVE_BY_EXPIRE)
+                        if (!caster || removeMode != AURA_REMOVE_BY_EXPIRE)
                             break;
 
                         if (Player* player =  caster->ToPlayer())
@@ -2545,7 +2564,7 @@ void Aura::HandleAuraSpecificMods(AuraApplication const* aurApp, Unit* caster, b
     {
         case SPELLFAMILY_ROGUE:
         {
-            if (!caster)
+            if (!caster || onReapply)
                 return;
 
             switch (GetId())
@@ -2672,11 +2691,11 @@ void Aura::HandleAuraSpecificMods(AuraApplication const* aurApp, Unit* caster, b
         }
         case SPELLFAMILY_MONK:
         {
+            if (!caster)
+                return;
+
             switch (GetId())
             {
-                if (!caster)
-                    return;
-
                 case 248646: // Tigereye Brew (Honor Talent)
                 {
                     if (apply)
@@ -2688,6 +2707,7 @@ void Aura::HandleAuraSpecificMods(AuraApplication const* aurApp, Unit* caster, b
                     {
                         caster->RemoveAura(248648);
                     }
+                    break;
                 }
                 default:
                     break;
@@ -2696,7 +2716,7 @@ void Aura::HandleAuraSpecificMods(AuraApplication const* aurApp, Unit* caster, b
         }
         case SPELLFAMILY_PRIEST:
         {
-            if (!caster)
+            if (!caster || onReapply)
                 return;
 
             switch (GetId())
@@ -3071,7 +3091,10 @@ bool Aura::CallScriptCheckAreaTargetHandlers(Unit* target)
         auto hookItrEnd = loadedScript->DoCheckAreaTarget.end(), hookItr = loadedScript->DoCheckAreaTarget.begin();
         for (; hookItr != hookItrEnd; ++hookItr)
             if (!(*hookItr).Call(loadedScript, target))
+            {
+                loadedScript->_FinishScriptCall();
                 return false;
+            }
         loadedScript->_FinishScriptCall();
     }
     return true;
@@ -3379,7 +3402,8 @@ void Aura::CallScriptEffectAbsorbHandlers(AuraEffect* aurEff, AuraApplication co
             if ((*effItr).IsEffectAffected(m_spellInfo, aurEff->GetEffIndex()))
                 (*effItr).Call(loadedScript, aurEff, dmgInfo, absorbAmount);
         }
-        defaultPrevented = loadedScript->_IsDefaultActionPrevented();
+        if (loadedScript->_IsDefaultActionPrevented())
+            defaultPrevented = true;
         loadedScript->_FinishScriptCall();
     }
 }
@@ -3464,7 +3488,10 @@ bool Aura::CallScriptCheckProcHandlers(AuraApplication const* aurApp, ProcEventI
         auto hookItrEnd = itr->DoCheckProc.end(), hookItr = itr->DoCheckProc.begin();
         for (; hookItr != hookItrEnd; ++hookItr)
             if (!(*hookItr).Call(itr, eventInfo))
+            {
+                itr->_FinishScriptCall();
                 return false;
+            }
         itr->_FinishScriptCall();
     }
     return true;
@@ -3516,13 +3543,16 @@ UnitAura::UnitAura(SpellInfo const* spellproto, uint32 /*effMask*/, WorldObject*
     m_AuraDRGroup = DIMINISHING_NONE;
 }
 
-void UnitAura::_ApplyForTarget(Unit* target, Unit* caster, AuraApplicationPtr aurApp)
+bool UnitAura::_ApplyForTarget(Unit* target, Unit* caster, AuraApplicationPtr aurApp)
 {
-    Aura::_ApplyForTarget(target, caster, aurApp);
+    if (!Aura::_ApplyForTarget(target, caster, aurApp))
+        return false;
 
     // register aura diminishing on apply
     if (DiminishingGroup group = GetDiminishGroup())
         target->ApplyDiminishingAura(group, true);
+
+    return true;
 }
 
 void UnitAura::_UnapplyForTarget(Unit* target, Unit* caster, AuraApplicationPtr aurApp)

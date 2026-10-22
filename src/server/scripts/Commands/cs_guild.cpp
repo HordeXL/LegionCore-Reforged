@@ -1,19 +1,14 @@
-/*
- * Copyright (C) 2008-2012 TrinityCore <http://www.trinitycore.org/>
- *
- * This program is free software; you can redistribute it and/or modify it
- * under the terms of the GNU General Public License as published by the
- * Free Software Foundation; either version 2 of the License, or (at your
- * option) any later version.
- *
- * This program is distributed in the hope that it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for
- * more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program. If not, see <http://www.gnu.org/licenses/>.
- */
+////////////////////////////////////////////
+///                                      ///
+///         LEGIONCORE REFORGED          ///
+///    Copyright 2026 Titans-Project     ///
+///         All Rights Reserved.         ///
+///                                      ///
+///      Based on TrinityCore code       ///
+///   Copyright 2008-2012 TrinityCore    ///
+///   <http://www.trinitycore.org/>      ///
+///                                      ///
+////////////////////////////////////////////
 
 /* ScriptData
 Name: guild_commandscript
@@ -26,6 +21,7 @@ EndScriptData */
 #include "Chat.h"
 #include "Guild.h"
 #include "GuildMgr.h"
+#include "ObjectAccessor.h"
 
 class guild_commandscript : public CommandScript
 {
@@ -57,6 +53,19 @@ public:
      * and then the name of the guild.
      *
      */
+    // guild id of a target that may stand on another map or be offline
+    static ObjectGuid::LowType GetTargetGuildId(Player* target, ObjectGuid guid)
+    {
+        if (target)
+            return target->GetGuildId();
+
+        ObjectGuid::LowType guildId = 0;
+        if (ObjectAccessor::WithPlayer(guid, [&guildId](Player* player) { guildId = player->GetGuildId(); }, ObjectAccessor::PlayerScope::InOrOutOfWorld))
+            return guildId;
+
+        return Player::GetGuildIdFromDB(guid);
+    }
+
     static bool HandleGuildCreateCommand(ChatHandler* handler, char const* args)
     {
         if (!*args)
@@ -64,7 +73,9 @@ public:
 
         // if not guild name only (in "") then player name
         Player* target;
-        if (!handler->extractPlayerTarget(*args != '"' ? (char*)args : NULL, &target))
+        ObjectGuid targetGuid;
+        std::string targetName;
+        if (!handler->extractOnlinePlayerTarget(*args != '"' ? (char*)args : NULL, &target, &targetGuid, &targetName))
             return false;
 
         char* tailStr = *args != '"' ? strtok(NULL, "") : (char*)args;
@@ -77,10 +88,36 @@ public:
 
         std::string guildName = guildStr;
 
-        if (target->GetGuildId())
+        if (GetTargetGuildId(target, targetGuid))
         {
             handler->SendSysMessage(LANG_PLAYER_IN_GUILD);
             return true;
+        }
+
+        if (!target)
+        {
+            if (sGuildMgr->GetGuildByName(guildName))
+            {
+                handler->SendSysMessage(LANG_GUILD_NOT_CREATED);
+                handler->SetSentErrorMessage(true);
+                return false;
+            }
+
+            // the leader's fields are set by his own thread, so the whole creation runs there
+            return handler->PostToTarget(targetGuid, [guildName](Player* leader)
+            {
+                if (leader->GetGuildId())
+                    return;
+
+                Guild* guild = new Guild;
+                if (!guild->Create(leader, guildName, true))
+                {
+                    delete guild;
+                    return;
+                }
+
+                sGuildMgr->AddGuild(guild);
+            }, targetName.c_str());
         }
 
         Guild* guild = new Guild;
@@ -126,7 +163,7 @@ public:
 
         // if not guild name only (in "") then player name
         ObjectGuid targetGuid;
-        if (!handler->extractPlayerTarget(*args != '"' ? (char*)args : NULL, NULL, &targetGuid))
+        if (!handler->extractPlayerGuidTarget(*args != '"' ? (char*)args : NULL, &targetGuid))
             return false;
 
         char* tailStr = *args != '"' ? strtok(NULL, "") : (char*)args;
@@ -153,7 +190,7 @@ public:
         if (!handler->extractPlayerTarget((char*)args, &target, &targetGuid))
             return false;
 
-        ObjectGuid::LowType guildId = target ? target->GetGuildId() : Player::GetGuildIdFromDB(targetGuid);
+        ObjectGuid::LowType guildId = GetTargetGuildId(target, targetGuid);
         if (!guildId)
             return false;
 
@@ -179,7 +216,7 @@ public:
         if (!handler->extractPlayerTarget(nameStr, &target, &targetGuid, &target_name))
             return false;
 
-        ObjectGuid::LowType guildId = target ? target->GetGuildId() : Player::GetGuildIdFromDB(targetGuid);
+        ObjectGuid::LowType guildId = GetTargetGuildId(target, targetGuid);
         if (!guildId)
             return false;
 

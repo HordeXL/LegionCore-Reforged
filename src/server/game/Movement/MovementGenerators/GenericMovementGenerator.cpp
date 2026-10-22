@@ -1,19 +1,10 @@
-/*
- * This file is part of the TrinityCore Project. See AUTHORS file for Copyright information
- *
- * This program is free software; you can redistribute it and/or modify it
- * under the terms of the GNU General Public License as published by the
- * Free Software Foundation; either version 2 of the License, or (at your
- * option) any later version.
- *
- * This program is distributed in the hope that it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for
- * more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program. If not, see <http://www.gnu.org/licenses/>.
- */
+////////////////////////////////////////////
+///                                      ///
+///         LEGIONCORE REFORGED          ///
+///    Copyright 2026 Titans-Project     ///
+///         All Rights Reserved.         ///
+///                                      ///
+////////////////////////////////////////////
 
 #include "GenericMovementGenerator.h"
 #include "Creature.h"
@@ -25,6 +16,7 @@
 void GenericMovementGenerator::Initialize(Unit& /*owner*/)
 {
     _duration.Reset(_splineInit.Launch());
+    _launched = true;
 }
 
 bool GenericMovementGenerator::Update(Unit& owner, uint32 diff)
@@ -38,7 +30,9 @@ bool GenericMovementGenerator::Update(Unit& owner, uint32 diff)
 
 void GenericMovementGenerator::Finalize(Unit& owner)
 {
-    MovementInform(owner);
+    // Removed before it was launched, or while its spline is still running (replaced/cleared): no arrival
+    if (_launched && (_duration.Passed() || owner.movespline->Finalized()))
+        MovementInform(owner);
 }
 
 void GenericMovementGenerator::MovementInform(Unit& owner)

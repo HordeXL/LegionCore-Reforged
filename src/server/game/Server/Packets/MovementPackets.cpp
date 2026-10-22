@@ -1,19 +1,14 @@
-/*
- * Copyright (C) 2008-2015 TrinityCore <http://www.trinitycore.org/>
- *
- * This program is free software; you can redistribute it and/or modify it
- * under the terms of the GNU General Public License as published by the
- * Free Software Foundation; either version 2 of the License, or (at your
- * option) any later version.
- *
- * This program is distributed in the hope that it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for
- * more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program. If not, see <http://www.gnu.org/licenses/>.
- */
+////////////////////////////////////////////
+///                                      ///
+///         LEGIONCORE REFORGED          ///
+///    Copyright 2026 Titans-Project     ///
+///         All Rights Reserved.         ///
+///                                      ///
+///      Based on TrinityCore code       ///
+///   Copyright 2008-2015 TrinityCore    ///
+///   <http://www.trinitycore.org/>      ///
+///                                      ///
+////////////////////////////////////////////
 
 #include "MovementPackets.h"
 #include "MoveSpline.h"
@@ -74,11 +69,17 @@ ByteBuffer& operator>>(ByteBuffer& data, MovementInfo& movementInfo)
     data >> movementInfo.pitch;
     data >> movementInfo.splineElevation;
 
-    movementInfo.RemoveForcesIDs.reserve(data.read<uint32>());
+    // the count comes from the client: no reserve on it, the loop stops at the end of the packet (ByteBufferException)
+    uint32 removeForcesCount = data.read<uint32>();
     data >> movementInfo.MoveIndex;
 
-    for (ObjectGuid& guid : movementInfo.RemoveForcesIDs)
+    movementInfo.RemoveForcesIDs.clear();
+    for (uint32 i = 0; i < removeForcesCount; ++i)
+    {
+        ObjectGuid guid;
         data >> guid;
+        movementInfo.RemoveForcesIDs.push_back(guid);
+    }
 
     movementInfo.MoveFlags[0] = data.ReadBits(30);
     movementInfo.MoveFlags[1] = data.ReadBits(18);

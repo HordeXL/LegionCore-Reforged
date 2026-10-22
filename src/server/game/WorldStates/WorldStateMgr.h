@@ -1,9 +1,17 @@
+////////////////////////////////////////////
+///                                      ///
+///         LEGIONCORE REFORGED          ///
+///    Copyright 2026 Titans-Project     ///
+///         All Rights Reserved.         ///
+///                                      ///
+////////////////////////////////////////////
 
 #ifndef WORLD_STATE_MGR_H
 #define WORLD_STATE_MGR_H
 
 #include "Common.h"
 #include "WorldState.h"
+#include <mutex>
 
 inline void AddToWorldState(std::vector<WorldState*>** worldStates, WorldState* state, Player* player);
 
@@ -56,6 +64,9 @@ public:
 private:
     WorldStateTemplateV _worldStateTemplates;
     WorldStateTemplateMap _worldStateTemplatesMap[WorldStatesData::Types::Max];
+    // guards _worldState, _worldStateV and _worldStateInstance: map threads create/read states while the world thread updates and saves them.
+    // Recursive because the public getters are also used from inside the locked sections; nothing outgoing is called while held.
+    mutable std::recursive_mutex _stateLock;
     WorldStateMap _worldState;
     WorldStateMapV _worldStateV;
     WorldStateInstanceMap _worldStateInstance;

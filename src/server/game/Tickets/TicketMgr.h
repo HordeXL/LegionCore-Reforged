@@ -1,24 +1,21 @@
-/*
- * Copyright (C) 2008-2012 TrinityCore <http://www.trinitycore.org/>
- *
- * This program is free software; you can redistribute it and/or modify it
- * under the terms of the GNU General Public License as published by the
- * Free Software Foundation; either version 2 of the License, or (at your
- * option) any later version.
- *
- * This program is distributed in the hope that it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for
- * more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program. If not, see <http://www.gnu.org/licenses/>.
- */
+////////////////////////////////////////////
+///                                      ///
+///         LEGIONCORE REFORGED          ///
+///    Copyright 2026 Titans-Project     ///
+///         All Rights Reserved.         ///
+///                                      ///
+///      Based on TrinityCore code       ///
+///   Copyright 2008-2012 TrinityCore    ///
+///   <http://www.trinitycore.org/>      ///
+///                                      ///
+////////////////////////////////////////////
 
 #ifndef _TICKETMGR_H
 #define _TICKETMGR_H
 
 #include "ObjectMgr.h"
+#include <atomic>
+#include <mutex>
 
 class ChatHandler;
 
@@ -92,6 +89,7 @@ public:
     bool IsAssignedNotTo(ObjectGuid guid) const { return IsAssigned() && !IsAssignedTo(guid); }
 
     uint32 GetId() const { return _id; }
+    ObjectGuid GetPlayerGUID() const { return _playerGuid; }
     Player* GetPlayer() const { return ObjectAccessor::FindPlayer(_playerGuid); }
     std::string GetPlayerName() const { return _playerName; }
     std::string const& GetMessage() const { return _message; }
@@ -173,11 +171,13 @@ public:
 
     GmTicket* GetTicket(uint32 ticketId)
     {
+        std::lock_guard<std::recursive_mutex> guard(_lock);
         return Trinity::Containers::MapGetValuePtr(_ticketList, ticketId);
     }
 
     GmTicket* GetTicketByPlayer(ObjectGuid const& playerGuid)
     {
+        std::lock_guard<std::recursive_mutex> guard(_lock);
         for (GmTicketList::const_iterator itr = _ticketList.begin(); itr != _ticketList.end(); ++itr)
             if (itr->second && itr->second->IsFromPlayer(playerGuid) && !itr->second->IsClosed())
                 return itr->second;
@@ -187,6 +187,7 @@ public:
 
     GmTicket* GetOldestOpenTicket()
     {
+        std::lock_guard<std::recursive_mutex> guard(_lock);
         for (GmTicketList::const_iterator itr = _ticketList.begin(); itr != _ticketList.end(); ++itr)
             if (itr->second && !itr->second->IsClosed() && !itr->second->IsCompleted())
                 return itr->second;
@@ -194,18 +195,21 @@ public:
         return nullptr;
     }
 
+    // true when any open ticket belongs to a character of this account
+    bool HasOpenTicketForAccount(uint32 accountId);
+
     void AddTicket(GmTicket* ticket);
     void CloseTicket(uint32 ticketId, ObjectGuid source);
     void RemoveTicket(uint32 ticketId);
 
-    bool GetStatus() const { return _status; }
+    bool GetStatus() const { return _status.load(); }
     void SetStatus(bool status) { _status = status; }
 
     uint64 GetLastChange() const { return _lastChange; }
     void UpdateLastChange() { _lastChange = uint64(GameTime::GetGameTime()); }
 
     uint32 GenerateTicketId() { return ++_lastTicketId; }
-    uint32 GetOpenTicketCount() const { return _openTicketCount; }
+    uint32 GetOpenTicketCount() const { return _openTicketCount.load(); }
     uint32 GetNextSurveyID() { return ++_lastSurveyId; }
 
     void Initialize();
@@ -216,13 +220,15 @@ public:
     void ShowEscalatedList(ChatHandler& handler) const;
 
 protected:
+    // guards the list and the lifetime of its entries; the only calls made while held are the player/name lookups of the list commands
+    mutable std::recursive_mutex _lock;
     GmTicketList _ticketList;
 
-    bool   _status;
-    uint32 _lastTicketId;
-    uint32 _lastSurveyId;
-    uint32 _openTicketCount;
-    uint64 _lastChange;
+    std::atomic<bool>   _status;
+    std::atomic<uint32> _lastTicketId;
+    std::atomic<uint32> _lastSurveyId;
+    std::atomic<uint32> _openTicketCount;
+    std::atomic<uint64> _lastChange;
 };
 
 #define sTicketMgr TicketMgr::instance()

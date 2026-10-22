@@ -1,20 +1,14 @@
-/*
-* Copyright (C) 2008-2012 TrinityCore <http://www.trinitycore.org/>
-* Copyright (C) 2005-2009 MaNGOS <http://getmangos.com/>
-*
-* This program is free software; you can redistribute it and/or modify it
-* under the terms of the GNU General Public License as published by the
-* Free Software Foundation; either version 2 of the License, or (at your
-* option) any later version.
-*
-* This program is distributed in the hope that it will be useful, but WITHOUT
-* ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
-* FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for
-* more details.
-*
-* You should have received a copy of the GNU General Public License along
-* with this program. If not, see <http://www.gnu.org/licenses/>.
-*/
+////////////////////////////////////////////
+///                                      ///
+///         LEGIONCORE REFORGED          ///
+///    Copyright 2026 Titans-Project     ///
+///         All Rights Reserved.         ///
+///                                      ///
+///      Based on TrinityCore code       ///
+///   Copyright 2008-2012 TrinityCore    ///
+///   <http://www.trinitycore.org/>      ///
+///                                      ///
+////////////////////////////////////////////
 
 #include "BattlePetPackets.h"
 #include "WildBattlePet.h"
@@ -26,6 +20,7 @@
 #include "PetBattleSystem.h"
 #include "Object.h"
 #include "PathGenerator.h"
+#include "Util.h"
 
 namespace
 {
@@ -50,6 +45,15 @@ namespace
                 return true;
 
         return false;
+    }
+
+    // The creature stays in the world for the fight, out of reach of any other battle; PetBattle releases it
+    void LockWildPet(Creature* wildPet, Player* player, ObjectGuid const& battleID)
+    {
+        wildPet->SetFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_PACIFIED | UNIT_FLAG_IMMUNE_TO_PC); // Immuned to all
+        wildPet->SetTarget(player->GetGUID());
+        wildPet->SetControlled(true, UNIT_STATE_ROOT);
+        wildPet->_petBattleId = battleID;
     }
 
     // The other player may be updated by another map thread.
@@ -129,7 +133,11 @@ void WorldSession::HandleModifyName(WorldPackets::BattlePet::ModifyName& packet)
         battlePet->Name = packet.Name;
         battlePet->NameTimeStamp = timeStamp;
         for (uint8 i = 0; i < MAX_DECLINED_NAME_CASES; ++i)
+        {
+            // account_battlepet.declined* are varchar(50)
+            utf8truncate(packet.DeclinedNames.name[i], 50);
             battlePet->DeclinedNames[i] = packet.DeclinedNames.name[i];
+        }
         battlePet->needSave = true;
     }
 
@@ -300,6 +308,7 @@ void WorldSession::HandlePetBattleRequestWild(WorldPackets::BattlePet::RequestWi
     }
 
     wildBattlePets[0] = l_WildBattlePet;
+    wildBattlePets[0]->OriginalCreature = wildBattlePet->GetGUID();
 
     std::list<Creature*> targets;
     // Trinity::AnyFriendlyCreatureInObjectRangeCheck u_check(wildBattlePet, wildBattlePet, 50.0f);
@@ -342,6 +351,23 @@ void WorldSession::HandlePetBattleRequestWild(WorldPackets::BattlePet::RequestWi
         ++playerPetCount;
     }
 
+    if (!playerPetCount)
+    {
+        SendPetBattleRequestFailed(PETBATTLE_REQUEST_NO_PETS_IN_SLOT);
+        return;
+    }
+
+    bool hasLivingPet = false;
+    for (size_t i = 0; i < playerPetCount; ++i)
+        if (playerPets[i]->Health > 0)
+            hasLivingPet = true;
+
+    if (!hasLivingPet)
+    {
+        SendPetBattleRequestFailed(PETBATTLE_REQUEST_ALL_PETS_DEAD);
+        return;
+    }
+
     _player->SetFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_PACIFIED | UNIT_FLAG_IMMUNE_TO_NPC); ///< Immuned only to NPC
     _player->SetTarget(wildBattlePetCreature->GetGUID());
 
@@ -367,14 +393,8 @@ void WorldSession::HandlePetBattleRequestWild(WorldPackets::BattlePet::RequestWi
         {
             battle->AddPet(PETBATTLE_TEAM_2, wildBattlePets[i]);
 
-            if (auto currrentCreature = sObjectAccessor->GetCreature(*_player, wildBattlePets[i]->OriginalCreature))
-            {
-                currrentCreature->SetFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_PACIFIED | UNIT_FLAG_IMMUNE_TO_PC); // Immuned to all
-                currrentCreature->SetTarget(_player->GetGUID());
-                currrentCreature->SetControlled(true, UNIT_STATE_ROOT);
-                currrentCreature->_petBattleId = battle->ID;
-                sWildBattlePetMgr->EnterInBattle(currrentCreature);
-            }
+            if (auto currentCreature = sObjectAccessor->GetCreature(*_player, wildBattlePets[i]->OriginalCreature))
+                LockWildPet(currentCreature, _player, battle->ID);
         }
     }
 
@@ -480,8 +500,22 @@ void WorldSession::HandlePetBattleRequestUpdate(WorldPackets::BattlePet::Request
         return;
     }
 
-    _player->SetFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_PACIFIED | UNIT_FLAG_IMMUNE_TO_NPC); // Immuned only to NPC
-    opposant->SetFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_PACIFIED | UNIT_FLAG_IMMUNE_TO_NPC); // Immuned only to NPC
+    // What was true when the challenge was made may not be now, for either player
+    PetBattleRequest forAcceptor = *battleRequest;
+    forAcceptor.OpponentGuid = opposant->GetGUID();
+    PetBattleRequest forChallenger = *battleRequest;
+    forChallenger.OpponentGuid = _player->GetGUID();
+
+    eBattlePetRequests enterResult = sPetBattleSystem->CanPlayerEnterInPetBattle(_player, &forAcceptor);
+    if (enterResult == PETBATTLE_REQUEST_OK)
+        enterResult = sPetBattleSystem->CanPlayerEnterInPetBattle(opposant, &forChallenger);
+
+    if (enterResult != PETBATTLE_REQUEST_OK)
+    {
+        SendPetBattleRequestFailed(enterResult);
+        opposant->GetSession()->SendPetBattleRequestFailed(enterResult);
+        return;
+    }
 
     std::shared_ptr<BattlePetInstance> playerPets[MAX_PETBATTLE_SLOTS];
     std::shared_ptr<BattlePetInstance> playerOpposantPets[MAX_PETBATTLE_SLOTS];
@@ -521,7 +555,7 @@ void WorldSession::HandlePetBattleRequestUpdate(WorldPackets::BattlePet::Request
         if (!petOpposantSlots[i])
             continue;
 
-        if (playerOpposantPetCount >= MAX_PETBATTLE_SLOTS || playerOpposantPetCount >= _player->GetUnlockedPetBattleSlot())
+        if (playerOpposantPetCount >= MAX_PETBATTLE_SLOTS || playerOpposantPetCount >= opposant->GetUnlockedPetBattleSlot())
             break;
 
         playerOpposantPets[playerOpposantPetCount] = std::make_shared<BattlePetInstance>();
@@ -539,11 +573,14 @@ void WorldSession::HandlePetBattleRequestUpdate(WorldPackets::BattlePet::Request
         return;
     }
 
+    _player->SetFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_PACIFIED | UNIT_FLAG_IMMUNE_TO_NPC); // Immuned only to NPC
+    opposant->SetFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_PACIFIED | UNIT_FLAG_IMMUNE_TO_NPC); // Immuned only to NPC
+
     _player->GetSession()->SendPetBattleFinalizeLocation(battleRequest.get());
     opposant->GetSession()->SendPetBattleFinalizeLocation(battleRequest.get());
 
     _player->SetFacingTo(_player->GetAngle(&battleRequest->TeamPosition[PETBATTLE_TEAM_1]));
-    opposant->SetFacingTo(_player->GetAngle(&battleRequest->TeamPosition[PETBATTLE_TEAM_2]));
+    opposant->SetFacingTo(opposant->GetAngle(&battleRequest->TeamPosition[PETBATTLE_TEAM_2]));
     _player->SetRooted(true);
     opposant->SetRooted(true);
 
@@ -615,9 +652,10 @@ void WorldSession::HandlePetBattleInput(WorldPackets::BattlePet::PetBattleInput&
         return;
     }
 
+    // Out of step with the server: ends the battle, but a desynchronised client is not made to pay for it
     if (packet.Round + 1 != petBattle->Turn)
     {
-        petBattle->Forfeit(_player->GetGUID(), packet.IgnoreAbandonPenalty);
+        petBattle->Forfeit(_player->GetGUID(), true);
         return;
     }
 
@@ -644,7 +682,7 @@ void WorldSession::HandlePetBattleInput(WorldPackets::BattlePet::PetBattleInput&
     switch (packet.MoveType)
     {
         case PETBATTLE_ACTION_REQUEST_LEAVE:
-            petBattle->Forfeit(_player->GetGUID(), packet.IgnoreAbandonPenalty);
+            petBattle->Forfeit(_player->GetGUID(), false);
             break;
         case PETBATTLE_ACTION_CAST:
             if (petBattle->CanCast(playerTeamID, packet.AbilityID))
@@ -794,25 +832,12 @@ void WorldSession::HandlePetBattleRequestPVP(WorldPackets::BattlePet::RequestPVP
     battleRequest->RequestType = PETBATTLE_TYPE_PVP_DUEL;
     battleRequest->OpponentGuid = packet.Battle.TargetGUID;
 
-    if (_player->_petBattleId)
+    // Same conditions as a wild battle: alive, on the ground, in sight and at duel range of the opponent, usable positions
+    eBattlePetRequests canEnterResult = sPetBattleSystem->CanPlayerEnterInPetBattle(_player, battleRequest.get());
+    if (canEnterResult != PETBATTLE_REQUEST_OK)
     {
-        SendPetBattleRequestFailed(PETBATTLE_REQUEST_IN_BATTLE);
+        SendPetBattleRequestFailed(canEnterResult);
         return;
-    }
-
-    if (_player->isInCombat())
-    {
-        SendPetBattleRequestFailed(PETBATTLE_REQUEST_NOT_WHILE_IN_COMBAT);
-        return;
-    }
-
-    for (auto const& teamPosition : battleRequest->TeamPosition)
-    {
-        if (_player->GetMap()->getObjectHitPos(_player->GetPhases(), true, battleRequest->PetBattleCenterPosition, teamPosition, 0.0f))
-        {
-            SendPetBattleRequestFailed(PETBATTLE_REQUEST_NOT_HERE_UNEVEN_GROUND);
-            return;
-        }
     }
 
     // The answer changes both players in one map thread: the opponent is looked up on this map only
@@ -1152,12 +1177,14 @@ WorldPacket PetBattle::BuildRoundResultPacket()
         bool isDead = false;
         for (const auto & update : roundEvent.Updates)
         {
-            isDead = update.State.ID == BATTLEPET_STATE_Is_Dead;
+            // The update data is a union: a health, speed or aura value of 1 reads like the dead state id
+            bool const deadUpdate = update.UpdateType == PET_BATTLE_EFFECT_TARGET_EX_STATE && update.State.ID == BATTLEPET_STATE_Is_Dead;
+            isDead |= deadUpdate;
             WorldPackets::BattlePet::PetBattleEffectTarget effectTargetUpdate;
             effectTargetUpdate.Type = update.UpdateType;
             effectTargetUpdate.Petx = update.TargetPetID;
             effectTargetUpdate.Params.Aura.AuraInstanceID = update.Buff.ID;
-            effectTargetUpdate.Params.Aura.AuraAbilityID = isDead ? 0 : update.Buff.AbilityID;
+            effectTargetUpdate.Params.Aura.AuraAbilityID = deadUpdate ? 0 : update.Buff.AbilityID;
             effectTargetUpdate.Params.Aura.RoundsRemaining = update.Buff.Duration;
             effectTargetUpdate.Params.Aura.CurrentRound = update.Buff.Turn;
             effectTargetUpdate.Params.State.StateID = update.State.ID;
