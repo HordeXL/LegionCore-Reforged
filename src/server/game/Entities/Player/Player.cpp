@@ -20616,14 +20616,26 @@ void Player::AreaExploredOrEventHappens(uint32 questId)
                 SetQuestSlotState(log_slot, QUEST_STATE_COMPLETE);
                 SendQuestComplete(qInfo);
              }
+            // a simple credit on a counted objective makes the client print garbage counters (32758/-168305937):
+            // counted objectives are filled to their amount, flag objectives get their own bit, once
             for (QuestObjective const& obj : qInfo->GetObjectives())
             {
-                SetSpecialCriteriaComplete(log_slot, obj.StorageIndex);
-                WorldPackets::Quest::QuestUpdateAddCreditSimple packet;
-                packet.QuestID = qInfo->GetQuestId();
-                packet.ObjectID = obj.ObjectID;
-                packet.ObjectiveType = obj.Type;
-                SendDirectMessage(packet.Write());
+                if (obj.IsStoringFlag())
+                    SetQuestObjectiveData(qInfo, &obj, 1);
+                else
+                {
+                    switch (obj.Type)
+                    {
+                        case QUEST_OBJECTIVE_MONSTER:
+                        case QUEST_OBJECTIVE_GAMEOBJECT:
+                        case QUEST_OBJECTIVE_TALKTO:
+                        case QUEST_OBJECTIVE_PLAYERKILLS:
+                            SetQuestObjectiveData(qInfo, &obj, obj.Amount);
+                            break;
+                        default:
+                            break;
+                    }
+                }
             }
         }
         if (CanCompleteQuest(questId))
