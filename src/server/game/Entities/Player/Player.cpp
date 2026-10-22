@@ -18760,7 +18760,7 @@ bool Player::CanSeeStartQuest(Quest const* quest)
         SatisfyQuestExclusiveGroup(quest, msg) && SatisfyQuestReputation(quest, msg) &&
         SatisfyQuestPreviousQuest(quest, msg) && SatisfyQuestNextChain(quest, msg) &&
         SatisfyQuestPrevChain(quest, msg) && SatisfyQuestDay(quest, msg) && SatisfyQuestWeek(quest) &&
-        SatisfyQuestSeasonal(quest) && !DisableMgr::IsDisabledFor(DISABLE_TYPE_QUEST, quest->GetQuestId(), this))
+        SatisfyGarrisonCampaign(quest) && SatisfyQuestSeasonal(quest) && !DisableMgr::IsDisabledFor(DISABLE_TYPE_QUEST, quest->GetQuestId(), this))
         return getLevel() + sWorld->getIntConfig(CONFIG_QUEST_HIGH_LEVEL_HIDE_DIFF) >= quest->MinLevel;
 
     return false;
@@ -18775,7 +18775,7 @@ bool Player::CanTakeQuest(Quest const* quest, bool msg)
         && SatisfyQuestPreviousQuest(quest, msg) && SatisfyQuestTimed(quest, msg)
         && SatisfyQuestNextChain(quest, msg) && SatisfyQuestPrevChain(quest, msg)
         && SatisfyQuestDay(quest, msg) && SatisfyQuestWeek(quest)
-        && SatisfyQuestSeasonal(quest)
+        && SatisfyGarrisonCampaign(quest) && SatisfyQuestSeasonal(quest)
         && SatisfyQuestConditions(quest, msg);
 }
 
@@ -19706,6 +19706,8 @@ void Player::RewardQuest(Quest const* quest, uint32 reward, Object* questGiver, 
         m_accuntQuests.insert(quest_id);
         m_RewardedQuestsSave[quest_id] = QUEST_DEFAULT_SAVE_TYPE;
     }
+
+    MarkGarrisonCampaignWeek(quest_id);
     
     // Must come after the insert in m_RewardedQuests because of spell_area check
     RemoveActiveQuest(quest_id);
@@ -20210,6 +20212,84 @@ bool Player::SatisfyQuestWeek(Quest const* qInfo)
 
     // if not found in cooldown list
     return m_weeklyquests.find(qInfo->GetQuestId()) == m_weeklyquests.end();
+}
+
+namespace
+{
+    // first quest of each chapter of the Warlords garrison campaign; a chapter may have variants (The Ring of Blood)
+    using CampaignChapter = std::vector<uint32>;
+    std::vector<CampaignChapter> const GarrisonCampaignAlliance =
+    {
+        { 34284 }, { 35837 }, { 35861 }, { 34026 }, { 34409 }, { 35185 }, { 35679 }, { 35985 }, { 36160 }, { 36163 },
+        { 36219, 36280, 36281, 36282 }
+    };
+    std::vector<CampaignChapter> const GarrisonCampaignHorde =
+    {
+        { 34309 }, { 35843 }, { 35876 }, { 32979 }, { 34034 }, { 34335 }, { 35186 }, { 35680 }, { 36117 }, { 36261 },
+        { 36219, 36280, 36281, 36282 }
+    };
+    uint32 const GarrisonCampaignFinalAlliance = 36134;
+    uint32 const GarrisonCampaignFinalHorde = 36136;
+}
+
+void Player::SetWeeklyTrackingQuest(uint32 questId)
+{
+    if (m_weeklyquests.count(questId) || !sQuestDataStore->GetQuestTemplate(questId))
+        return;
+
+    SetWeeklyQuestStatus(questId);
+    SetQuestCompletedBit(sDB2Manager.GetQuestUniqueBitFlag(questId), true);
+}
+
+// as on retail: one chapter a week, drawn among those not done yet, Awakening once all of them are
+bool Player::SatisfyGarrisonCampaign(Quest const* qInfo) const
+{
+    uint32 const questId = qInfo->GetQuestId();
+    bool const alliance = GetTeam() == ALLIANCE;
+    std::vector<CampaignChapter> const& chapters = alliance ? GarrisonCampaignAlliance : GarrisonCampaignHorde;
+    uint32 const finalQuest = alliance ? GarrisonCampaignFinalAlliance : GarrisonCampaignFinalHorde;
+
+    auto contains = [](CampaignChapter const& chapter, uint32 id) { return std::find(chapter.begin(), chapter.end(), id) != chapter.end(); };
+    auto done = [this](CampaignChapter const& chapter)
+    {
+        return std::any_of(chapter.begin(), chapter.end(), [this](uint32 id) { return GetQuestRewardStatus(id); });
+    };
+    auto inLog = [this](uint32 id) { return FindQuestSlot(id) < MAX_QUEST_LOG_SIZE; };
+
+    CampaignChapter const* asked = nullptr;
+    for (CampaignChapter const& chapter : chapters)
+        if (contains(chapter, questId))
+            asked = &chapter;
+    if (!asked && questId != finalQuest)
+        return true;
+
+    if (m_weeklyquests.count(WEEKLY_TRACKING_GARRISON_CAMPAIGN_CHAPTER) || inLog(finalQuest))
+        return false;
+    for (CampaignChapter const& chapter : chapters)
+        if (std::any_of(chapter.begin(), chapter.end(), inLog))
+            return false;
+
+    std::vector<CampaignChapter const*> open;
+    for (CampaignChapter const& chapter : chapters)
+        if (!done(chapter))
+            open.push_back(&chapter);
+
+    if (!asked)
+        return open.empty();
+    if (open.empty())
+        return false;
+
+    // the same chapter all week long, so that an abandoned one can be taken again
+    uint32 const week = uint32(sWorld->GetNextWeeklyResetTime() / WEEK);
+    return open[(GetGUIDLow() * 2654435761u + week) % open.size()] == asked;
+}
+
+void Player::MarkGarrisonCampaignWeek(uint32 questId)
+{
+    for (auto const* chapters : { &GarrisonCampaignAlliance, &GarrisonCampaignHorde })
+        for (CampaignChapter const& chapter : *chapters)
+            if (std::find(chapter.begin(), chapter.end(), questId) != chapter.end())
+                SetWeeklyTrackingQuest(WEEKLY_TRACKING_GARRISON_CAMPAIGN_CHAPTER);
 }
 
 bool Player::SatisfyQuestSeasonal(Quest const* qInfo)
