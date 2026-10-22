@@ -19843,7 +19843,8 @@ bool Player::SatisfyQuestSkill(Quest const* qInfo, bool msg) const
     if (!skill)
         return true;
 
-    if (const_cast<Player*>(this)->GetSkillValue(skill) < qInfo->RequiredSkillPoints)
+    // a profession quest without a threshold still requires the profession
+    if (const_cast<Player*>(this)->GetSkillValue(skill) < std::max<uint32>(qInfo->RequiredSkillPoints, 1))
     {
         if (msg)
             SendCanTakeQuestResponse(INVALIDREASON_DONT_HAVE_REQ, qInfo, "skill");
