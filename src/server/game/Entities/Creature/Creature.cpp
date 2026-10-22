@@ -1,20 +1,14 @@
-/*
- * Copyright (C) 2008-2012 TrinityCore <http://www.trinitycore.org/>
- * Copyright (C) 2005-2009 MaNGOS <http://getmangos.com/>
- *
- * This program is free software; you can redistribute it and/or modify it
- * under the terms of the GNU General Public License as published by the
- * Free Software Foundation; either version 2 of the License, or (at your
- * option) any later version.
- *
- * This program is distributed in the hope that it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for
- * more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program. If not, see <http://www.gnu.org/licenses/>.
- */
+////////////////////////////////////////////
+///                                      ///
+///         LEGIONCORE REFORGED          ///
+///    Copyright 2026 Titans-Project     ///
+///         All Rights Reserved.         ///
+///                                      ///
+///      Based on TrinityCore code       ///
+///   Copyright 2008-2012 TrinityCore    ///
+///   <http://www.trinitycore.org/>      ///
+///                                      ///
+////////////////////////////////////////////
 
 #include "Creature.h"
 #include "IdleChat.h"
@@ -291,7 +285,18 @@ int32 CreatureTemplate::GetRandomValidModelId() const
         modelIDs[c++] = Modelid[2];
     if (Modelid[3])
         modelIDs[c++] = Modelid[3];
-    
+
+    // 1126 (an infernal) is Blizzard's placeholder beside the real model of invisible bunnies, never picked there
+    if (c > 1)
+    {
+        uint8 kept = 0;
+        for (uint8 i = 0; i < c; ++i)
+            if (modelIDs[i] != 1126)
+                modelIDs[kept++] = modelIDs[i];
+        if (kept)
+            c = kept;
+    }
+
     return ((c>0) ? modelIDs[urand(0, c - 1)] : 0);
 }
 
