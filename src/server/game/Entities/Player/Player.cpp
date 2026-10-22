@@ -34931,7 +34931,7 @@ bool Player::AddItem(uint32 itemId, uint32 count, uint32* noSpaceForCount, Objec
     if (count == 0 || dest.empty())
     {
         // -- TODO: Send to mailbox if no space
-        ChatHandler(this).PSendSysMessage("You don't have any space in your bags.");
+        SendEquipError(msg != EQUIP_ERR_OK ? msg : EQUIP_ERR_INV_FULL, nullptr, nullptr, itemId);
         return false;
     }
 
