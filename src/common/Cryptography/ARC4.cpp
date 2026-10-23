@@ -22,6 +22,9 @@ ARC4::ARC4(uint32 len) : _ctx(EVP_CIPHER_CTX_new())
 {
 #if OPENSSL_VERSION_NUMBER >= 0x30000000L
     _cipher = EVP_CIPHER_fetch(nullptr, "RC4", nullptr);
+    WPError(_cipher != nullptr, "ARC4: OpenSSL could not fetch the \"RC4\" cipher. In OpenSSL 3.x RC4 only lives in the 'legacy' provider - "
+        "make sure legacy.dll is deployed next to the executable so that OSSL_PROVIDER_load(nullptr, \"legacy\") can succeed, "
+        "otherwise every ARC4 user (world/warden packet crypt) will crash on a null cipher.");
 #else
     EVP_CIPHER const *_cipher = EVP_rc4();
 #endif
@@ -35,6 +38,9 @@ ARC4::ARC4(uint8* seed, uint32 len) : _ctx(EVP_CIPHER_CTX_new())
 {
 #if OPENSSL_VERSION_NUMBER >= 0x30000000L
     _cipher = EVP_CIPHER_fetch(nullptr, "RC4", nullptr);
+    WPError(_cipher != nullptr, "ARC4: OpenSSL could not fetch the \"RC4\" cipher. In OpenSSL 3.x RC4 only lives in the 'legacy' provider - "
+        "make sure legacy.dll is deployed next to the executable so that OSSL_PROVIDER_load(nullptr, \"legacy\") can succeed, "
+        "otherwise every ARC4 user (world/warden packet crypt) will crash on a null cipher.");
 #else
     EVP_CIPHER const *_cipher = EVP_rc4();
 #endif

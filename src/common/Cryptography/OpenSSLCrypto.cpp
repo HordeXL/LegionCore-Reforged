@@ -20,6 +20,7 @@
 
 #if OPENSSL_VERSION_NUMBER >= 0x30000000L
 #include <openssl/provider.h>
+#include "Errors.h"
 OSSL_PROVIDER* LegacyProvider;
 OSSL_PROVIDER* DefaultProvider;
 #endif
@@ -32,6 +33,14 @@ void OpenSSLCrypto::threadsSetup([[maybe_unused]] boost::filesystem::path const 
 #endif
     LegacyProvider = OSSL_PROVIDER_load(nullptr, "legacy");
     DefaultProvider = OSSL_PROVIDER_load(nullptr, "default");
+
+    // RC4 (ARC4 / warden + world packet crypt) is only available through the legacy provider.
+    // Failing to load it used to crash deep inside libcrypto on a null EVP_CIPHER, so fail loudly here instead.
+    if (!LegacyProvider)
+        WPError(false, "OpenSSLCrypto: failed to load the 'legacy' OpenSSL provider - RC4 is unavailable and ARC4 will abort. "
+            "Deploy legacy.dll next to the executable (searched in: %s).", providerModulePath.string().c_str());
+    else if (!DefaultProvider)
+        WPError(false, "OpenSSLCrypto: failed to load the 'default' OpenSSL provider from %s.", providerModulePath.string().c_str());
 #endif
 }
 
