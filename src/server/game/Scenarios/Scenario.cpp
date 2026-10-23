@@ -1,19 +1,14 @@
-/*
- * Copyright (C) 2008-2014 TrinityCore <http://www.trinitycore.org/>
- *
- * This program is free software; you can redistribute it and/or modify it
- * under the terms of the GNU General Public License as published by the
- * Free Software Foundation; either version 2 of the License, or (at your
- * option) any later version.
- *
- * This program is distributed in the hope that it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for
- * more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program. If not, see <http://www.gnu.org/licenses/>.
- */
+////////////////////////////////////////////
+///                                      ///
+///         LEGIONCORE REFORGED          ///
+///    Copyright 2026 Titans-Project     ///
+///         All Rights Reserved.         ///
+///                                      ///
+///      Based on TrinityCore code       ///
+///   Copyright 2008-2014 TrinityCore    ///
+///   <http://www.trinitycore.org/>      ///
+///                                      ///
+////////////////////////////////////////////
 
 #include "Group.h"
 #include "ScenarioMgr.h"
@@ -551,7 +546,7 @@ void Scenario::SendStepUpdate(Player* player, bool full)
     state.BonusObjectives = GetBonusObjectivesData();
     state.ScenarioID = GetScenarioId();
     state.CurrentStep = currentStep < steps.size() ? steps[currentStep]->ID : -1;
-    state.ScenarioComplete = IsCompleted(false);
+    state.ScenarioComplete = IsCompleted(false) || (_completeThroughBonusSteps && currentStep > GetStepCount(false));
     state.ActiveSteps = ActiveSteps;
 
     std::vector<ScenarioSpellData> const* scSpells = sObjectMgr->GetScenarioSpells(GetScenarioId());
@@ -646,9 +641,14 @@ void Scenario::BroadCastPacket(const WorldPacket* data)
         return;
     }
 
-    // scenarios built without dungeon data have no map to look up (the dereference crashed)
+    // scenarios built without dungeon data have no map to look up (the dereference crashed); one a script runs on its
+    // own instance (garrison invasion) is only driven from that map's thread, so its players are reached directly
     if (!dungeonData)
+    {
+        if (curMap && curMap->Instanceable())
+            curMap->SendToPlayers(data);
         return;
+    }
 
     // the instance may be destroyed meanwhile by its parent map's thread: sent under the instance list lock
     Map* baseMap = sMapMgr->FindBaseMap(dungeonData->map);

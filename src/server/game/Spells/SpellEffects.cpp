@@ -1112,6 +1112,11 @@ void Spell::EffectDummy(SpellEffIndex effIndex)
         }
     }
 
+    // naval blueprints: the shipyard quests wait for the player to be the target of these spells
+    if (m_spellInfo->Id == 186231 || m_spellInfo->Id == 185609)
+        if (Player* learner = unitTarget ? unitTarget->ToPlayer() : nullptr)
+            learner->UpdateAchievementCriteria(CRITERIA_TYPE_BE_SPELL_TARGET, m_spellInfo->Id);
+
     // selection by spell family
     switch (m_spellInfo->ClassOptions.SpellClassSet)
     {
@@ -2945,7 +2950,15 @@ void Spell::DoCreateItem(uint32 /*effIndex*/, uint32 itemtype, std::vector<uint3
     {
         // convert to possible store amount
         if (msg == EQUIP_ERR_INV_FULL || msg == EQUIP_ERR_ITEM_MAX_COUNT)
+        {
             num_to_add -= no_space;
+            // nothing fits: say so instead of failing silently
+            if (!num_to_add)
+            {
+                player->SendEquipError(msg, nullptr, nullptr, newitemid);
+                return;
+            }
+        }
         else
         {
             // if not created by another reason from full inventory or unique items amount limitation

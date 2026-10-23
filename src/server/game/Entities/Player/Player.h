@@ -1459,6 +1459,13 @@ struct ArmyTrainingInfo
 
 typedef sf::safe_ptr<AchievementMgr<Player>> AchievementPtr;
 
+// Hidden weekly flags: quests the client data knows (QuestV2), so that they have a completion bit, unused anywhere
+// else. Cleared with the weekly quests.
+enum WeeklyTrackingQuests
+{
+    WEEKLY_TRACKING_GARRISON_CAMPAIGN_CHAPTER   = 50250,
+};
+
 class TC_GAME_API Player : public Unit, public GridObject<Player>
 {
     friend class WorldSession;
@@ -1979,6 +1986,12 @@ class TC_GAME_API Player : public Unit, public GridObject<Player>
         bool SatisfyQuestPrevChain(Quest const* qInfo, bool msg);
         bool SatisfyQuestDay(Quest const* qInfo, bool msg);
         bool SatisfyQuestWeek(Quest const* qInfo);
+        bool SatisfyGarrisonCampaign(Quest const* qInfo) const;
+        void MarkGarrisonCampaignWeek(uint32 questId);
+        bool SatisfyGarrisonInvasion(Quest const* qInfo) const;
+        void MarkGarrisonInvasion(uint32 questId);
+        // hidden weekly flags the client reads with IsQuestFlaggedCompleted (WeeklyTrackingQuests)
+        void SetWeeklyTrackingQuest(uint32 questId);
         bool SatisfyQuestSeasonal(Quest const* qInfo);
         bool GiveQuestSourceItem(Quest const* quest);
         bool TakeQuestSourceItem(uint32 questId, bool msg);

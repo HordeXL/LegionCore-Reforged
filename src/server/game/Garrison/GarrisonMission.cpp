@@ -1,3 +1,10 @@
+////////////////////////////////////////////
+///                                      ///
+///         LEGIONCORE REFORGED          ///
+///    Copyright 2026 Titans-Project     ///
+///         All Rights Reserved.         ///
+///                                      ///
+////////////////////////////////////////////
 
 #include <set>
 #include "GarrisonMission.h"
@@ -132,7 +139,7 @@ void Mission::Start(Player* owner, std::vector<uint64> const &followers)
 
     garrison->SendMissionListUpdate(false);
 
-    owner->UpdateAchievementCriteria(CRITERIA_TYPE_START_GARRISON_MISSION, PacketInfo.RecID);
+    owner->UpdateAchievementCriteria(CRITERIA_TYPE_START_GARRISON_MISSION, PacketInfo.RecID, missionEntry->GarrFollowerTypeID);
 }
 
 void Mission::Complete(Player* owner)
@@ -141,7 +148,9 @@ void Mission::Complete(Player* owner)
     if (!garrison)
         return;
 
-    auto missionEntry = sGarrMissionStore.LookupEntry(PacketInfo.RecID);
+    // a failed mission removes itself below, so its id is kept aside first
+    uint32 const recId = PacketInfo.RecID;
+    auto missionEntry = sGarrMissionStore.LookupEntry(recId);
     if (!missionEntry)
         return;
 
@@ -230,7 +239,7 @@ void Mission::Complete(Player* owner)
     {
         // a troop removed above: GiveXP would mark it changed again and bring it back after relog
         auto follower = garrison->GetFollower(followerID);
-        if (follower && follower->DbState != DB_STATE_REMOVED)
+        if (follower && follower->DbState != DB_STATE_REMOVED && follower->TypeID != GarrisonConst::FollowerType::Shipyard)
         {
             WorldPackets::Garrison::GarrisonFollowerChangedXP data;
             data.TotalXp = missionEntry->BaseFollowerXP;
@@ -251,8 +260,18 @@ void Mission::Complete(Player* owner)
         garrison->SendMissionListUpdate(true);
     }
 
-    owner->UpdateAchievementCriteria(CRITERIA_TYPE_COMPLETE_GARRISON_MISSION, PacketInfo.RecID);
-    owner->UpdateAchievementCriteria(CRITERIA_TYPE_COMPLETE_GARRISON_MISSION_COUNT, true);
+    owner->UpdateAchievementCriteria(CRITERIA_TYPE_COMPLETE_GARRISON_MISSION, recId);
+
+    if (missionEntry->GarrFollowerTypeID == GarrisonConst::FollowerType::Shipyard)
+    {
+        owner->UpdateAchievementCriteria(CRITERIA_TYPE_COMPLETE_NAVAL_MISSION, recId);
+
+        // naval victories only count the missions won
+        if (bonus)
+            owner->UpdateAchievementCriteria(CRITERIA_TYPE_COMPLETE_GARRISON_MISSION_COUNT, true, missionEntry->GarrFollowerTypeID);
+    }
+    else
+        owner->UpdateAchievementCriteria(CRITERIA_TYPE_COMPLETE_GARRISON_MISSION_COUNT, true, missionEntry->GarrFollowerTypeID);
 }
 
 bool Mission::HasBonusRoll()

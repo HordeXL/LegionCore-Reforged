@@ -1,19 +1,14 @@
-/*
- * Copyright (C) 2008-2014 TrinityCore <http://www.trinitycore.org/>
- *
- * This program is free software; you can redistribute it and/or modify it
- * under the terms of the GNU General Public License as published by the
- * Free Software Foundation; either version 2 of the License, or (at your
- * option) any later version.
- *
- * This program is distributed in the hope that it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for
- * more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program. If not, see <http://www.gnu.org/licenses/>.
- */
+////////////////////////////////////////////
+///                                      ///
+///         LEGIONCORE REFORGED          ///
+///    Copyright 2026 Titans-Project     ///
+///         All Rights Reserved.         ///
+///                                      ///
+///      Based on TrinityCore code       ///
+///   Copyright 2008-2014 TrinityCore    ///
+///   <http://www.trinitycore.org/>      ///
+///                                      ///
+////////////////////////////////////////////
 
 #ifndef TRINITY_SCENARIOMGR_H
 #define TRINITY_SCENARIOMGR_H
@@ -40,6 +35,9 @@ public:
     static ScenarioMgr* instance();
 
     Scenario* AddScenario(Map* map, lfg::LFGDungeonData const* _dungeonData, Player* player, bool find = false);
+    // a scenario a script runs on a map that has none of its own (garrison invasions); only from the map's thread
+    Scenario* AddScenario(Map* map, uint32 scenarioId);
+    void RemoveScenario(Map* map);
     void RemoveScenario(uint32 instanceId);
     // The scenario is deleted by RemoveScenario when its map is destroyed: the pointer is only valid for code running in
     // the thread of that map. From another thread (a group member elsewhere, a world update) use WithScenario.

@@ -1,3 +1,10 @@
+////////////////////////////////////////////
+///                                      ///
+///         LEGIONCORE REFORGED          ///
+///    Copyright 2026 Titans-Project     ///
+///         All Rights Reserved.         ///
+///                                      ///
+////////////////////////////////////////////
 
 #include "GarrisonPlot.h"
 #include "Garrison.h"
@@ -93,6 +100,10 @@ void getRandSpecialEntry(uint32 buildingTypeID, uint32 lvl, uint32 &entry)
 GameObject* Plot::CreateGameObject(Map* map, GarrisonFactionIndex faction, Garrison* garrison)
 {
     if (GarrisonConst::Globals::isClassHallMap(map->GetId()))
+        return nullptr;
+
+    // the shipyard stands in its bay on the Draenor map, not in the garrison
+    if (PacketInfo.GarrPlotInstanceID == GarrisonConst::Globals::ShipyardPlotID)
         return nullptr;
 
     auto entry = EmptyGameObjectId;

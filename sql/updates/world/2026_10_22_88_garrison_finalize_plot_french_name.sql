@@ -1,0 +1,25 @@
+-- Garrison: the plot finalization object is named in French
+INSERT INTO `locales_gameobject` (`entry`, `name_loc2`) VALUES
+(231217, 'Valider la construction'),
+(231964, 'Valider la construction'),
+(232651, 'Valider la construction'),
+(232652, 'Valider la construction'),
+(233248, 'Valider la construction'),
+(233249, 'Valider la construction'),
+(233250, 'Valider la construction'),
+(233251, 'Valider la construction'),
+(236175, 'Valider la construction'),
+(236176, 'Valider la construction'),
+(236177, 'Valider la construction'),
+(236185, 'Valider la construction'),
+(236186, 'Valider la construction'),
+(236187, 'Valider la construction'),
+(236188, 'Valider la construction'),
+(236190, 'Valider la construction'),
+(236191, 'Valider la construction'),
+(236192, 'Valider la construction'),
+(236193, 'Valider la construction'),
+(236261, 'Valider la construction'),
+(236262, 'Valider la construction'),
+(236263, 'Valider la construction')
+ON DUPLICATE KEY UPDATE `name_loc2` = VALUES(`name_loc2`);

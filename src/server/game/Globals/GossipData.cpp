@@ -1,3 +1,11 @@
+////////////////////////////////////////////
+///                                      ///
+///         LEGIONCORE REFORGED          ///
+///    Copyright 2026 Titans-Project     ///
+///         All Rights Reserved.         ///
+///                                      ///
+////////////////////////////////////////////
+
 #include "GossipData.h"
 #include "DatabaseEnv.h"
 #include "DB2Stores.h"
@@ -34,7 +42,16 @@ void GossipDataStoreMgr::LoadGossipMenuItemsLocales()
             continue;
 
 
-        auto& data = _gossipMenuItemsLocaleStore[MAKE_PAIR32(fields[0].GetUInt16(), fields[1].GetUInt16())];
+        // the store key packs both ids on 16 bits: a larger id would assert on read
+        uint32 const menuId = fields[0].GetUInt32();
+        uint32 const optionId = fields[1].GetUInt32();
+        if (menuId > 0xFFFF || optionId > 0xFFFF)
+        {
+            TC_LOG_ERROR("sql.sql", "Table `gossip_menu_option_locale`: MenuID %u OptionID %u does not fit on 16 bits, skipped.", menuId, optionId);
+            continue;
+        }
+
+        auto& data = _gossipMenuItemsLocaleStore[MAKE_PAIR32(menuId, optionId)];
         ObjectMgr::AddLocaleString(fields[3].GetString(), locale, data.OptionText);
         ObjectMgr::AddLocaleString(fields[4].GetString(), locale, data.BoxText);
 

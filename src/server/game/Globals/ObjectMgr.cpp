@@ -2740,7 +2740,8 @@ void ObjectMgr::LoadGameobjects()
                 continue;
             }
 
-            if (shipmentConteinerEntry->GarrTypeID != GARRISON_TYPE_CLASS_ORDER)
+            // the garrison buildings spawn their own work order objects: only the class halls and the shipyard bay are spawned from here
+            if (shipmentConteinerEntry->GarrTypeID != GARRISON_TYPE_CLASS_ORDER && shipmentConteinerEntry->GarrBuildingType != GarrisonConst::Globals::ShipyardBuildingType)
             {
                 TC_LOG_ERROR("sql.sql", "Gameobject (GUID: " UI64FMTD " Entry %u GoType: %u) GAMEOBJECT_TYPE_GARRISON_SHIPMENT has GarrTypeID != GARRISON_TYPE_CLASS_ORDER", guid, entry, gInfo->type);
                 continue;

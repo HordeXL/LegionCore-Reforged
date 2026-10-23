@@ -1,19 +1,14 @@
-/*
- * Copyright (C) 2008-2015 TrinityCore <http://www.trinitycore.org/>
- *
- * This program is free software; you can redistribute it and/or modify it
- * under the terms of the GNU General Public License as published by the
- * Free Software Foundation; either version 2 of the License, or (at your
- * option) any later version.
- *
- * This program is distributed in the hope that it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for
- * more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program. If not, see <http://www.gnu.org/licenses/>.
- */
+////////////////////////////////////////////
+///                                      ///
+///         LEGIONCORE REFORGED          ///
+///    Copyright 2026 Titans-Project     ///
+///         All Rights Reserved.         ///
+///                                      ///
+///      Based on TrinityCore code       ///
+///   Copyright 2008-2015 TrinityCore    ///
+///   <http://www.trinitycore.org/>      ///
+///                                      ///
+////////////////////////////////////////////
 
 #include "WorldSession.h"
 #include "Garrison.h"
@@ -193,17 +188,19 @@ void WorldSession::HandleGarrisonOpenMissionNpc(WorldPackets::Garrison::Garrison
         //response.PreventXmlOpenMissionEvent = true;
 
         if (Garrison* garrison = _player->GetGarrison())
-        {
-            for (const std::pair<uint64, Mission>& mission : garrison->GetMissions(GARRISON_TYPE_GARRISON))
-            {
-                // TODO: going from uint64 to int32 (see GarrisonPackets.cpp), will this ever be a problem?
-                response.Missions.push_back(static_cast<int32>(mission.first));
-            }
-        }
-        SendPacket(response.Write());
+            garrison->OpenMissionNpc(GarrisonConst::FollowerType::Garrison);
+        else
+            SendPacket(response.Write());
+        break;
+    }
+    case GarrisonConst::FollowerType::Shipyard:
+    {
+        // the fleet command tables carry the shipment crafter flag in the database
+        if (!_player->GetNPCIfCanInteractWith(packet.NpcGUID, UNIT_NPC_FLAG_NONE, UNIT_NPC_FLAG2_SHIPYARD_MISSION_NPC | UNIT_NPC_FLAG2_SHIPMENT_CRAFTER | UNIT_NPC_FLAG2_GARRISON_MISSION_NPC))
+            return;
 
-        if (auto garrison = _player->GetGarrison())
-            garrison->SendMissionListUpdate(true);
+        if (Garrison* garrison = _player->GetGarrison())
+            garrison->OpenMissionNpc(GarrisonConst::FollowerType::Shipyard);
         break;
     }
     case GarrisonConst::FollowerType::Follower:
