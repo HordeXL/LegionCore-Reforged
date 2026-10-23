@@ -872,6 +872,7 @@ class TC_GAME_API ScriptMgr
         void OnShutdownCancel();
         void OnStartup();
         void OnShutdown();
+        void OnWorldUpdate(uint32 diff);
 
         /* FormulaScript */
         void OnHonorCalculation(float& honor, uint8 level, float multiplier);

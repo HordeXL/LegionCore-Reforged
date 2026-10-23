@@ -1,22 +1,18 @@
-/*
- * Copyright (C) 2008-2014 TrinityCore <http://www.trinitycore.org/>
- *
- * This program is free software; you can redistribute it and/or modify it
- * under the terms of the GNU General Public License as published by the
- * Free Software Foundation; either version 2 of the License, or (at your
- * option) any later version.
- *
- * This program is distributed in the hope that it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for
- * more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program. If not, see <http://www.gnu.org/licenses/>.
- */
+////////////////////////////////////////////
+///                                      ///
+///         LEGIONCORE REFORGED          ///
+///    Copyright 2026 Titans-Project     ///
+///         All Rights Reserved.         ///
+///                                      ///
+///      Based on TrinityCore code       ///
+///   Copyright 2008-2014 TrinityCore    ///
+///   <http://www.trinitycore.org/>      ///
+///                                      ///
+////////////////////////////////////////////
 
 #include "ScenarioMgr.h"
 #include "LFGMgr.h"
+#include "Log.h"
 #include "WorldSession.h"
 
 ScenarioMgr::ScenarioMgr()
@@ -108,6 +104,62 @@ Scenario* ScenarioMgr::AddScenario(Map* map, lfg::LFGDungeonData const* dungeonD
 
     map->m_scenarios.insert(scenario);
     return scenario;
+}
+
+Scenario* ScenarioMgr::AddScenario(Map* map, uint32 scenarioId)
+{
+    ScenarioSteps const* steps = GetScenarioSteps(scenarioId);
+    if (!map || !steps || steps->empty())
+        return nullptr;
+
+    {
+        std::shared_lock<std::shared_mutex> lock(_scenarioLock);
+        ScenarioMap::const_iterator itr = _scenarioStore.find(map->GetInstanceId());
+        if (itr != _scenarioStore.end())
+        {
+            // the store is keyed by instance id only, which a garrison (owner's guid) can share with a dungeon
+            if (itr->second->GetMap() != map)
+                TC_LOG_ERROR("scenario", "ScenarioMgr::AddScenario: scenario %u not started on map %u instance %u, the id is held by scenario %u of another map",
+                    scenarioId, map->GetId(), map->GetInstanceId(), itr->second->GetScenarioId());
+            return nullptr;
+        }
+    }
+
+    Scenario* scenario = new Scenario(map, scenarioId);
+    // the medals of a garrison invasion are bonus steps walked after its last main step
+    scenario->SetCompleteThroughBonusSteps(true);
+    {
+        std::unique_lock<std::shared_mutex> lock(_scenarioLock);
+        _scenarioStore[map->GetInstanceId()] = scenario;
+    }
+
+    map->m_scenarios.insert(scenario);
+    return scenario;
+}
+
+void ScenarioMgr::RemoveScenario(Map* map)
+{
+    if (!map)
+        return;
+
+    Scenario* scenario;
+    {
+        std::unique_lock<std::shared_mutex> lock(_scenarioLock);
+        ScenarioMap::iterator itr = _scenarioStore.find(map->GetInstanceId());
+        if (itr == _scenarioStore.end())
+            return;
+
+        // another map with the same instance id owns it; one built without a map belongs to nobody else either
+        if (itr->second->GetMap() && itr->second->GetMap() != map)
+            return;
+
+        scenario = itr->second;
+        _scenarioStore.erase(itr);
+    }
+
+    // the map updates its scenarios every tick: it must forget this one before it is deleted
+    map->m_scenarios.erase(scenario);
+    delete scenario;
 }
 
 Scenario* ScenarioMgr::GetScenario(uint32 instanceId)

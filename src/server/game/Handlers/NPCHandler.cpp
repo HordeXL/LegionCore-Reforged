@@ -1,20 +1,16 @@
-/*
- * Copyright (C) 2008-2012 TrinityCore <http://www.trinitycore.org/>
- * Copyright (C) 2005-2009 MaNGOS <http://getmangos.com/>
- *
- * This program is free software; you can redistribute it and/or modify it
- * under the terms of the GNU General Public License as published by the
- * Free Software Foundation; either version 2 of the License, or (at your
- * option) any later version.
- *
- * This program is distributed in the hope that it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for
- * more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program. If not, see <http://www.gnu.org/licenses/>.
- */
+////////////////////////////////////////////
+///                                      ///
+///         LEGIONCORE REFORGED          ///
+///    Copyright 2026 Titans-Project     ///
+///         All Rights Reserved.         ///
+///                                      ///
+///      Based on TrinityCore code       ///
+///   Copyright 2008-2012 TrinityCore    ///
+///   <http://www.trinitycore.org/>      ///
+///   Copyright 2005-2009 MaNGOS         ///
+///   <http://getmangos.com/>            ///
+///                                      ///
+////////////////////////////////////////////
 
 #include "Common.h"
 #include "Language.h"
@@ -43,6 +39,8 @@
 #include "GuildMgr.h"
 #include "NPCPackets.h"
 #include "MailPackets.h"
+#include "Garrison.h"
+#include "GarrisonPackets.h"
 
 #ifdef ELUNA_TRINITY
 #include "ElunaMgr.h"
@@ -313,6 +311,21 @@ void WorldSession::HandleGossipHelloOpcode(WorldPackets::NPC::Hello& packet)
         }
     }
 
+    // the architect table answers with its own window, once a blueprint is known
+    if (unit->HasFlag(UNIT_FIELD_NPC_FLAGS2, UNIT_NPC_FLAG2_GARRISON_ARCHITECT))
+    {
+        if (Garrison* garrison = player->GetGarrisonPtr())
+        {
+            if (garrison->GetCountOfBluePrints())
+            {
+                WorldPackets::Garrison::GarrisonOpenArchitect openArchitect;
+                openArchitect.NpcGUID = unit->GetGUID();
+                SendPacket(openArchitect.Write());
+                return;
+            }
+        }
+    }
+
     if (!sScriptMgr->OnGossipHello(player, unit))
     {
         player->PrepareGossipMenu(unit, unit->GetCreatureTemplate()->GossipMenuId, true);
@@ -385,6 +398,17 @@ void WorldSession::HandleGossipSelectOption(WorldPackets::NPC::GossipSelectOptio
             go->LastUsedScriptID = go->GetGOInfo()->ScriptId;
         player->PlayerTalkClass->SendCloseGossip();
         return;
+    }
+
+    // scripts run before Player::OnGossipSelect charges the box money: refuse an unpaid option first
+    if (GossipMenuItem const* item = player->PlayerTalkClass->GetGossipMenu().GetItem(packet.GossipIndex))
+    {
+        if (item->BoxMoney && !player->HasEnoughMoney(int64(item->BoxMoney)))
+        {
+            player->SendBuyError(BUY_ERR_NOT_ENOUGHT_MONEY);
+            player->PlayerTalkClass->SendCloseGossip();
+            return;
+        }
     }
 
     if (!packet.PromotionCode.empty())

@@ -61,6 +61,7 @@
 #include "GameObjectAI.h"
 #include "GameTime.h"
 #include "Garrison.h"
+#include "GarrisonInvasion.h"
 #include "GlobalFunctional.h"
 #include "GossipData.h"
 #include "GossipDef.h"
@@ -18230,7 +18231,9 @@ void Player::PrepareGossipMenu(WorldObject* source, uint32 menuId /*= 0*/, bool 
         if (Creature* creature = source->ToCreature())
         {
             GossipOptionNpc optionNpc = itr->second.OptionNpc;
-            if (!(GossipMenu::GetRequiredNpcFlagForOption(optionNpc) & npcflags))
+
+            // the mission and work order flags live in the second flag word, which npcflags does not hold
+            if (optionNpc != GossipOptionNpc::GarrisonMission && optionNpc != GossipOptionNpc::ShipmentCrafter && !(GossipMenu::GetRequiredNpcFlagForOption(optionNpc) & npcflags))
                 continue;
 
             // HACK: disable dual spec
@@ -18310,6 +18313,7 @@ void Player::PrepareGossipMenu(WorldObject* source, uint32 menuId /*= 0*/, bool 
                 case GossipOptionNpc::Auctioneer:
                 case GossipOptionNpc::Mailbox:
                 case GossipOptionNpc::Transmogrify:
+                case GossipOptionNpc::GarrisonMission:
                     break;                                 // No checks
                 default:
                     TC_LOG_ERROR("sql.sql", "Creature entry %u has an unknown gossip option icon %u for menu %u.", creature->GetEntry(), AsUnderlyingType(itr->second.OptionNpc), itr->second.MenuID);
@@ -18541,6 +18545,15 @@ void Player::OnGossipSelect(WorldObject* source, uint32 gossipListId, uint32 men
         case GossipOptionNpc::ShipmentCrafter:
             if (Garrison* garr = GetGarrisonPtr())
                 garr->OnGossipSelect(source);
+            break;
+        case GossipOptionNpc::GarrisonMission:
+            PlayerTalkClass->SendCloseGossip();
+            if (Garrison* garr = GetGarrisonPtr())
+            {
+                // the two fleet command tables of the bays open the naval board
+                bool const fleetTable = source->GetEntry() == 94398 || source->GetEntry() == 94399;
+                garr->OpenMissionNpc(fleetTable ? GarrisonConst::FollowerType::Shipyard : GarrisonConst::FollowerType::Garrison);
+            }
             break;
         case GossipOptionNpc::GarrisonTradeskill:
             if (Garrison* garr = GetGarrisonPtr())
@@ -18839,7 +18852,7 @@ bool Player::CanSeeStartQuest(Quest const* quest)
         SatisfyQuestExclusiveGroup(quest, msg) && SatisfyQuestReputation(quest, msg) &&
         SatisfyQuestPreviousQuest(quest, msg) && SatisfyQuestNextChain(quest, msg) &&
         SatisfyQuestPrevChain(quest, msg) && SatisfyQuestDay(quest, msg) && SatisfyQuestWeek(quest) &&
-        SatisfyQuestSeasonal(quest) && !DisableMgr::IsDisabledFor(DISABLE_TYPE_QUEST, quest->GetQuestId(), this))
+        SatisfyGarrisonCampaign(quest) && SatisfyGarrisonInvasion(quest) && SatisfyQuestSeasonal(quest) && !DisableMgr::IsDisabledFor(DISABLE_TYPE_QUEST, quest->GetQuestId(), this))
         return getLevel() + sWorld->getIntConfig(CONFIG_QUEST_HIGH_LEVEL_HIDE_DIFF) >= quest->MinLevel;
 
     return false;
@@ -18854,7 +18867,7 @@ bool Player::CanTakeQuest(Quest const* quest, bool msg)
         && SatisfyQuestPreviousQuest(quest, msg) && SatisfyQuestTimed(quest, msg)
         && SatisfyQuestNextChain(quest, msg) && SatisfyQuestPrevChain(quest, msg)
         && SatisfyQuestDay(quest, msg) && SatisfyQuestWeek(quest)
-        && SatisfyQuestSeasonal(quest)
+        && SatisfyGarrisonCampaign(quest) && SatisfyGarrisonInvasion(quest) && SatisfyQuestSeasonal(quest)
         && SatisfyQuestConditions(quest, msg);
 }
 
@@ -19785,7 +19798,10 @@ void Player::RewardQuest(Quest const* quest, uint32 reward, Object* questGiver, 
         m_accuntQuests.insert(quest_id);
         m_RewardedQuestsSave[quest_id] = QUEST_DEFAULT_SAVE_TYPE;
     }
-    
+
+    MarkGarrisonCampaignWeek(quest_id);
+    MarkGarrisonInvasion(quest_id);
+
     // Must come after the insert in m_RewardedQuests because of spell_area check
     RemoveActiveQuest(quest_id);
 
@@ -19920,7 +19936,8 @@ bool Player::SatisfyQuestSkill(Quest const* qInfo, bool msg) const
     if (!skill)
         return true;
 
-    if (const_cast<Player*>(this)->GetSkillValue(skill) < qInfo->RequiredSkillPoints)
+    // a profession quest without a threshold still requires the profession
+    if (const_cast<Player*>(this)->GetSkillValue(skill) < std::max<uint32>(qInfo->RequiredSkillPoints, 1))
     {
         if (msg)
             SendCanTakeQuestResponse(INVALIDREASON_DONT_HAVE_REQ, qInfo, "skill");
@@ -20289,6 +20306,103 @@ bool Player::SatisfyQuestWeek(Quest const* qInfo)
 
     // if not found in cooldown list
     return m_weeklyquests.find(qInfo->GetQuestId()) == m_weeklyquests.end();
+}
+
+namespace
+{
+    // first quest of each chapter of the Warlords garrison campaign; a chapter may have variants (The Ring of Blood)
+    using CampaignChapter = std::vector<uint32>;
+    std::vector<CampaignChapter> const GarrisonCampaignAlliance =
+    {
+        { 34284 }, { 35837 }, { 35861 }, { 34026 }, { 34409 }, { 35185 }, { 35679 }, { 35985 }, { 36160 }, { 36163 },
+        { 36219, 36280, 36281, 36282 }
+    };
+    std::vector<CampaignChapter> const GarrisonCampaignHorde =
+    {
+        // Grinding Gears (34034) left out: its goblin engineer has no known spawn, the chapter cannot be finished
+        { 34309 }, { 35843 }, { 35876 }, { 32979 }, { 34335 }, { 35186 }, { 35680 }, { 36117 }, { 36261 },
+        { 36219, 36280, 36281, 36282 }
+    };
+    uint32 const GarrisonCampaignFinalAlliance = 36134;
+    uint32 const GarrisonCampaignFinalHorde = 36136;
+}
+
+void Player::SetWeeklyTrackingQuest(uint32 questId)
+{
+    if (m_weeklyquests.count(questId) || !sQuestDataStore->GetQuestTemplate(questId))
+        return;
+
+    SetWeeklyQuestStatus(questId);
+    SetQuestCompletedBit(sDB2Manager.GetQuestUniqueBitFlag(questId), true);
+}
+
+// as on retail: one chapter a week, drawn among those not done yet, Awakening once all of them are
+bool Player::SatisfyGarrisonCampaign(Quest const* qInfo) const
+{
+    uint32 const questId = qInfo->GetQuestId();
+    bool const alliance = GetTeam() == ALLIANCE;
+    std::vector<CampaignChapter> const& chapters = alliance ? GarrisonCampaignAlliance : GarrisonCampaignHorde;
+    uint32 const finalQuest = alliance ? GarrisonCampaignFinalAlliance : GarrisonCampaignFinalHorde;
+
+    auto contains = [](CampaignChapter const& chapter, uint32 id) { return std::find(chapter.begin(), chapter.end(), id) != chapter.end(); };
+    auto done = [this](CampaignChapter const& chapter)
+    {
+        return std::any_of(chapter.begin(), chapter.end(), [this](uint32 id) { return GetQuestRewardStatus(id); });
+    };
+    auto inLog = [this](uint32 id) { return FindQuestSlot(id) < MAX_QUEST_LOG_SIZE; };
+
+    CampaignChapter const* asked = nullptr;
+    for (CampaignChapter const& chapter : chapters)
+        if (contains(chapter, questId))
+            asked = &chapter;
+    if (!asked && questId != finalQuest)
+        return true;
+
+    if (m_weeklyquests.count(WEEKLY_TRACKING_GARRISON_CAMPAIGN_CHAPTER) || inLog(finalQuest))
+        return false;
+    for (CampaignChapter const& chapter : chapters)
+        if (std::any_of(chapter.begin(), chapter.end(), inLog))
+            return false;
+
+    std::vector<CampaignChapter const*> open;
+    for (CampaignChapter const& chapter : chapters)
+        if (!done(chapter))
+            open.push_back(&chapter);
+
+    if (!asked)
+        return open.empty();
+    if (open.empty())
+        return false;
+
+    // the same chapter all week long, so that an abandoned one can be taken again
+    uint32 const week = uint32(sWorld->GetNextWeeklyResetTime() / WEEK);
+    return open[(GetGUIDLow() * 2654435761u + week) % open.size()] == asked;
+}
+
+void Player::MarkGarrisonCampaignWeek(uint32 questId)
+{
+    for (auto const* chapters : { &GarrisonCampaignAlliance, &GarrisonCampaignHorde })
+        for (CampaignChapter const& chapter : *chapters)
+            if (std::find(chapter.begin(), chapter.end(), questId) != chapter.end())
+                SetWeeklyTrackingQuest(WEEKLY_TRACKING_GARRISON_CAMPAIGN_CHAPTER);
+}
+
+// an invasion quest only while its faction's invasion is pending; being weekly, it cannot be done twice in a week
+bool Player::SatisfyGarrisonInvasion(Quest const* qInfo) const
+{
+    GarrisonInvasion::Type const type = GarrisonInvasion::GetTypeByInvasionQuest(qInfo->GetQuestId());
+    if (type == GarrisonInvasion::MAX_TYPES)
+        return true;
+
+    return m_weeklyquests.count(GarrisonInvasion::Types[type].PendingTracking) != 0;
+}
+
+// an Apexis assault angers its faction, whose invasion stays pending until the weekly reset
+void Player::MarkGarrisonInvasion(uint32 questId)
+{
+    GarrisonInvasion::Type const type = GarrisonInvasion::GetTypeByAssaultQuest(questId);
+    if (type != GarrisonInvasion::MAX_TYPES)
+        SetWeeklyTrackingQuest(GarrisonInvasion::Types[type].PendingTracking);
 }
 
 bool Player::SatisfyQuestSeasonal(Quest const* qInfo)
@@ -20717,14 +20831,26 @@ void Player::AreaExploredOrEventHappens(uint32 questId)
                 SetQuestSlotState(log_slot, QUEST_STATE_COMPLETE);
                 SendQuestComplete(qInfo);
              }
+            // a simple credit on a counted objective makes the client print garbage counters (32758/-168305937):
+            // counted objectives are filled to their amount, flag objectives get their own bit, once
             for (QuestObjective const& obj : qInfo->GetObjectives())
             {
-                SetSpecialCriteriaComplete(log_slot, obj.StorageIndex);
-                WorldPackets::Quest::QuestUpdateAddCreditSimple packet;
-                packet.QuestID = qInfo->GetQuestId();
-                packet.ObjectID = obj.ObjectID;
-                packet.ObjectiveType = obj.Type;
-                SendDirectMessage(packet.Write());
+                if (obj.IsStoringFlag())
+                    SetQuestObjectiveData(qInfo, &obj, 1);
+                else
+                {
+                    switch (obj.Type)
+                    {
+                        case QUEST_OBJECTIVE_MONSTER:
+                        case QUEST_OBJECTIVE_GAMEOBJECT:
+                        case QUEST_OBJECTIVE_TALKTO:
+                        case QUEST_OBJECTIVE_PLAYERKILLS:
+                            SetQuestObjectiveData(qInfo, &obj, obj.Amount);
+                            break;
+                        default:
+                            break;
+                    }
+                }
             }
         }
         if (CanCompleteQuest(questId))
@@ -31996,6 +32122,10 @@ void Player::UpdateAreaQuestTasks(uint32 newAreaId, uint32 oldAreaId)
             if (quest->IsEmissary() || quest->IsWorld())
                 continue;
 
+            // the server-side player conditions of some tasks are missing (Apexis assaults): `conditions` stand in for them
+            if (!SatisfyQuestConditions(quest, false))
+                continue;
+
             if (QuestV2CliTaskEntry const* questTask = sQuestV2CliTaskStore.LookupEntry(quest->GetQuestId()))
             {
                 if (!sConditionMgr->IsPlayerMeetingCondition(this, questTask->ConditionID))
@@ -34944,7 +35074,7 @@ bool Player::AddItem(uint32 itemId, uint32 count, uint32* noSpaceForCount, Objec
     if (count == 0 || dest.empty())
     {
         // -- TODO: Send to mailbox if no space
-        ChatHandler(this).PSendSysMessage("You don't have any space in your bags.");
+        SendEquipError(msg != EQUIP_ERR_OK ? msg : EQUIP_ERR_INV_FULL, nullptr, nullptr, itemId);
         return false;
     }
 

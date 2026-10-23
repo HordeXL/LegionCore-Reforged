@@ -360,6 +360,11 @@ bool Garrison::LoadFromDB(PreparedQueryResult const& garrison, PreparedQueryResu
             case GarrisonConst::FollowerType::Garrison:
                 follower.PacketInfo.FollowerLevel = std::min(fields[3].GetUInt32(), uint32(GarrisonConst::Globals::MaxFollowerLevel));
                 break;
+            case GarrisonConst::FollowerType::Shipyard:
+                follower.PacketInfo.FollowerLevel = std::min(fields[3].GetUInt32(), uint32(GarrisonConst::Globals::MaxFollowerLevel));
+                // ships keep the quality of their DB2 entry and never gain experience
+                follower.PacketInfo.Quality = foloowerEntry->Quality;
+                break;
             case GarrisonConst::FollowerType::Follower:
                 follower.PacketInfo.FollowerLevel = std::min(fields[3].GetUInt32(), uint32(GarrisonConst::Globals::MaxFollowerLevelHall));
                 break;
@@ -374,6 +379,8 @@ bool Garrison::LoadFromDB(PreparedQueryResult const& garrison, PreparedQueryResu
             follower.PacketInfo.CurrentMissionID = fields[8].GetUInt32();
             follower.PacketInfo.FollowerStatus = fields[9].GetUInt32();
             follower.PacketInfo.Vitality = fields[10].GetUInt16();
+            if (foloowerEntry->GarrFollowerTypeID == GarrisonConst::FollowerType::Shipyard)
+                follower.PacketInfo.FollowerStatus |= GarrisonConst::GarrisonFollowerFlags::FOLLOWER_STATUS_NO_XP_GAIN;
 
             follower.TypeID = foloowerEntry->GarrFollowerTypeID;
             follower.DbState = DB_STATE_UNCHANGED;
@@ -810,6 +817,35 @@ void Garrison::InitializePlots(uint8 type)
             plotInfo.GarrSiteLevelPlotInstId = plot->ID;
         }
     }
+
+    InitializeShipyardPlot(type);
+}
+
+// The shipyard plot has no GarrSiteLevelPlotInst row and no object in the garrison map: the shipyard is built in its bay
+void Garrison::InitializeShipyardPlot(uint8 type)
+{
+    if (_siteLevel[type]->GarrLevel < GarrisonConst::Globals::MaxLevel)
+        return;
+
+    GarrPlotInstanceEntry const* plotInstance = sGarrPlotInstanceStore.LookupEntry(GarrisonConst::Globals::ShipyardPlotID);
+    if (!plotInstance)
+        return;
+
+    GarrPlotEntry const* plotEntry = sGarrPlotStore.LookupEntry(plotInstance->GarrPlotID);
+    if (!plotEntry)
+        return;
+
+    Plot& plot = _plots[GarrisonConst::Globals::ShipyardPlotID];
+    plot.PacketInfo.GarrPlotInstanceID = GarrisonConst::Globals::ShipyardPlotID;
+    plot.PacketInfo.PlotPos = GetFaction() == GARRISON_FACTION_INDEX_ALLIANCE ? Position(2158.0f, 425.0f, 16.8f, 0.0f) : Position(5426.0f, 4971.0f, 63.0f, 0.0f);
+    plot.PacketInfo.PlotType = plotEntry->PlotType;
+    plot.RotationX = 0.0f;
+    plot.RotationY = 0.0f;
+    plot.RotationZ = 0.0f;
+    plot.RotationW = 1.0f;
+
+    // a garrison upgraded to its last level gets the shipyard quests looked at once more
+    _shipyardChecked = false;
 }
 
 //! ToDo. site.
@@ -1001,6 +1037,13 @@ void Garrison::Update(uint32 diff)
         }
     }
 
+    if (!_shipyardChecked)
+    {
+        // the shipyard quests may have been rewarded before the plot existed
+        _shipyardChecked = true;
+        ApplyShipyardQuests();
+    }
+
     if (GameTime::GetGameTime() > _MissionGen)
     {
         _MissionGen = GameTime::GetGameTime() + DAY;
@@ -1139,6 +1182,10 @@ void Garrison::Swap(uint32 plot1, uint32 plot2)
     if (!p1 || !p2 || plot1 == plot2)
         return;
 
+    // the shipyard has no plot in the garrison itself
+    if (plot1 == GarrisonConst::Globals::ShipyardPlotID || plot2 == GarrisonConst::Globals::ShipyardPlotID)
+        return;
+
     if (p1->BuildingInfo.PacketInfo)
         BuildingId1 = p1->BuildingInfo.PacketInfo->GarrBuildingID;
 
@@ -1228,7 +1275,7 @@ void Garrison::PlaceBuilding(uint32 garrPlotInstanceId, uint32 garrBuildingId, b
         // If build by quest - skip building state and spawn building.
         if (quest)
         {
-            placeBuildingResult.PlayActivationCinematic = !swap;
+            placeBuildingResult.PlayActivationCinematic = !swap && garrPlotInstanceId != GarrisonConst::Globals::ShipyardPlotID;
             placeBuildingResult.BuildingInfo.Active = true;
         }
         else
@@ -1259,6 +1306,14 @@ void Garrison::PlaceBuilding(uint32 garrPlotInstanceId, uint32 garrBuildingId, b
         }
 
         _owner->UpdateAchievementCriteria(CRITERIA_TYPE_PLACE_GARRISON_BUILDING, garrBuildingId);
+
+        // the bay fleet is phased on the shipyard
+        if (buildingEntry->BuildingType == GARR_BTYPE_SHIPYARD)
+        {
+            PhaseUpdateData phaseUpdateData;
+            phaseUpdateData.AddConditionType(CONDITION_GARRRISON_BUILDING);
+            _owner->GetPhaseMgr().NotifyConditionChanged(phaseUpdateData);
+        }
     }
 
     _owner->SendDirectMessage(placeBuildingResult.Write());
@@ -1419,7 +1474,7 @@ void Garrison::AddFollower(uint32 garrFollowerId)
     follower.db_state_ability = DB_STATE_NEW;
     follower.PacketInfo.DbID = dbId;
     follower.PacketInfo.GarrFollowerID = garrFollowerId;
-    if (!followerEntry->Vitality && followerEntry->GarrFollowerTypeID != GarrisonConst::FollowerType::Follower)
+    if (!followerEntry->Vitality && followerEntry->GarrFollowerTypeID == GarrisonConst::FollowerType::Garrison)
         follower.PacketInfo.Quality = follower.RollQuality(followerEntry->Quality);
     else
         follower.PacketInfo.Quality = followerEntry->Quality;
@@ -1428,6 +1483,8 @@ void Garrison::AddFollower(uint32 garrFollowerId)
     follower.PacketInfo.ItemLevelArmor = followerEntry->ItemLevelArmor;
     follower.PacketInfo.AbilityID = sGarrisonMgr.RollFollowerAbilities(followerEntry, follower.PacketInfo.Quality, GetFaction(), true);
     follower.PacketInfo.FollowerStatus = GarrisonConst::GarrisonFollowerFlags::FOLLOWER_STATUS_BASE;
+    if (followerEntry->GarrFollowerTypeID == GarrisonConst::FollowerType::Shipyard)
+        follower.PacketInfo.FollowerStatus |= GarrisonConst::GarrisonFollowerFlags::FOLLOWER_STATUS_NO_XP_GAIN;
     follower.TypeID = followerEntry->GarrFollowerTypeID;
 
     if (followerEntry->Vitality)
@@ -1455,11 +1512,15 @@ void Garrison::AddFollower(uint32 garrFollowerId)
     if (auto mission = sGarrisonMgr.GetMissionAtFollowerTaking(garrFollowerId))
         AddMission(mission->ID);
 
+    // the first ship opens the naval mission board
+    if (followerEntry->GarrFollowerTypeID == GarrisonConst::FollowerType::Shipyard)
+        GenerateRandomMission();
+
     _owner->UpdateForQuestWorldObjects();
 }
 
 //! basic follower has rand 4.  for shaman look at http://ru.wowhead.com/champion=608#english-comments
-void Garrison::CheckBasicRequirements()
+void Garrison::AddQuestMissions()
 {
     for (uint16 i = 0; i < MAX_QUEST_LOG_SIZE; ++i)
     {
@@ -1468,8 +1529,17 @@ void Garrison::CheckBasicRequirements()
             continue;
 
         if (uint32 m = sGarrisonMgr.getMissionAtQuestTake(q))
-            AddMission(m);
+        {
+            GarrMissionEntry const* missionEntry = sGarrMissionStore.LookupEntry(m);
+            if (missionEntry && !_missionIds[missionEntry->GarrTypeID].count(m))
+                AddMission(m);
+        }
     }
+}
+
+void Garrison::CheckBasicRequirements()
+{
+    AddQuestMissions();
 
     switch (_owner->getClass())
     {
@@ -1593,19 +1663,57 @@ void Garrison::AddMission(uint32 missionRecID, bool sendLog/* = true*/)
 
 void Garrison::GenerateRandomMission(uint16 count /*=0*/)
 {
-    for (uint8 i = GARRISON_TYPE_GARRISON; i < GARRISON_TYPE_MAX; ++i)
+    // ground and naval missions share the garrison type: each follower type is filled from its own followers
+    struct MissionPool
     {
-        uint16 lvlMax = GetMaxFolowerLvl(i);
-        uint16 lvlMin = GetMinFolowerLvl(i);
+        uint8 garrisonType;
+        uint32 followerType;
+    };
 
-        uint16 itemMaxLvl = GetMaxFolowerItemLvl(i);
+    static MissionPool const pools[] =
+    {
+        { GARRISON_TYPE_GARRISON,    GarrisonConst::FollowerType::Garrison },
+        { GARRISON_TYPE_GARRISON,    GarrisonConst::FollowerType::Shipyard },
+        { GARRISON_TYPE_CLASS_ORDER, GarrisonConst::FollowerType::Follower }
+    };
+
+    for (MissionPool const& pool : pools)
+    {
+        uint8 const i = pool.garrisonType;
+        bool const naval = pool.followerType == GarrisonConst::FollowerType::Shipyard;
+
+        if (naval && !HasShipyard())
+            continue;
+
+        uint16 lvlMax = 0;
+        uint16 lvlMin = GarrisonConst::Globals::MaxFollowerLevelHall;
+        uint16 itemMaxLvl = 0;
+        uint32 followerCount = 0;
+        for (auto const& f : _followers[i])
+        {
+            if (f.second.TypeID != pool.followerType)
+                continue;
+
+            ++followerCount;
+            lvlMax = std::max<uint16>(lvlMax, f.second.PacketInfo.FollowerLevel);
+            lvlMin = std::min<uint16>(lvlMin, f.second.PacketInfo.FollowerLevel);
+            itemMaxLvl = std::max<uint16>(itemMaxLvl, std::max(f.second.PacketInfo.ItemLevelWeapon, f.second.PacketInfo.ItemLevelArmor));
+        }
+
         if (!lvlMax)
             continue;
 
-        if (!count)
-            count = _owner->getLevel() >= 99 ? 10 : 5;
+        uint16 poolCount = count;
+        if (!poolCount)
+            poolCount = naval ? 6 : (_owner->getLevel() >= 99 ? 10 : 5);
 
-        if (_missionIds[i].size() >= count)
+        uint32 offered = 0;
+        for (auto const& m : _missions[i])
+            if (GarrMissionEntry const* offeredEntry = sGarrMissionStore.LookupEntry(m.second.PacketInfo.RecID))
+                if (offeredEntry->GarrFollowerTypeID == pool.followerType)
+                    ++offered;
+
+        if (offered >= poolCount)
             continue;
 
         uint32 check = 0;
@@ -1623,10 +1731,13 @@ void Garrison::GenerateRandomMission(uint16 count /*=0*/)
                 if (mission->GarrTypeID != i || /*mission->OfferDuration >= 9999999 || */mission->MissionDuration <= 10/* || mission->Flags & 0x80*/)
                     continue;
 
+                if (uint32(mission->GarrFollowerTypeID) != pool.followerType)
+                    continue;
+
                 if (_missionIds[i].count(mission->ID))
                     continue;
 
-                if (mission->MaxFollowers > _followers[i].size())
+                if (mission->MaxFollowers > followerCount)
                     continue;
 
                 if (!ConditionMgr::IsPlayerMeetingCondition(_owner, mission->PlayerConditionID))
@@ -1640,16 +1751,41 @@ void Garrison::GenerateRandomMission(uint16 count /*=0*/)
                 {
                     ///< Alliance garrison location.
                     case 106:
+                    ///< Alliance naval location.
+                    case 204:
                         loc_check = _owner->GetTeamId() == TEAM_ALLIANCE;
                         break;
                     ///< Horde garrison location.
                     case 101:
+                    ///< Horde naval location.
+                    case 203:
                         loc_check = _owner->GetTeamId() == TEAM_HORDE;
                         break;
                     /// Not visible for client ????
                     case 0:
                         loc_check = false;
                         break;
+                }
+
+                if (naval)
+                {
+                    // the shared naval locations hold the faction siege missions, and the tutorial ones come with their quest
+                    switch (mission->GarrMissionTypeID)
+                    {
+                        case GarrisonConst::Mission::ShipSiegeA:
+                        case GarrisonConst::Mission::ShipSiegeIHA:
+                            loc_check = loc_check && _owner->GetTeamId() == TEAM_ALLIANCE;
+                            break;
+                        case GarrisonConst::Mission::ShipSiegeH:
+                        case GarrisonConst::Mission::ShipSiegeIHH:
+                            loc_check = loc_check && _owner->GetTeamId() == TEAM_HORDE;
+                            break;
+                        default:
+                            break;
+                    }
+
+                    if (mission->ID == 522 || mission->ID == 523 || mission->ID == 636 || mission->ID == 637 || mission->ID == 638 || mission->ID == 639)
+                        loc_check = false;
                 }
 
                 /// Location check fail
@@ -1689,9 +1825,10 @@ void Garrison::GenerateRandomMission(uint16 count /*=0*/)
 
                 AddMission(mission->ID);
                 check = 0;
+                ++offered;
 
                 //! shuffle count expire or num mission 
-                if (l_ShuffleCount-- <= 0 || _missionIds[i].size() >= count)
+                if (l_ShuffleCount-- <= 0 || offered >= poolCount)
                     break;
             }
         }
@@ -2544,6 +2681,30 @@ void Garrison::SendMissionListUpdate(bool /*openMissionNpc*/) const
     _owner->SendDirectMessage(res.Write());
 }
 
+void Garrison::OpenMissionNpc(uint32 followerType)
+{
+    if (followerType == GarrisonConst::FollowerType::Shipyard)
+    {
+        if (!HasShipyard())
+            return;
+
+        AddQuestMissions();
+        GenerateRandomMission();
+    }
+
+    WorldPackets::Garrison::GarrisonOpenMissionNpc response;
+    response.GarrTypeID = GARRISON_TYPE_GARRISON;
+
+    for (auto const& mission : _missions[GARRISON_TYPE_GARRISON])
+        if (GarrMissionEntry const* missionEntry = sGarrMissionStore.LookupEntry(mission.second.PacketInfo.RecID))
+            if (missionEntry->GarrFollowerTypeID == followerType)
+                // TODO: going from uint64 to int32 (see GarrisonPackets.cpp), will this ever be a problem?
+                response.Missions.push_back(static_cast<int32>(mission.first));
+
+    _owner->SendDirectMessage(response.Write());
+    SendMissionListUpdate(true);
+}
+
 void Garrison::RewardMission(uint32 missionRecID, bool owermax/* = false*/)
 {
     if (auto mission = sGarrisonMgr.GetNextMissionInQuestLine(missionRecID))
@@ -2656,8 +2817,63 @@ void Garrison::OnQuestReward(uint32 questID)
         case 36662:
             PlaceBuilding(81, 42, true);
             break;
+        // Shipyard: built by "All Hands on Deck", upgraded by "Upgrade the Fleet" and "Naval Dominance"
+        case 38259:
+        case 38574:
+        case 39067:
+        case 39245:
+        case 39068:
+        case 39246:
+            ApplyShipyardQuests();
+            break;
         default:
             break;
+    }
+}
+
+bool Garrison::HasShipyard() const
+{
+    for (auto const& p : _plots)
+        if (p.second.BuildingInfo.PacketInfo && p.second.BuildingInfo.PacketInfo->Active)
+            if (sGarrBuildingStore.AssertEntry(p.second.BuildingInfo.PacketInfo->GarrBuildingID)->BuildingType == GARR_BTYPE_SHIPYARD)
+                return true;
+
+    return false;
+}
+
+// The shipyard level follows the quests that pay for it
+void Garrison::ApplyShipyardQuests()
+{
+    Plot* plot = GetPlot(GarrisonConst::Globals::ShipyardPlotID);
+    if (!plot)
+        return;
+
+    bool const alliance = _owner->GetTeam() == ALLIANCE;
+    uint32 wanted = 0;
+    if (_owner->GetQuestRewardStatus(alliance ? 38259 : 38574))
+        wanted = 1;
+    if (_owner->GetQuestRewardStatus(alliance ? 39067 : 39245))
+        wanted = 2;
+    if (_owner->GetQuestRewardStatus(alliance ? 39068 : 39246))
+        wanted = 3;
+
+    auto currentLevel = [plot]() -> uint32
+    {
+        if (!plot->BuildingInfo.PacketInfo)
+            return 0;
+
+        return sGarrBuildingStore.AssertEntry(plot->BuildingInfo.PacketInfo->GarrBuildingID)->UpgradeLevel;
+    };
+
+    for (uint32 level = currentLevel(); level < wanted; )
+    {
+        PlaceBuilding(GarrisonConst::Globals::ShipyardPlotID, GarrisonConst::Globals::ShipyardBuildingID + level, true);
+
+        // refused: do not insist
+        if (currentLevel() <= level)
+            break;
+
+        level = currentLevel();
     }
 }
 
@@ -2667,7 +2883,7 @@ bool Garrison::canAddShipmentOrder(Creature* source)
     if (!source->HasFlag(UNIT_FIELD_NPC_FLAGS2, UNIT_NPC_FLAG2_AI_OBSTACLE | UNIT_NPC_FLAG2_RECRUITER))
         return false;
 
-    auto data = sGarrisonMgr.GetGarrShipment(source->GetEntry(), SHIPMENT_GET_BY_NPC, _owner->getClass());
+    auto data = sGarrisonMgr.GetGarrShipment(source->GetEntry(), SHIPMENT_GET_BY_NPC, _owner->getClass(), _owner);
     if (!data || !data->cEntry)
         return false;
 
@@ -2908,7 +3124,7 @@ void Garrison::OnGossipSelect(WorldObject* source)
     if (!source->HasFlag(UNIT_FIELD_NPC_FLAGS2, UNIT_NPC_FLAG2_AI_OBSTACLE | UNIT_NPC_FLAG2_RECRUITER))
         return;
 
-    auto data = sGarrisonMgr.GetGarrShipment(source->GetEntry(), SHIPMENT_GET_BY_NPC, _owner->getClass());
+    auto data = sGarrisonMgr.GetGarrShipment(source->GetEntry(), SHIPMENT_GET_BY_NPC, _owner->getClass(), _owner);
     if (!data)
         return;
 
@@ -2932,7 +3148,7 @@ void Garrison::OnGossipSelect(WorldObject* source)
 
 void Garrison::SendShipmentInfo(ObjectGuid const& guid)
 {
-    GarrShipment const* shipment = sGarrisonMgr.GetGarrShipment(guid.GetEntry(), SHIPMENT_GET_BY_NPC, _owner->getClass());
+    GarrShipment const* shipment = sGarrisonMgr.GetGarrShipment(guid.GetEntry(), SHIPMENT_GET_BY_NPC, _owner->getClass(), _owner);
     if (!shipment)      // an order NPC of another class: the lookup is by class
     {
         WorldPackets::Garrison::GetShipmentInfoResponse failed;
@@ -2985,7 +3201,7 @@ void Garrison::SendShipmentInfo(ObjectGuid const& guid)
 
 void Garrison::CreateShipment(ObjectGuid const& guid, uint32 count)
 {
-    auto shipment = sGarrisonMgr.GetGarrShipment(guid.GetEntry(), SHIPMENT_GET_BY_NPC, _owner->getClass());
+    auto shipment = sGarrisonMgr.GetGarrShipment(guid.GetEntry(), SHIPMENT_GET_BY_NPC, _owner->getClass(), _owner);
     if (!shipment)
         return;
 
@@ -3159,11 +3375,62 @@ void Garrison::SendGarrisonShipmentLandingPage()
     _owner->SendDirectMessage(packet.Write());
 }
 
+// The ship comes at random among the ones of the ordered type the player does not own yet
+void Garrison::AddShipFromShipment(CharShipmentEntry const* shipmentEntry)
+{
+    // ship type of the Build item given by the order: 0 transport, 1 destroyer, 2 carrier, 3 battleship, 4 submarine
+    uint32 shipType;
+    switch (shipmentEntry->DummyItemID)
+    {
+        case 127135:
+            shipType = 0;
+            break;
+        case 126952:
+        case 128303:
+            shipType = 1;
+            break;
+        case 126986:
+            shipType = 2;
+            break;
+        case 127134:
+        case 128302:
+            shipType = 3;
+            break;
+        case 126983:
+        case 128301:
+            shipType = 4;
+            break;
+        default:
+            return;
+    }
+
+    // GarrClassSpec of the ships: 53-57 and 58-62, one per ship type, but the battleship of one faction sits in the other block
+    std::vector<uint32> candidates;
+    for (GarrFollowerEntry const* follower : sGarrFollowerStore)
+    {
+        if (follower->GarrFollowerTypeID != GarrisonConst::FollowerType::Shipyard)
+            continue;
+
+        uint32 const spec = GetFaction() == GARRISON_FACTION_INDEX_ALLIANCE ? follower->AllianceGarrClassSpecID : follower->HordeGarrClassSpecID;
+        if (spec != 53 + shipType && spec != 58 + shipType)
+            continue;
+
+        if (!_followerIds[follower->GarrTypeID].count(follower->ID))
+            candidates.push_back(follower->ID);
+    }
+
+    if (!candidates.empty())
+        AddFollower(candidates[urand(0, candidates.size() - 1)]);
+}
+
 void Garrison::CompleteShipments(GameObject *go)
 {
     CharShipmentContainerEntry const* shipmentConteinerEntry = sCharShipmentContainerStore.LookupEntry(go->GetGOInfo()->garrisonShipment.ShipmentContainer);
     if (!shipmentConteinerEntry)
         return;
+
+    // a shipyard order delivers a ship, not an item
+    bool const shipyard = shipmentConteinerEntry->GarrBuildingType == GARR_BTYPE_SHIPYARD;
 
     std::map<uint32, uint32> loot_items;
     for (auto const& sh : _shipments[idxShipment(shipmentConteinerEntry)])
@@ -3171,12 +3438,21 @@ void Garrison::CompleteShipments(GameObject *go)
         {
             if (CharShipmentEntry const* shipmentEntry = sCharShipmentStore.LookupEntry(sh.ShipmentRecID))
             {
-                if (shipmentEntry->DummyItemID)
+                if (shipmentEntry->DummyItemID && !shipyard)
                     ++loot_items[shipmentEntry->DummyItemID];
 
                 // cast at get. kill redits and etc.
                 if (shipmentEntry->OnCompleteSpellID)
                     _owner->CastSpell(_owner, shipmentEntry->OnCompleteSpellID, false);
+
+                if (shipyard)
+                {
+                    // the tutorial orders are credited by the spell they cast on delivery
+                    if (shipmentEntry->OnCompleteSpellID)
+                        _owner->UpdateAchievementCriteria(CRITERIA_TYPE_BE_SPELL_TARGET, shipmentEntry->OnCompleteSpellID);
+
+                    AddShipFromShipment(shipmentEntry);
+                }
 
                 if (shipmentEntry->GarrFollowerID)
                     AddFollower(shipmentEntry->GarrFollowerID);
