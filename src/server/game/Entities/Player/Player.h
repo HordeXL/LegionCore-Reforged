@@ -1523,6 +1523,7 @@ class TC_GAME_API Player : public Unit, public GridObject<Player>
         void SetCreateSpellsPending();
         void SetIntroCinematicPlaying();
         void CastPendingCreateSpells(bool cinematicEnded = false);
+        void EndCreateSpellsPose();
         void SendTransferAborted(uint32 mapid, TransferAbortReason reasonId, uint8 arg = 0);
         void SendInstanceResetWarning(uint32 mapid, Difficulty difficulty, uint32 time);
 

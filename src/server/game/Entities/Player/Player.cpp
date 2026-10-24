@@ -19243,6 +19243,10 @@ bool Player::CanRewardQuest(Quest const* quest, uint32 reward, bool msg)
 
 void Player::AddQuestAndCheckCompletion(Quest const* quest, Object* questGiver)
 {
+    // The intro pose ends the moment the player starts playing: the pose aura must never land
+    // after the SmartAI that removes it already ran (undead Rigor Mortis, troll Calm of the Novice).
+    EndCreateSpellsPose();
+
     AddQuest(quest, questGiver);
 
 //    for (QuestObjective const& obj : quest->GetObjectives())
@@ -30561,6 +30565,14 @@ void Player::SetCreateSpellsPending()
 {
     m_createSpellsPending = true;
 
+    // A relogin of a character that already took its intro quest must not fall back into the pose:
+    // the pose aura lands late (cinematic end or the timeout) and nothing would remove it again.
+    if (!m_QuestStatus.empty())
+    {
+        EndCreateSpellsPose();
+        return;
+    }
+
     if (PlayerInfo const* info = sObjectMgr->GetPlayerInfo(getRace(), getClass()))
         for (uint32 spellId : info->castSpells)
             if (uint8 pose = GetCreateSpellPose(spellId))
@@ -30568,6 +30580,30 @@ void Player::SetCreateSpellsPending()
 
     if (m_createSpellsPose != UNIT_STAND_STATE_STAND)
         SetStandState(m_createSpellsPose);
+}
+
+// Ends the first-login pose (sleeping undead, sitting troll) without letting the pose aura land:
+// once the player acts, the SmartAI that removes the pose aura may already have run.
+void Player::EndCreateSpellsPose()
+{
+    if (!m_createSpellsPending)
+        return;
+
+    m_createSpellsPending = false;
+    m_introCinematicPlaying = false;
+    RemoveAtLoginFlag(AT_LOGIN_FIRST);
+
+    if (PlayerInfo const* info = sObjectMgr->GetPlayerInfo(getRace(), getClass()))
+        for (uint32 spellId : info->castSpells)
+        {
+            if (GetCreateSpellPose(spellId) == UNIT_STAND_STATE_STAND)
+                CastSpell(this, spellId, true);
+            else
+                RemoveAurasDueToSpell(spellId); // a pose aura saved by an earlier login must not survive the intro
+        }
+
+    m_createSpellsPose = UNIT_STAND_STATE_STAND;
+    SetStandState(UNIT_STAND_STATE_STAND);
 }
 
 void Player::SetIntroCinematicPlaying()
@@ -30603,6 +30639,17 @@ void Player::CastPendingCreateSpells(bool cinematicEnded)
 
 void Player::SendInitialPacketsAfterAddToMap(bool login)
 {
+    // A pose aura (undead Rigor Mortis, troll Calm of the Novice) that survived a past session on a
+    // character that already started its intro quest chain must not keep holding the pose after login.
+    if (login && !m_QuestStatus.empty())
+        if (PlayerInfo const* info = sObjectMgr->GetPlayerInfo(getRace(), getClass()))
+            for (uint32 spellId : info->castSpells)
+                if (GetCreateSpellPose(spellId) != UNIT_STAND_STATE_STAND && HasAura(spellId))
+                {
+                    RemoveAurasDueToSpell(spellId);
+                    SetStandState(UNIT_STAND_STATE_STAND);
+                }
+
     // update zone
     uint32 newzone, newarea;
     GetZoneAndAreaId(newzone, newarea);
