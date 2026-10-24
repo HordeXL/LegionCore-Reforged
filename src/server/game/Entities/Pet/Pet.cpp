@@ -350,8 +350,15 @@ bool Pet::LoadPetFromDB(Player* owner, uint32 petEntry, uint32 petnumber, bool c
             setDeathState(JUST_DIED);
         else
         {
+            uint32 maxHealth = GetMaxHealth();
+            if (savedhealth > maxHealth)
+                savedhealth = maxHealth;
             SetHealth(savedhealth);
-            SetPower(GetPowerType(), savedmana > uint32(GetMaxPower(GetPowerType())) ? GetMaxPower(GetPowerType()) : savedmana);
+
+            uint32 maxPower = GetMaxPower(GetPowerType());
+            if (savedmana > maxPower)
+                savedmana = maxPower;
+            SetPower(GetPowerType(), savedmana);
         }
     }
 
@@ -541,7 +548,7 @@ void Pet::SavePetToDB(PetSaveMode mode)
     }
 
     uint32 curhealth = m_pendingHealth ? m_pendingHealth : GetHealth();
-    uint32 curmana = GetPower(POWER_MANA);
+    uint32 curmana = GetPower(GetPowerType());
 
     CharacterDatabaseTransaction trans = CharacterDatabase.BeginTransaction();
     // save auras before possibly removing them
@@ -619,7 +626,7 @@ void Pet::FillPetInfo(PetStable::PetInfo* petInfo) const
     petInfo->Name = GetName();
     petInfo->WasRenamed = !HasByteFlag(UNIT_FIELD_BYTES_2, UNIT_BYTES_2_OFFSET_PET_FLAGS, UNIT_CAN_BE_RENAMED);
     petInfo->Health = m_pendingHealth ? m_pendingHealth : GetHealth();
-    petInfo->Mana = GetPower(POWER_MANA);
+    petInfo->Mana = GetPower(GetPowerType());
     petInfo->ActionBar = GenerateActionBarData();
     petInfo->LastSaveTime = GameTime::GetGameTime();
     petInfo->CreatedBySpellId = GetUInt32Value(UNIT_FIELD_CREATED_BY_SPELL);
@@ -1035,7 +1042,7 @@ bool Guardian::InitStatsForLevel(uint8 petlevel)
     {
         SetCreateHealth(stats->BaseHealth[cinfo->HealthScalingExpansion]);
         SetCreateMana(stats->GenerateMana(cinfo));
-        SetFullPower(POWER_MANA);
+        SetFullPower(GetPowerType());
     }
 
     if(owner && (owner->getClass() == CLASS_HUNTER || owner->getClass() == CLASS_WARLOCK))

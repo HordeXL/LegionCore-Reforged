@@ -3944,7 +3944,17 @@ void Player::GiveLevel(uint8 level)
 
     // update level to hunter/summon pet
     if (Pet* pet = GetPet())
+    {
         pet->SynchronizeLevelWithOwner();
+        if (pet->isHunterPet() && pet->IsAlive())
+        {
+            pet->SetFullHealth();
+            pet->SetPower(pet->GetPowerType(), pet->GetMaxPower(pet->GetPowerType()));
+            if (PetStable* petStable = GetPetStable())
+                if (PetStable::PetInfo* stablePet = petStable->GetCurrentPet())
+                    pet->FillPetInfo(stablePet);
+        }
+    }
 
     if (MailLevelReward const* mailReward = sObjectMgr->GetMailLevelReward(level, getRaceMask()))
     {
@@ -4638,7 +4648,17 @@ void Player::InitStatsForLevel(bool reapplyMods)
 
     // update level to hunter/summon pet
     if (Pet* pet = GetPet())
+    {
         pet->SynchronizeLevelWithOwner();
+        if (pet->isHunterPet() && pet->IsAlive())
+        {
+            pet->SetFullHealth();
+            pet->SetPower(pet->GetPowerType(), pet->GetMaxPower(pet->GetPowerType()));
+            if (PetStable* petStable = GetPetStable())
+                if (PetStable::PetInfo* stablePet = petStable->GetCurrentPet())
+                    pet->FillPetInfo(stablePet);
+        }
+    }
 }
 
 void Player::SendKnownSpells()
@@ -6142,7 +6162,8 @@ bool Player::ResetTalents(bool no_cost)
         }
     }
 
-    RemovePet(nullptr, PET_SAVE_NOT_IN_SLOT, true);
+    if (!no_cost)
+        RemovePet(nullptr, PET_SAVE_NOT_IN_SLOT, true);
 
     for (TalentEntry const* talentInfo : sTalentStore)
         if (talentInfo->ClassID == getClass() && talentInfo->SpellID)
