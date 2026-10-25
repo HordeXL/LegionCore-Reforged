@@ -373,11 +373,15 @@ struct boss_headless_horseman : public ScriptedAI
         {
             Phase = 1;
             me->RemoveFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_NON_ATTACKABLE);
-            me->SetWalk(true);
+            // landed: he runs at his own pace again, not at the speed of his flight in
+            me->SetWalk(false);
+            me->SetSpeed(MOVE_WALK, me->GetCreatureTemplate()->speed_walk, true);
             me->SetCanFly(false);
             me->SetDisableGravity(false);
 
-            if (auto player = me->FindNearestPlayer(15.0f, true))
+            // whoever called him is his foe, wherever they stand in the courtyard
+            DoZoneInCombat(me, 100.0f);
+            if (auto player = me->FindNearestPlayer(100.0f, true))
                 AttackStart(player);
         }
 
@@ -392,11 +396,14 @@ struct boss_headless_horseman : public ScriptedAI
         DoZoneInCombat();
     }
 
+    // the heroes have fallen: he rides off with his head, and the soil can call him again
     void EnterEvadeMode() override
     {
-        me->RemoveAllAuras();
-        Phase = 1;
-        ScriptedAI::EnterEvadeMode();
+        if (auto head = Unit::GetCreature(*me, headGUID))
+            head->DespawnOrUnsummon();
+        if (instance)
+            instance->SetData(DATA_HORSEMAN_EVENT, NOT_STARTED);
+        me->DespawnOrUnsummon();
     }
 
     void MoveInLineOfSight(Unit* who) override
@@ -431,7 +438,8 @@ struct boss_headless_horseman : public ScriptedAI
         if (withhead)
             return;
 
-        if (spell->Id == SPELL_FLYING_HEAD)
+        // only the head flying back counts: the spell that sends it off reaches the body too
+        if (spell->Id == SPELL_FLYING_HEAD && caster && caster->GetEntry() == HEAD)
         {
             if (Phase < 3)
                 ++Phase;
@@ -441,6 +449,10 @@ struct boss_headless_horseman : public ScriptedAI
             summonadds = 15000;
             withhead = true;
             me->RemoveAllAuras();
+            // his head back on, he stops wandering and goes for his foe again
+            me->GetMotionMaster()->Clear(false);
+            if (Unit* victim = me->getVictim())
+                me->GetMotionMaster()->MoveChase(victim);
             me->SetFullHealth();
             Talk(1);
             DoCast(SPELL_HEAD);
@@ -501,7 +513,8 @@ struct boss_headless_horseman : public ScriptedAI
             countPhase++;
 
             if (!headGUID)
-                headGUID = DoSpawnCreature(HEAD, float(rand() % 6), float(rand() % 6), 0, 0, TEMPSUMMON_DEAD_DESPAWN, 0)->GetGUID();
+                if (Creature* head = DoSpawnCreature(HEAD, float(rand() % 6), float(rand() % 6), 0, 0, TEMPSUMMON_DEAD_DESPAWN, 0))
+                    headGUID = head->GetGUID();
 
             if (auto head = Unit::GetUnit(*me, headGUID))
             {
@@ -511,6 +524,8 @@ struct boss_headless_horseman : public ScriptedAI
                 DoCast(me, SPELL_BODY_REGEN, true);
                 DoCast(head, SPELL_FLYING_HEAD, true);
                 DoCast(me, SPELL_CONFUSE, false);
+                // a boss shrugs the confusion off: the headless body is set wandering by hand
+                me->GetMotionMaster()->MoveConfused();
                 whirlwind = urand(4000, 8000);
                 regen = 0;
             }
@@ -643,6 +658,10 @@ struct boss_headless_horseman : public ScriptedAI
 
             if (UpdateVictim())
             {
+                // the end of his flight in resets his movement after he has set off: he goes after his foe again
+                if (Phase != 0 && !me->HasUnitState(UNIT_STATE_CASTING) && me->GetMotionMaster()->GetCurrentMovementGeneratorType() != CHASE_MOTION_TYPE)
+                    DoStartMovement(me->getVictim());
+
                 DoMeleeAttackIfReady();
                 if (cleave <= diff)
                 {
@@ -784,7 +803,9 @@ public:
         if (!instance)
             return true;
 
-        if (instance->GetData(DATA_HORSEMAN_EVENT) != NOT_STARTED || instance->GetGuidData(NPC_HORSEMAN))
+        // a Horseman who rode off after a wipe leaves the soil free to call him again
+        Creature* summoned = ObjectAccessor::GetCreature(*go, instance->GetGuidData(NPC_HORSEMAN));
+        if (instance->GetData(DATA_HORSEMAN_EVENT) != NOT_STARTED || (summoned && summoned->IsAlive()))
             return true;
 
         instance->SetData(DATA_HORSEMAN_EVENT, IN_PROGRESS);
