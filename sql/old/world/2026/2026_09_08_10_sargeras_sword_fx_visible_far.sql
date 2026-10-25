@@ -1,0 +1,25 @@
+-- The sword's effect is visible from a thousand yards instead of ninety.
+--
+-- The object is gameobject 281106, its only spawn at -7128 / 930 / 22 in phase 10277. It carries
+-- display 47481, whose model is world/expansion06/doodads/legion/7fx_sargerassword_fx.m2,
+-- FileDataID 1782994 - the file named by the user, confirmed through GameObjectDisplayInfo.db2.
+-- Its bounding box is 2360 by 2450 by 3200 yards, which is the whole point: a thing that size has
+-- no business disappearing at Visibility.Distance.Continents, ninety yards.
+--
+-- No code is needed. The core already has exactly this: WorldObject::MaxVisible, read straight out
+-- of gameobject_template. Three things follow from it, and together they are the mechanism:
+--   GetVisibilityRange   returns MAX_VISIBILITY_DISTANCE rather than the map's range
+--   GetSightRange        returns GLOBAL_VISIBILITY_DISTANCE, 1000 yards, for such a target
+--   VisibleNotifier::AddMaxVisible  walks Map::m_MaxVisibleList for every player, outside the grid
+--                        walk entirely, so the object is offered no matter which cells are loaded
+--
+-- Eighty objects already use it - doors, runes, Blackhand - so this is the intended road, not a
+-- detour. Raising Visibility.Distance.Continents instead would have sent every crate and every
+-- scorpid within a kilometre to every client.
+--
+-- AddMaxVisible checks the phase, so the effect stays inside the Wound and does not appear in the
+-- timeline before it.
+--
+-- A thousand yards is about nine hundred metres. Going beyond means raising
+-- GLOBAL_VISIBILITY_DISTANCE in ObjectDefines.h, which is global and would move all eighty.
+UPDATE `gameobject_template` SET `MaxVisible` = 1 WHERE `entry` = 281106;
