@@ -183,6 +183,9 @@ void WorldSession::HandleGarrisonOpenMissionNpc(WorldPackets::Garrison::Garrison
         if (!_player->GetNPCIfCanInteractWith(packet.NpcGUID, UNIT_NPC_FLAG_NONE, UNIT_NPC_FLAG2_GARRISON_MISSION_NPC | UNIT_NPC_FLAG2_SHIPMENT_CRAFTER))
             return;
 
+        if (_player->GetMap()->IsGarrison() && !_player->CanUseGarrisonMissionTable())
+            return;
+
         WorldPackets::Garrison::GarrisonOpenMissionNpc response;
         response.GarrTypeID = GARRISON_TYPE_GARRISON;
         //response.PreventXmlOpenMissionEvent = true;

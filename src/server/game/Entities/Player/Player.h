@@ -1989,6 +1989,7 @@ class TC_GAME_API Player : public Unit, public GridObject<Player>
         bool SatisfyGarrisonCampaign(Quest const* qInfo) const;
         void MarkGarrisonCampaignWeek(uint32 questId);
         bool SatisfyGarrisonInvasion(Quest const* qInfo) const;
+        bool CanUseGarrisonMissionTable() const;
         void MarkGarrisonInvasion(uint32 questId);
         // hidden weekly flags the client reads with IsQuestFlaggedCompleted (WeeklyTrackingQuests)
         void SetWeeklyTrackingQuest(uint32 questId);

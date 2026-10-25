@@ -20314,6 +20314,12 @@ void Player::MarkGarrisonInvasion(uint32 questId)
         SetWeeklyTrackingQuest(GarrisonInvasion::Types[type].PendingTracking);
 }
 
+// the command table opens with Delegating on Draenor (Alliance) or Mission Probable (Horde), then stays usable
+bool Player::CanUseGarrisonMissionTable() const
+{
+    return GetQuestStatus(34692) != QUEST_STATUS_NONE || GetQuestStatus(34775) != QUEST_STATUS_NONE;
+}
+
 bool Player::SatisfyQuestSeasonal(Quest const* qInfo)
 {
     if (!qInfo->IsSeasonal() || m_seasonalquests.empty())
