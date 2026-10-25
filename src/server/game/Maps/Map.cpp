@@ -3535,6 +3535,9 @@ bool InstanceMap::AddPlayerToMap(Player* player, bool initPlayer /*= true*/)
                     lfg::LFGDungeonData const* data = group ? group->m_dungeon : nullptr;
                     if (!data)
                         data = sLFGMgr->GetLFGDungeon(GetId(), GetDifficultyID(), player->GetTeam());
+                    // a holiday boss has no scenario of its own: the dungeon's would list the bosses of its normal mode
+                    if (data && GetDifficultyID() == DIFFICULTY_EVENT_DUNGEON && !data->dbc->ScenarioID)
+                        data = nullptr;
                     if (data)
                         if (sScenarioMgr->HasScenarioStep(data, player))
                             sScenarioMgr->AddScenario(this, data, player);
