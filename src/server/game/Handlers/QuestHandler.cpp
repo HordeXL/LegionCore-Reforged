@@ -221,6 +221,11 @@ void WorldSession::HandleQuestGiverAcceptQuest(WorldPackets::Quest::QuestGiverAc
                 auto launchGossip = [&](WorldObject* worldObject)
                 {
                     _player->PlayerTalkClass->ClearMenus();
+                    // a scripted quest giver builds its own menu, as when it is opened by hand
+                    if (Creature* creature = worldObject->ToCreature())
+                        if (sScriptMgr->OnGossipHello(_player, creature))
+                            return;
+
                     _player->PrepareGossipMenu(worldObject, _player->GetDefaultGossipMenuForSource(worldObject), true);
 
                     // nothing left to offer but the quest just taken: its progress page would keep the quest window open

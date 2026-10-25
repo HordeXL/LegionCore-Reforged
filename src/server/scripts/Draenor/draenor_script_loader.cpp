@@ -14,6 +14,7 @@ void AddSC_edge_of_reality();
 void AddSC_wod_dark_portal();
 void AddSC_wod_frostfire_ridge();
 void AddSC_wod_shadowmoon_valley();
+void AddSC_defense_of_karabor();
 
 void AddSC_instance_auchindoun();
 void AddSC_auchindoun();
@@ -92,6 +93,7 @@ void AddDraenorScripts()
     AddSC_wod_dark_portal();
     AddSC_wod_frostfire_ridge();
     AddSC_wod_shadowmoon_valley();
+    AddSC_defense_of_karabor();
 
     AddSC_instance_auchindoun();
     AddSC_auchindoun();
