@@ -3,10 +3,12 @@
 #include "OutdoorPvP.h"
 #include "OutdoorPvPMgr.h"
 #include "Player.h"
+#include "WorldStatePackets.h"
 
 namespace
 {
     uint32 const EngineUpdateInterval = 1000;    // same pace as OutdoorPvPMgr gave the engines of the open world
+    uint32 const BattleActiveWorldState = 19191; // custom, read by the client's conditions on Ashran's bonus objectives
 
     enum AshranGates
     {
@@ -115,6 +117,9 @@ void BattlegroundAshran::PostUpdateImpl(uint32 diff)
 
 void BattlegroundAshran::FillInitialWorldStates(WorldPackets::WorldState::InitWorldStates& packet)
 {
+    // the client shows Ashran's bonus objectives only while this is set (hotfixed WorldStateExpression 24580)
+    packet.Worldstates.emplace_back(static_cast<WorldStates>(BattleActiveWorldState), 1);
+
     if (OutdoorPvP* engine = GetEngine())
         engine->FillInitialWorldStates(packet);
 }
