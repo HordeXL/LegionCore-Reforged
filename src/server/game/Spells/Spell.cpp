@@ -8319,8 +8319,15 @@ SpellCastResult Spell::CheckRange(bool strict)
             if (!m_caster->IsWithinDistInMap(goTarget, goRange + 2.0f))
                 return SPELL_FAILED_OUT_OF_RANGE;
 
-            if (!canHitTargetInLOS && !DisableMgr::IsDisabledFor(DISABLE_TYPE_SPELL, m_spellInfo->Id, nullptr, SPELL_DISABLE_LOS) && !m_caster->IsWithinLOSInMap(goTarget))
-                return SPELL_FAILED_LINE_OF_SIGHT;
+            // only walls count: the object's own model (a statue, a chest) and the small decor around it would hide it from the player
+            if (!canHitTargetInLOS && !DisableMgr::IsDisabledFor(DISABLE_TYPE_SPELL, m_spellInfo->Id, nullptr, SPELL_DISABLE_LOS))
+            {
+                float x, y, z, ox, oy, oz;
+                m_caster->GetLineOfSightPoint({ goTarget->GetPositionX(), goTarget->GetPositionY(), goTarget->GetPositionZ() + goTarget->GetLineOfSightHeight() }, x, y, z);
+                goTarget->GetLineOfSightPoint({ m_caster->GetPositionX(), m_caster->GetPositionY(), m_caster->GetPositionZ() + m_caster->GetLineOfSightHeight() }, ox, oy, oz);
+                if (!VMAP::VMapFactory::createOrGetVMapManager()->isInLineOfSight(m_caster->GetMapId(), x, y, z, ox, oy, oz, VMAP::ModelIgnoreFlags::M2))
+                    return SPELL_FAILED_LINE_OF_SIGHT;
+            }
         }
     }
 
