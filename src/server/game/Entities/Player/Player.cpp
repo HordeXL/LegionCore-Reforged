@@ -32024,8 +32024,9 @@ void Player::UpdateAreaQuestTasks(uint32 newAreaId, uint32 oldAreaId)
                 continue;
             }
 
-            // Ashran's PvP bonus objectives are typed world quests but are area tasks of its battleground
-            if (quest->IsEmissary() || (quest->IsWorld() && GetMapId() != 1191))
+            // Ashran's PvP bonus objectives are typed world quests but are area tasks of its battleground, given only
+            // there: some of their areas (Stormshield's keep...) also lie in the cities of Draenor
+            if (quest->IsEmissary() || (quest->IsWorld() && GetMapId() != 1191) || (GetMapId() != 1191 && sQuestDataStore->IsAshranTask(quest->GetQuestId())))
                 continue;
 
             // the server-side player conditions of some tasks are missing (Apexis assaults): `conditions` stand in for them
@@ -32082,7 +32083,8 @@ void Player::UpdateAreaQuestTasks(uint32 newAreaId, uint32 oldAreaId)
             }
             else
             {
-                if (CanAddQuest(quest, true))
+                // no client task row to filter by race (Ashran's leader objectives): the quest's own races do
+                if (SatisfyQuestRace(quest, false) && SatisfyQuestClass(quest, false) && CanAddQuest(quest, true))
                 {
                     AddQuest(quest, NULL);
                     UpdateQuestObjectiveData(quest);
