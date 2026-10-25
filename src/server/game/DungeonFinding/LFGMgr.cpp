@@ -2312,7 +2312,8 @@ LfgLockMap LFGMgr::GetLockedDungeons(ObjectGuid guid)
         // else if (dungeon->dbc->GroupID == LFG_GROUP_NORMAL_LEGION && !player->HasAchieved(ar->achievement)) // Check artifact in Legion
             // lockData.status = LFG_LOCKSTATUS_NOT_HAVE_ARTIFACT;
         // merge faction check with check on invalid TP pos and check on test invalid maps (BUT we still have to send it! LOL, in WoD blizz deleted invalid maps from client DBC)
-        else if (!dungeon->dbc->FitsTeam(player->GetTeam()) || (dungeon->type != LFG_TYPE_RANDOM && dungeon->x == 0.0f && dungeon->y == 0.0f && dungeon->z == 0.0f) || !dungeon->dbc->IsValid())
+        // Ashran is reached through its world PvP entry, which has no LFG entrance (HandleLfgJoin)
+        else if (!dungeon->dbc->FitsTeam(player->GetTeam()) || (dungeon->type != LFG_TYPE_RANDOM && dungeon->id != LFG_DUNGEON_ASHRAN && dungeon->x == 0.0f && dungeon->y == 0.0f && dungeon->z == 0.0f) || !dungeon->dbc->IsValid())
             // TODO: for non-faction check find correct reason
             lockData.status = LFG_LOCKSTATUS_WRONG_FACTION;
         else if (dungeon->dbc->MinGear && avgItemLevel < dungeon->dbc->MinGear)

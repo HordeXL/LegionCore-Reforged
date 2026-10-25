@@ -23,6 +23,9 @@
 namespace lfg
 {
 
+// "A'shran" button of the PvP frame (world PvP category of the LFG): the Ashran battleground queue
+uint32 const LFG_DUNGEON_ASHRAN = 1127;
+
 enum LFGEnum
 {
     LFG_TANKS_NEEDED                             = 1,

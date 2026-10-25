@@ -65,8 +65,14 @@ void WorldSession::HandleBattlemasterHello(WorldPackets::NPC::Hello& packet)
 
 void WorldSession::HandleBattlemasterJoin(WorldPackets::Battleground::Join& packet)
 {
+    uint16 const queueID = packet.QueueID - MS::Battlegrounds::QueueOffsets::Battleground;
+    JoinBattlegroundQueue(queueID, packet.RolesMask, packet.JoinAsGroup, packet.BlacklistMap);
+}
+
+// Shared by the battlemaster and by the A'shran button of the PvP frame, which reaches the queue through the dungeon finder opcodes
+void WorldSession::JoinBattlegroundQueue(uint16 queueID, uint8 rolesMask, bool joinAsGroup, WorldPackets::Battleground::IgnorMapInfo const& blacklistMap)
+{
     Player* player = GetPlayer();
-    uint16 queueID = packet.QueueID - MS::Battlegrounds::QueueOffsets::Battleground;
 
     if (!sBattlemasterListStore.LookupEntry(queueID))
     {
@@ -85,7 +91,8 @@ void WorldSession::HandleBattlemasterJoin(WorldPackets::Battleground::Join& pack
 
     // Arenas, rated battlegrounds and brawls have their own join opcodes, with the checks this path lacks
     uint8 bgQueueTypeId = MS::Battlegrounds::GetBgQueueTypeIdByBgTypeID(queueID);
-    bool const normalQueue = (bgQueueTypeId >= MS::Battlegrounds::BattlegroundQueueTypeId::BattlegroundAlteracValley && bgQueueTypeId <= MS::Battlegrounds::BattlegroundQueueTypeId::BattlegroundRandom);
+    bool const normalQueue = (bgQueueTypeId >= MS::Battlegrounds::BattlegroundQueueTypeId::BattlegroundAlteracValley && bgQueueTypeId <= MS::Battlegrounds::BattlegroundQueueTypeId::BattlegroundRandom)
+        || bgQueueTypeId == MS::Battlegrounds::BattlegroundQueueTypeId::BattlegroundAshran;
     if (!normalQueue || queueID == MS::Battlegrounds::BattlegroundTypeId::BattlegroundRatedEyeOfTheStorm)
         return;
 
@@ -97,7 +104,7 @@ void WorldSession::HandleBattlemasterJoin(WorldPackets::Battleground::Join& pack
     if (!bracketEntry)
         return;
 
-    if (!packet.JoinAsGroup )
+    if (!joinAsGroup )
     {
         if (player->isUsingLfg())
         {
@@ -142,7 +149,7 @@ void WorldSession::HandleBattlemasterJoin(WorldPackets::Battleground::Join& pack
             return;
         }
 
-        player->SetQueueRoleMask(bracketEntry->RangeIndex, packet.RolesMask);
+        player->SetQueueRoleMask(bracketEntry->RangeIndex, rolesMask);
 
         BattlegroundQueue& bgQueue = sBattlegroundMgr->GetBattlegroundQueue(bgQueueTypeId);
         uint32 joinTime = 0;
@@ -151,7 +158,7 @@ void WorldSession::HandleBattlemasterJoin(WorldPackets::Battleground::Join& pack
         {
             // the world thread may free the entry: read it under the queue lock
             std::lock_guard<std::recursive_mutex> queueGuard(bgQueue.GetLock());
-            GroupQueueInfo* ginfo = bgQueue.AddGroup(player, nullptr, queueID, bracketEntry, 0, false, false, packet.BlacklistMap);
+            GroupQueueInfo* ginfo = bgQueue.AddGroup(player, nullptr, queueID, bracketEntry, 0, false, false, blacklistMap);
             joinTime = ginfo->JoinTime;
             joinType = ginfo->JoinType;
             avgWaitTime = bgQueue.GetAverageQueueWaitTime(ginfo, bracketEntry->RangeIndex);
@@ -172,11 +179,10 @@ void WorldSession::HandleBattlemasterJoin(WorldPackets::Battleground::Join& pack
 
         ObjectGuid errorGuid;
         auto err = grp->CanJoinBattlegroundQueue(bg, bgQueueTypeId, 0, false, 0, errorGuid);
-        packet.JoinAsGroup = (grp->GetMembersCount() >= bg->GetMinPlayersPerTeam());
 
         if (!err)
         {
-            sLFGMgr->InitiBattlgroundCheckRoles(grp, player->GetGUID(), queueID, packet.RolesMask, bgQueueTypeId, packet.BlacklistMap);
+            sLFGMgr->InitiBattlgroundCheckRoles(grp, player->GetGUID(), queueID, rolesMask, bgQueueTypeId, blacklistMap);
             return;
         }
 
@@ -194,7 +200,7 @@ void WorldSession::HandleBattlemasterJoin(WorldPackets::Battleground::Join& pack
         return;
     }
 
-    sBattlegroundMgr->ScheduleQueueUpdate(new QueueSchedulerItem(0, 0, bgQueueTypeId, queueID, bracketEntry->RangeIndex, Roles(packet.RolesMask), bracketEntry->MinLevel));
+    sBattlegroundMgr->ScheduleQueueUpdate(new QueueSchedulerItem(0, 0, bgQueueTypeId, queueID, bracketEntry->RangeIndex, Roles(rolesMask), bracketEntry->MinLevel));
 }
 
 void WorldSession::HandlePVPLogData(WorldPackets::Battleground::NullCmsg& /*packet*/)

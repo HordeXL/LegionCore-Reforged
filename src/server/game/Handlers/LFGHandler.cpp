@@ -16,6 +16,8 @@
 #include "Group.h"
 #include "QuestData.h"
 #include "LFGPackets.h"
+#include "BattlegroundDefines.h"
+#include "BattlegroundPackets.h"
 
 void WorldSession::HandleLfgJoin(WorldPackets::LFG::LfgJoin& packet)
 {
@@ -24,6 +26,14 @@ void WorldSession::HandleLfgJoin(WorldPackets::LFG::LfgJoin& packet)
 
     if (!sLFGMgr->isOptionEnabled(lfg::LFG_OPTION_ENABLE_DUNGEON_FINDER | lfg::LFG_OPTION_ENABLE_RAID_BROWSER))
         return;
+
+    // the A'shran button belongs to the Ashran battleground queue, not to the dungeon finder (slot = dungeon id in its low 24 bits)
+    if (packet.Slot.size() == 1 && (*packet.Slot.begin() & 0x00FFFFFF) == lfg::LFG_DUNGEON_ASHRAN)
+    {
+        // the client flags this button's join as a group join even for a player alone
+        JoinBattlegroundQueue(MS::Battlegrounds::BattlegroundTypeId::BattlegroundAshran, uint8(packet.Roles), GetPlayer()->GetGroup() != nullptr, WorldPackets::Battleground::IgnorMapInfo());
+        return;
+    }
 
     sLFGMgr->JoinLfg(GetPlayer(), packet.Roles, packet.Slot);
 }

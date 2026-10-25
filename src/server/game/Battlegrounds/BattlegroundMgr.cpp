@@ -38,6 +38,7 @@
 #include "BattlegroundSilvershardMines.h"
 #include "BattlegroundStrandOfTheAncients.h"
 #include "BattlegroundTwinPeaks.h"
+#include "BattlegroundAshran.h"
 #include "BattlegroundSeethingShore.h"
 #include "BattlegroundWarsongGulch.h"
 #include "DatabaseEnv.h"
@@ -458,6 +459,9 @@ Battleground* BattlegroundMgr::CreateNewBattleground(uint16 bgTypeId, PVPDifficu
         case MS::Battlegrounds::BattlegroundTypeId::BattlegroundSeethingShore:
             bg = new BattlegroundSeethingShore;
             break;
+        case MS::Battlegrounds::BattlegroundTypeId::BattlegroundAshran:
+            bg = new BattlegroundAshran;
+            break;
         case MS::Battlegrounds::BattlegroundTypeId::BrawlBattlegroundShadoPan:
             bg = new BrawlBattlegroundShadoPan;
             break;
@@ -573,6 +577,9 @@ void BattlegroundMgr::CreateBattleground(CreateBattlegroundData& data)
             break;
         case MS::Battlegrounds::BattlegroundTypeId::BattlegroundSeethingShore:
             bg = new BattlegroundSeethingShore;
+            break;
+        case MS::Battlegrounds::BattlegroundTypeId::BattlegroundAshran:
+            bg = new BattlegroundAshran;
             break;
         case MS::Battlegrounds::BattlegroundTypeId::BattlegroundBattleForGilneas:
             bg = new BattlegroundBattleForGilneas;
