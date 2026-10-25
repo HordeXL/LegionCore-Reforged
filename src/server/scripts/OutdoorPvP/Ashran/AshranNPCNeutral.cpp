@@ -184,7 +184,7 @@ public:
             if (OutdoorPvPAshran* l_Ashran = static_cast<OutdoorPvPAshran*>(m_ZoneScript))
             {
                 auto l_GenericGuid = l_Ashran->GetFactionGenericMoP(me->GetEntry() == GrandMarshalTremblade ? TEAM_ALLIANCE : TEAM_HORDE);
-                if (Creature* l_GenericMoP = sObjectAccessor->FindCreature(l_GenericGuid))
+                if (Creature* l_GenericMoP = Creature::GetCreature(*me, l_GenericGuid))
                     l_GenericMoP->AI()->DoAction(me->GetEntry() == GrandMarshalTremblade ? AnnounceHordeKillBoss : AnnounceAllianceKillBoss);
 
                 l_Ashran->HandleFactionBossDeath(me->GetEntry() == GrandMarshalTremblade ? TEAM_HORDE : TEAM_ALLIANCE);
@@ -715,7 +715,7 @@ public:
             if (m_OutdoorPvP == nullptr)
                 return;
 
-            Creature* l_Korlok = sObjectAccessor->FindCreature(m_OutdoorPvP->GetCreature(NeutralKorlokTheOgreKing));
+            Creature* l_Korlok = Creature::GetCreature(*me, m_OutdoorPvP->GetCreature(NeutralKorlokTheOgreKing));
             if (l_Korlok == nullptr || !l_Korlok->IsAIEnabled)    ///< Shouldn't happens
                 return;
 

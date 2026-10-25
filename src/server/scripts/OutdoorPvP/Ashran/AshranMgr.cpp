@@ -62,7 +62,7 @@ void OPvPCapturePoint_Middle::ChangeState()
             break;
     }
 
-    if (GameObject* l_Flag = sObjectAccessor->FindGameObject(m_capturePointGUID))
+    if (GameObject* l_Flag = GetAshranObject<GameObject>(m_PvP, m_capturePointGUID))
         l_Flag->SetGoArtKit(l_UpdateVal);
 
     UpdateTowerState();
@@ -94,7 +94,7 @@ void OPvPCapturePoint_Middle::SpawnFactionGuards(eBattleType p_BattleID, uint8 p
     bool l_IsInitialized = static_cast<OutdoorPvPAshran*>(m_PvP)->IsInitialized();
     if (l_IsInitialized && p_Faction != ControlNeutral)
     {
-        if (Creature* l_GenericMoP = sObjectAccessor->FindCreature(static_cast<OutdoorPvPAshran*>(m_PvP)->GetGenericMoPGuid(p_BattleID)))
+        if (Creature* l_GenericMoP = GetAshranObject<Creature>(m_PvP, static_cast<OutdoorPvPAshran*>(m_PvP)->GetGenericMoPGuid(p_BattleID)))
             l_GenericMoP->AI()->DoAction(p_Faction == ControlHorde ? AnnounceHordeVictory : AnnounceAllianceVictory);
     }
 
@@ -112,7 +112,7 @@ void OPvPCapturePoint_Middle::SpawnFactionGuards(eBattleType p_BattleID, uint8 p
                     AddCreature(l_Count, g_EmberfallTowerNeutralSpawns[l_Count], 5);
                 }
 
-                if (GameObject* l_Flag = sObjectAccessor->FindGameObject(m_capturePointGUID))
+                if (GameObject* l_Flag = GetAshranObject<GameObject>(m_PvP, m_capturePointGUID))
                     l_Flag->SetGoArtKit(FlagNeutral);
 
                 DelCreature(EmberfallTowerSpiritHealer);
@@ -122,7 +122,7 @@ void OPvPCapturePoint_Middle::SpawnFactionGuards(eBattleType p_BattleID, uint8 p
             }
             else
             {
-                if (GameObject* l_Flag = sObjectAccessor->FindGameObject(m_capturePointGUID))
+                if (GameObject* l_Flag = GetAshranObject<GameObject>(m_PvP, m_capturePointGUID))
                     l_Flag->SetGoArtKit(p_Faction == ControlHorde ? FlagHorde : FlagAlliance);
 
                 if (l_IsInitialized)
@@ -175,12 +175,12 @@ void OPvPCapturePoint_Middle::SpawnFactionGuards(eBattleType p_BattleID, uint8 p
                     AddCreature(l_Count, g_VolrathsAdvanceNeutralSpawns[l_Count - EmberfallTowerSpawnsIDs], 5);
                 }
 
-                if (GameObject* l_Flag = sObjectAccessor->FindGameObject(m_capturePointGUID))
+                if (GameObject* l_Flag = GetAshranObject<GameObject>(m_PvP, m_capturePointGUID))
                     l_Flag->SetGoArtKit(FlagNeutral);
             }
             else
             {
-                if (GameObject* l_Flag = sObjectAccessor->FindGameObject(m_capturePointGUID))
+                if (GameObject* l_Flag = GetAshranObject<GameObject>(m_PvP, m_capturePointGUID))
                     l_Flag->SetGoArtKit(p_Faction == ControlHorde ? FlagHorde : FlagAlliance);
 
                 if (l_IsInitialized)
@@ -226,12 +226,12 @@ void OPvPCapturePoint_Middle::SpawnFactionGuards(eBattleType p_BattleID, uint8 p
                 for (uint8 l_Count = l_FlagIndex; l_Count < TheCrossroadsSpawnsIDs; ++l_Count)
                     DelObject(l_Count);
 
-                if (GameObject* l_Flag = sObjectAccessor->FindGameObject(m_capturePointGUID))
+                if (GameObject* l_Flag = GetAshranObject<GameObject>(m_PvP, m_capturePointGUID))
                     l_Flag->SetGoArtKit(FlagNeutral);
             }
             else
             {
-                if (GameObject* l_Flag = sObjectAccessor->FindGameObject(m_capturePointGUID))
+                if (GameObject* l_Flag = GetAshranObject<GameObject>(m_PvP, m_capturePointGUID))
                     l_Flag->SetGoArtKit(p_Faction == ControlHorde ? FlagHorde : FlagAlliance);
 
                 if (l_IsInitialized)
@@ -268,12 +268,12 @@ void OPvPCapturePoint_Middle::SpawnFactionGuards(eBattleType p_BattleID, uint8 p
                     AddCreature(l_Count, g_TrembladesVanguardNeutralSpawns[l_Count - TheCrossroadsSpawnsIDs], 5);
                 }
 
-                if (GameObject* l_Flag = sObjectAccessor->FindGameObject(m_capturePointGUID))
+                if (GameObject* l_Flag = GetAshranObject<GameObject>(m_PvP, m_capturePointGUID))
                     l_Flag->SetGoArtKit(FlagNeutral);
             }
             else
             {
-                if (GameObject* l_Flag = sObjectAccessor->FindGameObject(m_capturePointGUID))
+                if (GameObject* l_Flag = GetAshranObject<GameObject>(m_PvP, m_capturePointGUID))
                     l_Flag->SetGoArtKit(p_Faction == ControlHorde ? FlagHorde : FlagAlliance);
 
                 if (l_IsInitialized)
@@ -315,7 +315,7 @@ void OPvPCapturePoint_Middle::SpawnFactionGuards(eBattleType p_BattleID, uint8 p
                     AddCreature(l_Index, g_ArchmageOverwatchNeutral[l_Index - TrembladesVanguardSpawnsIDs], 5);
                 }
 
-                if (GameObject* l_Flag = sObjectAccessor->FindGameObject(m_capturePointGUID))
+                if (GameObject* l_Flag = GetAshranObject<GameObject>(m_PvP, m_capturePointGUID))
                     l_Flag->SetGoArtKit(FlagNeutral);
 
                 DelCreature(ArchmageOverwatchSpiritHealer);
@@ -325,7 +325,7 @@ void OPvPCapturePoint_Middle::SpawnFactionGuards(eBattleType p_BattleID, uint8 p
             }
             else
             {
-                if (GameObject* l_Flag = sObjectAccessor->FindGameObject(m_capturePointGUID))
+                if (GameObject* l_Flag = GetAshranObject<GameObject>(m_PvP, m_capturePointGUID))
                     l_Flag->SetGoArtKit(p_Faction == ControlHorde ? FlagHorde : FlagAlliance);
 
                 if (l_IsInitialized)
@@ -453,7 +453,7 @@ void OPvPCapturePoint_Graveyard::ChangeState()
             break;
     }
 
-    if (GameObject* l_Flag = sObjectAccessor->FindGameObject(m_capturePointGUID))
+    if (GameObject* l_Flag = GetAshranObject<GameObject>(m_PvP, m_capturePointGUID))
         l_Flag->SetGoArtKit(l_UpdateVal);
 
     UpdateTowerState();
@@ -851,11 +851,10 @@ void OutdoorPvPAshran::HandlePlayerEnterArea(ObjectGuid guid, uint32 areaID)
 
     if (!m_game && (areaID == AshranPreAreaHorde || areaID == AshranPreAreaAlliance))
     {
-        ObjectGuid guid = player->GetGUID();
-        player->AddDelayedEvent(Seconds(5).count(), [guid]() -> void
+        player->AddDelayedEvent(Seconds(5).count(), [player]() -> void
         {
-            if (auto player2 = sObjectAccessor->FindPlayer(guid))
-                player2->SafeTeleport(AshranNeutralMapID, player2);
+            if (player->IsInWorld() && !player->IsPreDelete())
+                player->SafeTeleport(AshranNeutralMapID, player);
         });
     }
 
@@ -877,12 +876,10 @@ void OutdoorPvPAshran::HandlePlayerLeaveArea(ObjectGuid guid, uint32 areaID)
     {
         if (areaID == AshranPreAreaHorde || areaID == AshranPreAreaAlliance)
         {
-            ObjectGuid guid = player->GetGUID();
-            player->AddDelayedEvent(Seconds(1).count(), [guid]() -> void
+            player->AddDelayedEvent(Seconds(1).count(), [player]() -> void
             {
-                if (auto player2 = sObjectAccessor->FindPlayer(guid))
-                    player2->SafeTeleport(AshranMapID, player2);
-                return;
+                if (player->IsInWorld() && !player->IsPreDelete())
+                    player->SafeTeleport(AshranMapID, player);
             });
         }
     }
@@ -1170,7 +1167,7 @@ bool OutdoorPvPAshran::Update(uint32 p_Diff)
         {
             if ((*l_Iter).second <= GameTime::GetGameTime())
             {
-                if (Player* l_Player = sObjectAccessor->FindPlayer((*l_Iter).first))
+                if (Player* l_Player = ObjectAccessor::FindPlayer(m_map, (*l_Iter).first))
                 {
                     if (l_Player->GetTeamId() == TEAM_HORDE)
                         l_Player->TeleportTo(WorldLocation(AshranNeutralMapID, g_HordeTeleportPos));
@@ -1239,7 +1236,7 @@ void OutdoorPvPAshran::ScheduleNextBattle(uint32 p_Diff)
                 l_ControlPoint->SetState(OBJECTIVESTATE_NEUTRAL);
                 l_ControlPoint->UpdateTowerState();
 
-                if (GameObject* l_Flag = sObjectAccessor->FindGameObject(l_ControlPoint->m_capturePointGUID))
+                if (GameObject* l_Flag = GetAshranObject<GameObject>(this, l_ControlPoint->m_capturePointGUID))
                     l_Flag->SetGoArtKit(FlagNeutral);
             }
         }
@@ -1254,7 +1251,7 @@ void OutdoorPvPAshran::ScheduleNextBattle(uint32 p_Diff)
                 SendUpdateWorldState(WorldStateHighWarlordVolrath, WorldStateEnabled);
                 SendUpdateWorldState(WorldStateWarspearOutpostStatus, ControlNeutral);
 
-                if (Creature* l_Volrath = sObjectAccessor->FindCreature(m_HighWarlordVolrath))
+                if (Creature* l_Volrath = GetAshranObject<Creature>(this, m_HighWarlordVolrath))
                     l_Volrath->AI()->DoAction(WarspearOutpostInFight);
 
                 SpawnGladiators(TEAM_HORDE, false);
@@ -1265,7 +1262,7 @@ void OutdoorPvPAshran::ScheduleNextBattle(uint32 p_Diff)
                 SendUpdateWorldState(WorldStateGrandMarshalTrembladeBattle, WorldStateEnabled);
                 SendUpdateWorldState(WorldStateStormshieldStrongholdStatus, ControlNeutral);
 
-                if (Creature* l_Tremblade = sObjectAccessor->FindCreature(m_GrandMasrhalTremblade))
+                if (Creature* l_Tremblade = GetAshranObject<Creature>(this, m_GrandMasrhalTremblade))
                     l_Tremblade->AI()->DoAction(StormshieldStrongholdInFight);
 
                 SpawnGladiators(TEAM_ALLIANCE, false);
@@ -1293,7 +1290,7 @@ void OutdoorPvPAshran::ScheduleEndOfBattle(uint32 p_Diff)
             SendUpdateWorldState(WorldStateWarspearOutpostStatus, ControlHorde);
             SetBattleState(WorldStateEmberfallTowerBattle);
 
-            if (Creature* l_Volrath = sObjectAccessor->FindCreature(m_HighWarlordVolrath))
+            if (Creature* l_Volrath = GetAshranObject<Creature>(this, m_HighWarlordVolrath))
                 l_Volrath->AI()->DoAction(WarspearVictory);
 
             SpawnGladiators(TEAM_HORDE);
@@ -1305,7 +1302,7 @@ void OutdoorPvPAshran::ScheduleEndOfBattle(uint32 p_Diff)
             SendUpdateWorldState(WorldStateStormshieldStrongholdStatus, ControlAlliance);
             SetBattleState(WorldStateArchmageOverwatchBattle);
 
-            if (Creature* l_Tremblade = sObjectAccessor->FindCreature(m_GrandMasrhalTremblade))
+            if (Creature* l_Tremblade = GetAshranObject<Creature>(this, m_GrandMasrhalTremblade))
                 l_Tremblade->AI()->DoAction(StormshieldVictory);
 
             SpawnGladiators(TEAM_ALLIANCE);
@@ -1883,7 +1880,7 @@ void OutdoorPvPAshran::OnGameObjectRemove(GameObject* gameObject)
 
 Creature* OutdoorPvPAshran::GetHerald() const
 {
-    return sObjectAccessor->FindCreature(m_HeraldGuid);
+    return GetAshranObject<Creature>(this, m_HeraldGuid);
 }
 
 void OutdoorPvPAshran::ResetControlPoints()
@@ -2094,7 +2091,7 @@ void OutdoorPvPAshran::HandleFactionBossDeath(uint8 p_Faction)
         SendUpdateWorldState(WorldStateSlayVolrath, WorldStateDisabled);
         SendUpdateWorldState(WorldStateHighWarlordVolrath, WorldStateDisabled);
 
-        if (Creature* l_Tremblade = sObjectAccessor->FindCreature(m_GrandMasrhalTremblade))
+        if (Creature* l_Tremblade = GetAshranObject<Creature>(this, m_GrandMasrhalTremblade))
             l_Tremblade->AI()->DoAction(StormshieldVictory);
     }
     else if (m_CurrentBattleState == WorldStateGrandMarshalTrembladeBattle)
@@ -2102,7 +2099,7 @@ void OutdoorPvPAshran::HandleFactionBossDeath(uint8 p_Faction)
         SendUpdateWorldState(WorldStateSlayTremblade, WorldStateDisabled);
         SendUpdateWorldState(WorldStateGrandMarshalTrembladeBattle, WorldStateDisabled);
 
-        if (Creature* l_Volrath = sObjectAccessor->FindCreature(m_HighWarlordVolrath))
+        if (Creature* l_Volrath = GetAshranObject<Creature>(this, m_HighWarlordVolrath))
             l_Volrath->AI()->DoAction(WarspearVictory);
     }
     else
@@ -2393,7 +2390,7 @@ void OutdoorPvPAshran::AnnounceArtifactEvent(uint8 teamID, uint8 type, bool p_Ap
     if (!m_ArtifactsNPCGuids[teamID][type])
         return;
 
-    Creature* l_Creature = sObjectAccessor->FindCreature(m_ArtifactsNPCGuids[teamID][type]);
+    Creature* l_Creature = GetAshranObject<Creature>(this, m_ArtifactsNPCGuids[teamID][type]);
     if (l_Creature == nullptr || l_Creature->GetAI() == nullptr)
         return;
 
@@ -2436,7 +2433,7 @@ void OutdoorPvPAshran::AddVignetteOnPlayers(T const* object, uint32 vignetteID, 
             continue;
 
         for (auto v : m_PlayersInWar[l_Team])
-            if (auto player = sObjectAccessor->FindPlayer(v))
+            if (auto player = ObjectAccessor::FindPlayer(m_map, v))
                 player->GetVignetteMgr().CreateAndAddVignette(vignette, AshranMapID, Vignette::Type::SourceScript, object->GetPosition(), object->GetAreaId(), v);
     }
 }
@@ -2461,7 +2458,7 @@ void OutdoorPvPAshran::RemoveVignetteOnPlayers(uint32 vignetteID, uint8 teamID /
             continue;
 
         for (auto guid : m_PlayersInWar[l_Team])
-            if (auto player = sObjectAccessor->FindPlayer(guid))
+            if (auto player = ObjectAccessor::FindPlayer(m_map, guid))
                 player->GetVignetteMgr().DestroyAndRemoveVignetteByEntry(vignette);
     }
 }

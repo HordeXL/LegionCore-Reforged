@@ -235,4 +235,11 @@ inline OutdoorPvP* GetAshranPvP(WorldObject const* object)
     return object ? dynamic_cast<OutdoorPvP*>(object->GetZoneScript()) : nullptr;
 }
 
+/// Lookup limited to the map the engine runs in (its own thread); null while the engine has no map yet
+template<class T>
+inline T* GetAshranObject(OutdoorPvP const* pvp, ObjectGuid guid)
+{
+    return ObjectAccessor::GetObjectInMap(guid, pvp->GetMap(), static_cast<T*>(nullptr));
+}
+
 #endif ///< ASHRAN_MGR_HPP_ASHRAN
