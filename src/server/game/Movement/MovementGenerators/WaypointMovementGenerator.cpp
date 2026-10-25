@@ -220,7 +220,8 @@ bool WaypointMovementGenerator<Creature>::StartMove(Creature& creature)
     //Call for creature group update
     if (creature.GetFormation() && creature.GetFormation()->getLeader() == &creature)
         //creature.GetFormation()->LeaderMoveTo(formationDest, waypoint.id, waypoint.move_type, (waypoint.orientation && waypoint.delay) ? true : false);
-        creature.GetFormation()->LeaderMoveTo(formationDest.m_positionX, formationDest.m_positionY, formationDest.m_positionZ);
+        creature.GetFormation()->LeaderMoveTo(formationDest.m_positionX, formationDest.m_positionY, formationDest.m_positionZ,
+            waypoint.speed > 0 ? waypoint.speed : creature.GetSpeed(waypoint.move_type == WAYPOINT_MOVE_TYPE_RUN ? MOVE_RUN : MOVE_WALK));
 
     return true;
 }
