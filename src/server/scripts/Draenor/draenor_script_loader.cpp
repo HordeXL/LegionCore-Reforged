@@ -15,6 +15,7 @@ void AddSC_wod_dark_portal();
 void AddSC_wod_frostfire_ridge();
 void AddSC_wod_shadowmoon_valley();
 void AddSC_defense_of_karabor();
+void AddSC_battle_for_shattrath();
 
 void AddSC_instance_auchindoun();
 void AddSC_auchindoun();
@@ -94,6 +95,7 @@ void AddDraenorScripts()
     AddSC_wod_frostfire_ridge();
     AddSC_wod_shadowmoon_valley();
     AddSC_defense_of_karabor();
+    AddSC_battle_for_shattrath();
 
     AddSC_instance_auchindoun();
     AddSC_auchindoun();
