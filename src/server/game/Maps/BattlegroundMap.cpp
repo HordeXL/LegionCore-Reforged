@@ -1,3 +1,11 @@
+////////////////////////////////////////////
+///                                      ///
+///         LEGIONCORE REFORGED          ///
+///    Copyright 2026 Titans-Project     ///
+///         All Rights Reserved.         ///
+///                                      ///
+////////////////////////////////////////////
+
 #include "BattlegroundMap.h"
 #include "ObjectMgr.h"
 #include "Map.h"

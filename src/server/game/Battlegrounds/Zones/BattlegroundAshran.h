@@ -1,3 +1,11 @@
+////////////////////////////////////////////
+///                                      ///
+///         LEGIONCORE REFORGED          ///
+///    Copyright 2026 Titans-Project     ///
+///         All Rights Reserved.         ///
+///                                      ///
+////////////////////////////////////////////
+
 #ifndef __BATTLEGROUNDASHRAN_H
 #define __BATTLEGROUNDASHRAN_H
 
