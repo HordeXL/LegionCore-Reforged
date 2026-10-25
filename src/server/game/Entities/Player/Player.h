@@ -2454,6 +2454,7 @@ class TC_GAME_API Player : public Unit, public GridObject<Player>
         void UpdateZoneDependentAuras(uint32 zone_id);    // zones
         void UpdateAreaDependentAuras(uint32 area_id);    // subzones
         void UpdateAreaQuestTasks(uint32 newAreaId, uint32 oldAreaId);
+        void RemoveStrayAshranTasks();
 
         void UpdateAfkReport(time_t currTime);
         void UpdatePvPFlag(time_t currTime);

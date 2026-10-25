@@ -22677,6 +22677,7 @@ bool Player::LoadFromDB(ObjectGuid guid, CharacterDatabaseQueryHolder const& hol
     // after rewarded spell load various quest statuses
     _LoadQuestStatus(holder.GetPreparedResult(PLAYER_LOGIN_QUERY_LOADQUESTSTATUS));
     _LoadQuestStatusObjectives(holder.GetPreparedResult(PLAYER_LOGIN_QUERY_LOAD_QUEST_STATUS_OBJECTIVES));
+    RemoveStrayAshranTasks();
     _LoadQuestStatusRewarded(holder.GetPreparedResult(PLAYER_LOGIN_QUERY_LOADQUESTSTATUSREW));
     _LoadDailyQuestStatus(holder.GetPreparedResult(PLAYER_LOGIN_QUERY_LOADDAILYQUESTSTATUS));
     _LoadWeeklyQuestStatus(holder.GetPreparedResult(PLAYER_LOGIN_QUERY_LOADWEEKLYQUESTSTATUS));
@@ -31990,11 +31991,28 @@ void Player::UpdateAreaDependentAuras(uint32 newArea)
     }
 }
 
+// Ashran's bonus objectives once handed out on foot stay in old quest logs: they only belong to its battle
+void Player::RemoveStrayAshranTasks()
+{
+    if (GetMapId() == 1191)
+        return;
+
+    for (uint8 slot = 0; slot < MAX_QUEST_LOG_SIZE; ++slot)
+        if (uint32 logQuest = GetQuestSlotQuestId(slot))
+            if (sQuestDataStore->IsAshranTask(logQuest))
+            {
+                SetQuestSlot(slot, 0);
+                TakeQuestSourceItem(logQuest, false);
+            }
+}
+
 void Player::UpdateAreaQuestTasks(uint32 newAreaId, uint32 oldAreaId)
 {
     // TC_LOG_DEBUG("worldquest", "UpdateAreaQuestTasks newAreaId %u oldAreaId %u", newAreaId, oldAreaId);
 
     std::list<uint32> questAdd;
+
+    RemoveStrayAshranTasks();
 
     if (std::set<Quest const*> const* qInfo = sQuestDataStore->GetQuestTask(newAreaId))
     {
@@ -32006,7 +32024,8 @@ void Player::UpdateAreaQuestTasks(uint32 newAreaId, uint32 oldAreaId)
                 continue;
             }
 
-            if (quest->IsEmissary() || quest->IsWorld())
+            // Ashran's PvP bonus objectives are typed world quests but are area tasks of its battleground
+            if (quest->IsEmissary() || (quest->IsWorld() && GetMapId() != 1191))
                 continue;
 
             // the server-side player conditions of some tasks are missing (Apexis assaults): `conditions` stand in for them
@@ -32016,6 +32035,9 @@ void Player::UpdateAreaQuestTasks(uint32 newAreaId, uint32 oldAreaId)
             if (QuestV2CliTaskEntry const* questTask = sQuestV2CliTaskStore.LookupEntry(quest->GetQuestId()))
             {
                 if (!sConditionMgr->IsPlayerMeetingCondition(this, questTask->ConditionID))
+                    continue;
+
+                if (questTask->FiltRaces != -1 && questTask->FiltRaces != 0 && !(uint64(questTask->FiltRaces) & getRaceMask()))
                     continue;
 
                 // if (questTask->WorldStateExpressionID)

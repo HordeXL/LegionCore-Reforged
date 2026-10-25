@@ -248,6 +248,7 @@ public:
     QuestOfferRewardLocale const* GetQuestOfferRewardLocale(uint32 entry) const;
     QuestObjectivesLocale const* GetQuestObjectivesLocale(uint32 entry) const;
     std::set<Quest const*> const* GetQuestTask(uint32 areaId) const;
+    bool IsAshranTask(uint32 questId) const { return _ashranTaskStore.count(questId) != 0; }
     PointOfInterest const* GetPointOfInterest(uint32 id) const;
     PointOfInterestLocale const* GetPointOfInterestLocale(uint32 poi_id) const;
     WorldQuest const* GenerateNewWorldQuest(uint32 QuestID, uint32 VariableID = 0);
@@ -298,6 +299,7 @@ private:
     QuestOfferRewardLocaleContainer _questOfferRewardLocaleStore;
     QuestObjectivesLocaleContainer _questObjectivesLocaleStore;
     QuestAreaTaskMap _questAreaTaskStore;
+    std::set<uint32> _ashranTaskStore;
     QuestMap _questTemplates;
     QuestVector _questVTemplates;
     uint32 _maxQuestId;
