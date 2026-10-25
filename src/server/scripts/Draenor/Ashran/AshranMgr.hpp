@@ -1,10 +1,10 @@
-////////////////////////////////////////////////////////////////////////////////
-//
-//  MILLENIUM-STUDIO
-//  Copyright 2016 Millenium-studio SARL
-//  All Rights Reserved.
-//
-////////////////////////////////////////////////////////////////////////////////
+////////////////////////////////////////////
+///                                      ///
+///         LEGIONCORE REFORGED          ///
+///    Copyright 2026 Titans-Project     ///
+///         All Rights Reserved.         ///
+///                                      ///
+////////////////////////////////////////////
 
 #ifndef ASHRAN_MGR_HPP_ASHRAN
 # define ASHRAN_MGR_HPP_ASHRAN
@@ -102,6 +102,8 @@ public:
     bool SetupOutdoorPvP() override;
 
     void Initialize(uint32 zone) override;
+    void ReleaseInstance(Map* baseMap) override;
+    void HandleGameStart() override;
 
     void HandlePlayerEnterMap(ObjectGuid guid, uint32 zoneID) override;
     void HandlePlayerLeaveMap(ObjectGuid guid, uint32 zoneID) override ;
@@ -183,6 +185,8 @@ public:
 
 private:
 
+    void ResetState();
+
     OPvPCapturePoint_Graveyard* m_GraveYard;
     OPvPCapturePoint_Middle* m_ControlPoints[MaxBattleType];
     ObjectGuid m_GenericMoPGuids[MaxBattleType];
@@ -190,6 +194,7 @@ private:
     uint32 m_InitPointsTimer;
     bool m_IsInitialized;
     bool m_WillBeReset;
+    bool m_GameOpen;                    ///< the battle of a game is on: the countdown of the preparation is over
 
     uint64 m_Guid;
     ObjectGuid m_HeraldGuid;
@@ -198,7 +203,6 @@ private:
     uint32 m_WorldPvPAreaId;
 
     GuidSet m_PlayersInWar[TEAM_NEUTRAL];
-    PlayerTimerMap m_InvitedPlayers[TEAM_NEUTRAL];
     PlayerTimerMap m_PlayersWillBeKick[TEAM_NEUTRAL];
     PlayerCurrencyLoot m_PlayerCurrencyLoots;
 
@@ -224,5 +228,18 @@ private:
     AshranVignettesMap m_FactionVignettes[TEAM_NEUTRAL];
     ActiveCaptains m_ActiveCaptains;
 };
+
+/// The engine of the game an object stands in; null anywhere else
+inline OutdoorPvP* GetAshranPvP(WorldObject const* object)
+{
+    return object ? dynamic_cast<OutdoorPvP*>(object->GetZoneScript()) : nullptr;
+}
+
+/// Lookup limited to the map the engine runs in (its own thread); null while the engine has no map yet
+template<class T>
+inline T* GetAshranObject(OutdoorPvP const* pvp, ObjectGuid guid)
+{
+    return ObjectAccessor::GetObjectInMap(guid, pvp->GetMap(), static_cast<T*>(nullptr));
+}
 
 #endif ///< ASHRAN_MGR_HPP_ASHRAN

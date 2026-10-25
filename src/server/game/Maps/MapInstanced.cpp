@@ -329,6 +329,13 @@ Map* MapInstanced::CreateInstanceForPlayer(const uint32 mapId, Player* player)
         if (group)
         {
             diff = group->GetDifficultyID(GetEntry());
+            // a group finder group goes to its dungeon's own difficulty: an event dungeon is not one a group can pick
+            if (group->isLFGGroup())
+                if (uint32 dungeonId = sLFGMgr->GetDungeon(group->GetGUID()))
+                    if (lfg::LFGDungeonData const* dungeon = sLFGMgr->GetLFGDungeon(dungeonId))
+                        if (uint32(dungeon->map) == GetId())
+                            diff = Difficulty(dungeon->difficulty);
+
             if (group->GetLeaderGUID() == player->GetGUID())
                 pBind = player->GetBoundInstanceCopy(GetId(), diff);
             else
@@ -405,7 +412,7 @@ Map* MapInstanced::CreateInstanceForPlayer(const uint32 mapId, Player* player)
             // use the player's difficulty setting (it may not be the same as the group's)
             if (group)
             {
-                groupBind = group->GetBoundInstanceCopy(this);
+                groupBind = group->GetBoundInstanceCopy(diff, GetId());
                 if (groupBind.save)
                     pSave = groupBind.save;
                 if (pSave && pSave->SaveIsOld() && !pSave->GetExtended())
@@ -415,6 +422,10 @@ Map* MapInstanced::CreateInstanceForPlayer(const uint32 mapId, Player* player)
                 }
             }
         }
+
+        // normal and event dungeons share their binds: an instance of the other one is never taken for this one
+        if (pSave && pSave->GetDifficultyID() != diff && (diff == DIFFICULTY_EVENT_DUNGEON || pSave->GetDifficultyID() == DIFFICULTY_EVENT_DUNGEON))
+            pSave = nullptr;
 
         if (pSave)
         {
@@ -597,11 +608,17 @@ BattlegroundMap* MapInstanced::CreateBattleground(uint32 InstanceId, Battlegroun
 
     TC_LOG_DEBUG("maps", "MapInstanced::CreateBattleground: map bg %d for %d created.", InstanceId, GetId());
 
-    BattlegroundMap* map = new BattlegroundMap(GetId(), GetGridExpiry(), InstanceId, this, DIFFICULTY_NORMAL);
+    // the fixed population of a world PvP map (Ashran) is spawned for its own difficulty only: hold the game in that one
+    Difficulty difficulty = DIFFICULTY_NORMAL;
+    if (!sDB2Manager.GetMapDifficultyData(GetId(), DIFFICULTY_NORMAL) && sDB2Manager.GetMapDifficultyData(GetId(), DIFFICULTY_WORLD_PVP_SCENARIO))
+        difficulty = DIFFICULTY_WORLD_PVP_SCENARIO;
+
+    BattlegroundMap* map = new BattlegroundMap(GetId(), GetGridExpiry(), InstanceId, this, difficulty);
     ASSERT(map->IsBattlegroundOrArena());
     map->SetBG(bg);
     map->InitVisibilityDistance();
     bg->SetBgMap(map);
+    bg->OnMapCreated();
 
     sTransportMgr->CreateInstanceTransports(map);
 
@@ -618,6 +635,9 @@ bool MapInstanced::DestroyInstance(uint32 instanceId, Map* uMap)
     uMap->RemoveAllPlayers();
     if (uMap->HavePlayers())
         return false;
+
+    // a world PvP engine goes back to the base map while its instance is still whole
+    uMap->ReleaseOutdoorPvP();
 
     // a reset requested since the last update is applied now (no player left), before UnloadAll which acts on it
     if (InstanceMap* instance = uMap->ToInstanceMap())

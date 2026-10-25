@@ -557,6 +557,7 @@ namespace WorldPackets
         class RequestPvpBrawlInfo;
         class BattlemasterJoinBrawl;
         class RequstCrowdControlSpell;
+        struct IgnorMapInfo;
     }
 
     namespace VoidStorage
@@ -1703,6 +1704,7 @@ class TC_GAME_API WorldSession
 
         void HandleBattlemasterHello(WorldPackets::NPC::Hello& packet);
         void HandleBattlemasterJoin(WorldPackets::Battleground::Join& packet);
+        void JoinBattlegroundQueue(uint16 queueID, uint8 rolesMask, bool joinAsGroup, WorldPackets::Battleground::IgnorMapInfo const& blacklistMap);
         void HandlePVPLogData(WorldPackets::Battleground::NullCmsg& packet);
         void HandleUpdatePrestigeLevel(WorldPackets::Battleground::NullCmsg& packet);
         void HandleBattleFieldPort(WorldPackets::Battleground::Port& packet);

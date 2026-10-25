@@ -1928,6 +1928,22 @@ void Creature::SaveToDB(uint32 mapid, uint64 spawnMask, uint32 phaseMask)
     WorldDatabase.CommitTransaction(trans);
 }
 
+namespace
+{
+    uint32 const AshranMapId = 1191;
+    uint32 const DraenorMaxLevel = 100;
+
+    // Ashran: creatures that belong to neither the Alliance, the Horde nor the players, made for the Draenor level cap
+    bool IsAshranWildCreature(CreatureTemplate const* cInfo, uint8 level)
+    {
+        if (level < DraenorMaxLevel)
+            return false;
+
+        FactionTemplateEntry const* faction = sFactionTemplateStore.LookupEntry(cInfo->faction);
+        return faction && !(faction->FriendGroup & (FACTION_MASK_PLAYER | FACTION_MASK_ALLIANCE | FACTION_MASK_HORDE));
+    }
+}
+
 void Creature::SelectLevel(const CreatureTemplate* cInfo)
 {
     uint32 rank = isPet() ? 0 : cInfo->Classification;
@@ -1955,7 +1971,14 @@ void Creature::SelectLevel(const CreatureTemplate* cInfo)
     {
         uint8 level = minlevel == maxlevel ? minlevel : urand(minlevel, maxlevel);
 
-        if (BattlegroundMap* map = GetMap()->ToBgMap())
+        if (GetMap()->GetId() == AshranMapId)
+        {
+            // Ashran is only held as a battleground game, yet it keeps its own levels: the bracket level is not forced on
+            // the friendly creatures, only the wild ones follow the players
+            if (!isPet() && IsAshranWildCreature(cInfo, level))
+                level = std::max(level, uint8(sWorld->getIntConfig(CONFIG_MAX_PLAYER_LEVEL)));
+        }
+        else if (BattlegroundMap* map = GetMap()->ToBgMap())
         {
             if (map->GetBG())
                 level = map->GetBG()->GetMaxLevel();

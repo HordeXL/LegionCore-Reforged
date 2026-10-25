@@ -1,19 +1,14 @@
-/*
- * Copyright (C) 2008-2012 TrinityCore <http://www.trinitycore.org/>
- *
- * This program is free software; you can redistribute it and/or modify it
- * under the terms of the GNU General Public License as published by the
- * Free Software Foundation; either version 2 of the License, or (at your
- * option) any later version.
- *
- * This program is distributed in the hope that it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for
- * more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program. If not, see <http://www.gnu.org/licenses/>.
- */
+////////////////////////////////////////////
+///                                      ///
+///         LEGIONCORE REFORGED          ///
+///    Copyright 2026 Titans-Project     ///
+///         All Rights Reserved.         ///
+///                                      ///
+///      Based on TrinityCore code       ///
+///   Copyright 2008-2012 TrinityCore    ///
+///   <http://www.trinitycore.org/>      ///
+///                                      ///
+////////////////////////////////////////////
 
 #include "OutdoorPvP.h"
 #include "OutdoorPvPMgr.h"
@@ -28,6 +23,62 @@
 #include "CellImpl.h"
 #include "ObjectVisitors.hpp"
 #include "BattlegroundPackets.h"
+
+namespace
+{
+    // The spawns of an engine bound to an instance are made in that instance, as Battleground does: the spawn data of
+    // ObjectMgr (AddCreData / AddGOData) never reaches an instanceable map.
+    Creature* SpawnInstanceCreature(Map* map, uint32 entry, uint32 team, float x, float y, float z, float o, uint32 respawnDelay)
+    {
+        Creature* creature = new Creature;
+        if (!creature->Create(sObjectMgr->GetGenerator<HighGuid::Creature>()->Generate(), map, PHASEMASK_NORMAL, entry, 0, team, x, y, z, o))
+        {
+            TC_LOG_ERROR("outdoorpvp", "OutdoorPvP: cannot create creature (entry: %u) in map %u instance %u", entry, map->GetId(), map->GetInstanceId());
+            delete creature;
+            return nullptr;
+        }
+
+        creature->SetHomePosition(x, y, z, o);
+        creature->SetRespawnDelay(respawnDelay);
+
+        if (!map->AddToMap(creature))
+        {
+            delete creature;
+            return nullptr;
+        }
+
+        return creature;
+    }
+
+    GameObject* SpawnInstanceObject(Map* map, uint32 entry, float x, float y, float z, float o, float rot0, float rot1, float rot2, float rot3)
+    {
+        GameObjectTemplate const* goInfo = sObjectMgr->GetGameObjectTemplate(entry);
+        if (!goInfo)
+            return nullptr;
+
+        GameObject* go = new GameObject;
+        if (!go->Create(sObjectMgr->GetGenerator<HighGuid::GameObject>()->Generate(), entry, map, PHASEMASK_NORMAL, Position(x, y, z, o), G3D::Quat(rot0, rot1, rot2, rot3), 100,
+            GO_STATE_READY, goInfo->type == GAMEOBJECT_TYPE_CONTROL_ZONE ? 21 : 0))
+        {
+            TC_LOG_ERROR("outdoorpvp", "OutdoorPvP: cannot create gameobject (entry: %u) in map %u instance %u", entry, map->GetId(), map->GetInstanceId());
+            delete go;
+            return nullptr;
+        }
+
+        // same as the spawn data gave: no respawn delay, and an object that cannot despawn stays
+        go->SetRespawnDelayTime(0);
+        if (!goInfo->GetDespawnPossibility() && !goInfo->IsDespawnAtAction())
+            go->SetFlag(GAMEOBJECT_FIELD_FLAGS, GO_FLAG_NODESPAWN);
+
+        if (!map->AddToMap(go))
+        {
+            delete go;
+            return nullptr;
+        }
+
+        return go;
+    }
+}
 
 OPvPCapturePoint::OPvPCapturePoint(OutdoorPvP* pvp) : m_capturePoint(nullptr), m_maxValue(0.0f), m_minValue(0.0f), m_maxSpeed(0),
 m_value(0), m_team(TEAM_NEUTRAL), m_OldState(OBJECTIVESTATE_NEUTRAL),
@@ -106,6 +157,17 @@ bool OPvPCapturePoint::SetCapturePointData(go_type data)
 
 bool OPvPCapturePoint::AddObject(uint32 type, uint32 entry, uint32 map, float x, float y, float z, float o, float rotation0, float rotation1, float rotation2, float rotation3)
 {
+    if (m_PvP->IsBoundToInstance())
+    {
+        GameObject* go = SpawnInstanceObject(m_PvP->GetMap(), entry, x, y, z, o, rotation0, rotation1, rotation2, rotation3);
+        if (!go)
+            return false;
+
+        m_Objects[type] = go->GetGUID();
+        m_ObjectTypes[m_Objects[type]] = type;
+        return true;
+    }
+
     if (ObjectGuid::LowType guid = sObjectMgr->AddGOData(entry, map, x, y, z, o, 0, rotation0, rotation1, rotation2, rotation3))
     {
         AddGO(type, map, guid, entry);
@@ -122,6 +184,17 @@ bool OPvPCapturePoint::AddCreature(uint32 p_Type, creature_type data, uint32 p_S
 
 bool OPvPCapturePoint::AddCreature(uint32 type, uint32 entry, uint32 team, uint32 map, float x, float y, float z, float o, uint32 spawntimedelay)
 {
+    if (m_PvP->IsBoundToInstance())
+    {
+        Creature* creature = SpawnInstanceCreature(m_PvP->GetMap(), entry, team, x, y, z, o, spawntimedelay);
+        if (!creature)
+            return false;
+
+        m_Creatures[type] = creature->GetGUID();
+        m_CreatureTypes[m_Creatures[type]] = type;
+        return true;
+    }
+
     if (ObjectGuid::LowType guid = sObjectMgr->AddCreData(entry, team, map, x, y, z, o, spawntimedelay))
     {
         AddCre(type, map, guid, entry);
@@ -141,7 +214,13 @@ bool OPvPCapturePoint::SetCapturePointData(uint32 entry, uint32 map, float x, fl
         return false;
     }
 
-    m_capturePointGUID = ObjectGuid::Create<HighGuid::GameObject>(map, entry, sObjectMgr->AddGOData(entry, map, x, y, z, o, 0, rotation0, rotation1, rotation2, rotation3));
+    if (m_PvP->IsBoundToInstance())
+    {
+        GameObject* go = SpawnInstanceObject(m_PvP->GetMap(), entry, x, y, z, o, rotation0, rotation1, rotation2, rotation3);
+        m_capturePointGUID = go ? go->GetGUID() : ObjectGuid::Empty;
+    }
+    else
+        m_capturePointGUID = ObjectGuid::Create<HighGuid::GameObject>(map, entry, sObjectMgr->AddGOData(entry, map, x, y, z, o, 0, rotation0, rotation1, rotation2, rotation3));
     if (!m_capturePointGUID)
     {
         TC_LOG_TRACE("misc", "OPvPCapturePoint::SetCapturePointData  - NOT CREATEDCreating capture point %u", entry);
@@ -198,12 +277,15 @@ bool OPvPCapturePoint::DelCreature(uint32 type)
     // so this is a big fat workaround, if AddObjectToRemoveList and DoDelayedMovesAndRemoves worked correctly, this wouldn't be needed
     //if (Map* map = sMapMgr->FindMap(cr->GetMapId()))
     //    map->Remove(cr, false);
-    // delete respawn time for this creature
-    CharacterDatabasePreparedStatement* stmt = CharacterDatabase.GetPreparedStatement(CHAR_DEL_CREATURE_RESPAWN);
-    stmt->setUInt64(0, guid);
-    stmt->setUInt16(1, cr->GetMapId());
-    stmt->setUInt32(2, 0);  // instance id, always 0 for world maps
-    CharacterDatabase.Execute(stmt);
+    // delete respawn time for this creature (none for a creature made in an instance: it has no spawn data)
+    if (guid)
+    {
+        CharacterDatabasePreparedStatement* stmt = CharacterDatabase.GetPreparedStatement(CHAR_DEL_CREATURE_RESPAWN);
+        stmt->setUInt64(0, guid);
+        stmt->setUInt16(1, cr->GetMapId());
+        stmt->setUInt32(2, 0);  // instance id, always 0 for world maps
+        CharacterDatabase.Execute(stmt);
+    }
 
     cr->AddObjectToRemoveList();
     sObjectMgr->DeleteCreatureData(guid);
@@ -234,13 +316,17 @@ bool OPvPCapturePoint::DelObject(uint32 type)
 
 bool OPvPCapturePoint::DelCapturePoint()
 {
+    // found back by guid: m_capturePoint is only reset by a zone script, which a gameobject of an instance may lack
+    GameObject* capturePoint = HashMapHolder<GameObject>::Find(m_capturePointGUID);
+
     sObjectMgr->DeleteGOData(m_capturePointGUID.GetCounter());
     m_capturePointGUID = ObjectGuid::Empty;
+    m_capturePoint = nullptr;
 
-    if (m_capturePoint)
+    if (capturePoint)
     {
-        m_capturePoint->SetRespawnTime(0);                                 // not save respawn time
-        m_capturePoint->Delete();
+        capturePoint->SetRespawnTime(0);                                 // not save respawn time
+        capturePoint->Delete();
     }
 
     return true;
@@ -266,7 +352,7 @@ void OutdoorPvP::DeleteSpawns()
     m_capturePoints.clear();
 }
 
-OutdoorPvP::OutdoorPvP() : m_map(nullptr), m_TypeId(0), m_sendUpdate(true)
+OutdoorPvP::OutdoorPvP() : m_map(nullptr), m_boundToInstance(false), m_game(nullptr), m_initZone(0), m_TypeId(0), m_sendUpdate(true)
 {
     m_LastResurectTimer = 30 * IN_MILLISECONDS;
 }
@@ -725,6 +811,17 @@ bool OutdoorPvP::AddCreature(uint32 p_Type, creature_type data, uint32 p_SpawnTi
 
 bool OutdoorPvP::AddCreature(uint32 type, uint32 entry, uint32 team, uint32 mapID, float x, float y, float z, float o, uint32 p_SpawnTime /*= 0*/)
 {
+    if (m_boundToInstance)
+    {
+        Creature* creature = SpawnInstanceCreature(m_map, entry, team, x, y, z, o, p_SpawnTime);
+        if (!creature)
+            return false;
+
+        m_Creatures[type] = creature->GetGUID();
+        m_CreatureTypes[m_Creatures[type]] = type;
+        return true;
+    }
+
     if (uint64 guid = sObjectMgr->AddCreData(entry, team, mapID, x, y, z, o, p_SpawnTime))
     {
         if (!entry)
@@ -794,6 +891,17 @@ bool OutdoorPvP::AddObject(uint32 p_Type, go_type data)
 
 bool OutdoorPvP::AddObject(uint32 type, uint32 entry, uint32 mapID, float x, float y, float z, float o, float r0, float r1, float r2, float r3)
 {
+    if (m_boundToInstance)
+    {
+        GameObject* go = SpawnInstanceObject(m_map, entry, x, y, z, o, r0, r1, r2, r3);
+        if (!go)
+            return false;
+
+        m_Objects[type] = go->GetGUID();
+        m_ObjectTypes[m_Objects[type]] = type;
+        return true;
+    }
+
     if (uint64 guid = sObjectMgr->AddGOData(entry, mapID, x, y, z, o, 0, r0, r1, r2, r3))
     {
         m_Objects[type] = ObjectGuid::Create<HighGuid::GameObject>(mapID, entry, guid);
@@ -842,6 +950,74 @@ void OutdoorPvP::TeamApplyBuff(TeamId team, uint32 spellId, uint32 spellId2)
 void OutdoorPvP::SetMap(Map* map)
 {
     m_map = map;
+    m_boundToInstance = map && map->Instanceable() && map->GetInstanceId();
+}
+
+void OutdoorPvP::BindToInstance(Map* instance)
+{
+    SetMap(instance);
+    Initialize(m_initZone);
+}
+
+void OutdoorPvP::BindToGame(Battleground* game, Map* map)
+{
+    m_game = game;
+    BindToInstance(map);
+}
+
+void OutdoorPvP::AddGamePlayer(Player* player)
+{
+    uint32 const zone = player->GetZoneId();
+    HandlePlayerEnterZone(player->GetGUID(), zone);
+    HandlePlayerEnterMap(player->GetGUID(), zone);
+}
+
+void OutdoorPvP::RemoveGamePlayer(ObjectGuid guid)
+{
+    HandlePlayerLeaveZone(guid, 0);
+    HandlePlayerLeaveMap(guid, 0);
+}
+
+void OutdoorPvP::ChangeGamePlayerArea(Player* player, uint32 oldArea, uint32 newArea)
+{
+    HandlePlayerLeaveArea(player->GetGUID(), oldArea);
+    HandlePlayerEnterArea(player->GetGUID(), newArea);
+}
+
+void OutdoorPvP::HandleGamePlayerResurrects(Player* player)
+{
+    if (HasPlayer(player))
+        HandlePlayerResurrects(player, player->GetZoneId());
+}
+
+void OutdoorPvP::ReleaseInstance(Map* baseMap)
+{
+    // the instance takes its creatures and objects down with it: only what the engine remembers of them is dropped,
+    // so that the next instance starts afresh
+    for (auto& itr : m_capturePoints)
+        delete itr.second;
+    m_capturePoints.clear();
+
+    for (OutdoorGraveyard* graveyard : m_GraveyardList)
+        delete graveyard;
+    m_GraveyardList.clear();
+
+    m_Creatures.clear();
+    m_CreatureTypes.clear();
+    m_Objects.clear();
+    m_ObjectTypes.clear();
+
+    for (GuidSet& players : m_players)
+        players.clear();
+
+    i_playersInAreaLock.lock();
+    m_playersInArea.clear();
+    i_playersInAreaLock.unlock();
+
+    m_LastResurectTimer = 30 * IN_MILLISECONDS;
+    m_game = nullptr;
+
+    SetMap(baseMap);
 }
 
 Map* OutdoorPvP::GetMap() const

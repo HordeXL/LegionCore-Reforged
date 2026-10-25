@@ -1,20 +1,16 @@
-/*
- * Copyright (C) 2008-2012 TrinityCore <http://www.trinitycore.org/>
- * Copyright (C) 2005-2009 MaNGOS <http://getmangos.com/>
- *
- * This program is free software; you can redistribute it and/or modify it
- * under the terms of the GNU General Public License as published by the
- * Free Software Foundation; either version 2 of the License, or (at your
- * option) any later version.
- *
- * This program is distributed in the hope that it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for
- * more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program. If not, see <http://www.gnu.org/licenses/>.
- */
+////////////////////////////////////////////
+///                                      ///
+///         LEGIONCORE REFORGED          ///
+///    Copyright 2026 Titans-Project     ///
+///         All Rights Reserved.         ///
+///                                      ///
+///      Based on TrinityCore code       ///
+///   Copyright 2008-2012 TrinityCore    ///
+///   <http://www.trinitycore.org/>      ///
+///   Copyright 2005-2009 MaNGOS         ///
+///   <http://getmangos.com/>            ///
+///                                      ///
+////////////////////////////////////////////
 
 #include "BattlefieldMgr.h"
 #include "BattlegroundMgr.h"
@@ -540,6 +536,43 @@ void Map::UpdateOutdoorPvPScript()
     }
 }
 
+void Map::BindOutdoorPvP()
+{
+    // a battleground game owns its engine (created by the game itself), it never inherits the one of the base map
+    if (OutdoorPvPList || m_parentMap == this || !m_parentMap->OutdoorPvPList || !Instanceable() || IsBattlegroundOrArena())
+        return;
+
+    // Initialize may register spawns that look the list up: it is set first
+    std::vector<OutdoorPvP*> const engines(m_parentMap->OutdoorPvPList->begin(), m_parentMap->OutdoorPvPList->end());
+    OutdoorPvPList = m_parentMap->OutdoorPvPList;
+
+    for (OutdoorPvP* pvp : engines)
+        if (pvp && pvp->GetMap() == m_parentMap)
+            pvp->BindToInstance(this);
+}
+
+void Map::ReleaseOutdoorPvP()
+{
+    if (!OutdoorPvPList || m_parentMap == this)
+        return;
+
+    for (OutdoorPvP* pvp : *OutdoorPvPList)
+        if (pvp && pvp->GetMap() == this)
+            pvp->ReleaseInstance(m_parentMap);
+
+    OutdoorPvPList = nullptr;
+}
+
+OutdoorPvP* Map::GetBoundOutdoorPvP() const
+{
+    if (OutdoorPvPList)
+        for (OutdoorPvP* pvp : *OutdoorPvPList)
+            if (pvp && pvp->GetMap() == this)
+                return pvp;
+
+    return nullptr;
+}
+
 void Map::LoadMapAndVMap(int gx, int gy)
 {
     LoadMap(gx, gy);
@@ -918,6 +951,9 @@ bool Map::AddPlayerToMap(Player* player, bool initPlayer /*= true*/)
         TC_LOG_ERROR("maps", "Map::Add: Player (GUID: %u) has invalid coordinates X:%f Y:%f grid cell [%u:%u]", player->GetGUIDLow(), player->GetPositionX(), player->GetPositionY(), cellCoord.x_coord, cellCoord.y_coord);
         return false;
     }
+
+    // before the grid of the player is loaded: the creatures it holds look for the engine as they enter the world
+    BindOutdoorPvP();
 
     Cell cell(cellCoord);
     EnsureGridLoadedForActiveObject(cell, player);
@@ -1397,9 +1433,10 @@ void Map::UpdateOutdoorPvP(uint32 diff)
 
     uint32 _s = getMSTime();
 
+    // on the base map of an instanceable map the engine waits, unbound, for its instance
     if (OutdoorPvPList && !OutdoorPvPList->empty())
         for (auto itr : *OutdoorPvPList)
-            if (itr && itr->GetMap() == this)
+            if (itr && itr->GetMap() == this && (itr->IsBoundToInstance() || !Instanceable()))
                 itr->Update(diff);
 
     if (BattlefieldList && !BattlefieldList->empty())
@@ -3567,6 +3604,9 @@ bool InstanceMap::AddPlayerToMap(Player* player, bool initPlayer /*= true*/)
                     lfg::LFGDungeonData const* data = group ? group->m_dungeon : nullptr;
                     if (!data)
                         data = sLFGMgr->GetLFGDungeon(GetId(), GetDifficultyID(), player->GetTeam());
+                    // a holiday boss has no scenario of its own: the dungeon's would list the bosses of its normal mode
+                    if (data && GetDifficultyID() == DIFFICULTY_EVENT_DUNGEON && !data->dbc->ScenarioID)
+                        data = nullptr;
                     if (data)
                         if (sScenarioMgr->HasScenarioStep(data, player))
                             sScenarioMgr->AddScenario(this, data, player);

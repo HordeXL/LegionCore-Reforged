@@ -1,24 +1,23 @@
-/*
- * Copyright (C) 2008-2012 TrinityCore <http://www.trinitycore.org/>
- *
- * This program is free software; you can redistribute it and/or modify it
- * under the terms of the GNU General Public License as published by the
- * Free Software Foundation; either version 2 of the License, or (at your
- * option) any later version.
- *
- * This program is distributed in the hope that it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for
- * more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program. If not, see <http://www.gnu.org/licenses/>.
- */
+////////////////////////////////////////////
+///                                      ///
+///         LEGIONCORE REFORGED          ///
+///    Copyright 2026 Titans-Project     ///
+///         All Rights Reserved.         ///
+///                                      ///
+///      Based on TrinityCore code       ///
+///   Copyright 2008-2012 TrinityCore    ///
+///   <http://www.trinitycore.org/>      ///
+///   Copyright 2005-2009 MaNGOS         ///
+///   <http://getmangos.com/>            ///
+///                                      ///
+////////////////////////////////////////////
 
 #include "LFGMgr.h"
 #include "Group.h"
 #include "QuestData.h"
 #include "LFGPackets.h"
+#include "BattlegroundDefines.h"
+#include "BattlegroundPackets.h"
 
 void WorldSession::HandleLfgJoin(WorldPackets::LFG::LfgJoin& packet)
 {
@@ -28,12 +27,37 @@ void WorldSession::HandleLfgJoin(WorldPackets::LFG::LfgJoin& packet)
     if (!sLFGMgr->isOptionEnabled(lfg::LFG_OPTION_ENABLE_DUNGEON_FINDER | lfg::LFG_OPTION_ENABLE_RAID_BROWSER))
         return;
 
+    // the A'shran button belongs to the Ashran battleground queue, not to the dungeon finder (slot = dungeon id in its low 24 bits)
+    if (packet.Slot.size() == 1 && (*packet.Slot.begin() & 0x00FFFFFF) == lfg::LFG_DUNGEON_ASHRAN)
+    {
+        // the client flags this button's join as a group join even for a player alone
+        JoinBattlegroundQueue(MS::Battlegrounds::BattlegroundTypeId::BattlegroundAshran, uint8(packet.Roles), GetPlayer()->GetGroup() != nullptr, WorldPackets::Battleground::IgnorMapInfo());
+        return;
+    }
+
     sLFGMgr->JoinLfg(GetPlayer(), packet.Roles, packet.Slot);
 }
 
 void WorldSession::HandleLfgLeave(WorldPackets::LFG::LfgLeave& packet)
 {
-    sLFGMgr->LeaveLfg(GetPlayer()->GetGUID(), packet.Ticket.Id);
+    Player* player = GetPlayer();
+    // a queue the server no longer knows (lost with a reconnection) is still shown by the client: it is told it left, or it stays stuck
+    if (packet.Ticket.Id && !sLFGMgr->HasPlayerData(player->GetGUID(), packet.Ticket.Id))
+    {
+        WorldPackets::LFG::QueueStatusUpdate update;
+        update.Ticket = packet.Ticket;
+        update.SubType = LFG_QUEUE_DUNGEON;
+        update.Reason = lfg::LFG_UPDATETYPE_REMOVED_FROM_QUEUE;
+        update.IsParty = player->GetGroup() ? player->GetGroup()->GetLeaderGUID() == player->GetGUID() : true;
+        update.NotifyUI = true;
+        update.Joined = false;
+        update.LfgJoined = false;
+        update.Queued = false;
+        SendPacket(update.Write());
+        return;
+    }
+
+    sLFGMgr->LeaveLfg(player->GetGUID(), packet.Ticket.Id);
 }
 
 void WorldSession::HandleLfgProposalResponse(WorldPackets::LFG::LfgProposalResponse& packet)

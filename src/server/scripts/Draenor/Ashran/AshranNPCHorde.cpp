@@ -1,10 +1,10 @@
-////////////////////////////////////////////////////////////////////////////////
-//
-//  MILLENIUM-STUDIO
-//  Copyright 2016 Millenium-studio SARL
-//  All Rights Reserved.
-//
-////////////////////////////////////////////////////////////////////////////////
+////////////////////////////////////////////
+///                                      ///
+///         LEGIONCORE REFORGED          ///
+///    Copyright 2026 Titans-Project     ///
+///         All Rights Reserved.         ///
+///                                      ///
+////////////////////////////////////////////
 
 #include "AshranMgr.hpp"
 #include "ScriptedCosmeticAI.h"
@@ -505,7 +505,7 @@ public:
 
     bool OnGossipHello(Player* player, Creature* creature) override
     {
-        ZoneScript* l_ZoneScript = sOutdoorPvPMgr->GetOutdoorPvPToZoneId(creature->GetZoneId());
+        ZoneScript* l_ZoneScript = GetAshranPvP(creature);
         if (l_ZoneScript == nullptr)
             return false;
 
@@ -532,7 +532,7 @@ public:
             if (p_Action)
                 return;
 
-            ZoneScript* l_ZoneScript = sOutdoorPvPMgr->GetOutdoorPvPToZoneId(me->GetZoneId());
+            ZoneScript* l_ZoneScript = GetAshranPvP(me);
             if (l_ZoneScript == nullptr)
                 return;
 
@@ -566,7 +566,7 @@ public:
 
     bool OnGossipHello(Player* player, Creature* creature) override
     {
-        ZoneScript* l_ZoneScript = sOutdoorPvPMgr->GetOutdoorPvPToZoneId(creature->GetZoneId());
+        ZoneScript* l_ZoneScript = GetAshranPvP(creature);
         if (l_ZoneScript == nullptr)
             return false;
 
@@ -593,7 +593,7 @@ public:
             if (p_Action)
                 return;
 
-            ZoneScript* l_ZoneScript = sOutdoorPvPMgr->GetOutdoorPvPToZoneId(me->GetZoneId());
+            ZoneScript* l_ZoneScript = GetAshranPvP(me);
             if (l_ZoneScript == nullptr)
                 return;
 
@@ -627,7 +627,7 @@ public:
 
     bool OnGossipHello(Player* player, Creature* creature) override
     {
-        ZoneScript* l_ZoneScript = sOutdoorPvPMgr->GetOutdoorPvPToZoneId(creature->GetZoneId());
+        ZoneScript* l_ZoneScript = GetAshranPvP(creature);
         if (l_ZoneScript == nullptr)
             return false;
 
@@ -654,7 +654,7 @@ public:
             if (p_Action)
                 return;
 
-            ZoneScript* l_ZoneScript = sOutdoorPvPMgr->GetOutdoorPvPToZoneId(me->GetZoneId());
+            ZoneScript* l_ZoneScript = GetAshranPvP(me);
             if (l_ZoneScript == nullptr)
                 return;
 
@@ -688,7 +688,7 @@ public:
 
     bool OnGossipHello(Player* player, Creature* creature) override
     {
-        ZoneScript* l_ZoneScript = sOutdoorPvPMgr->GetOutdoorPvPToZoneId(creature->GetZoneId());
+        ZoneScript* l_ZoneScript = GetAshranPvP(creature);
         if (l_ZoneScript == nullptr)
             return false;
 
@@ -715,7 +715,7 @@ public:
             if (p_Action)
                 return;
 
-            ZoneScript* l_ZoneScript = sOutdoorPvPMgr->GetOutdoorPvPToZoneId(me->GetZoneId());
+            ZoneScript* l_ZoneScript = GetAshranPvP(me);
             if (l_ZoneScript == nullptr)
                 return;
 
@@ -781,7 +781,7 @@ public:
 
         void JustDied(Unit* /*killer*/) override
         {
-            ZoneScript* l_ZoneScript = sOutdoorPvPMgr->GetOutdoorPvPToZoneId(me->GetZoneId());
+            ZoneScript* l_ZoneScript = GetAshranPvP(me);
             if (l_ZoneScript == nullptr)
                 return;
 
@@ -875,7 +875,7 @@ public:
 
         void JustDied(Unit* /*killer*/) override
         {
-            ZoneScript* l_ZoneScript = sOutdoorPvPMgr->GetOutdoorPvPToZoneId(me->GetZoneId());
+            ZoneScript* l_ZoneScript = GetAshranPvP(me);
             if (l_ZoneScript == nullptr)
                 return;
 
@@ -962,7 +962,7 @@ public:
 
             /// Kronus no longer scales their health based the number of players he's fighting.
             /// Each faction guardian's health now scales based on the number of enemy players active at the time when they're summoned.
-            ZoneScript* l_ZoneScript = sOutdoorPvPMgr->GetOutdoorPvPToZoneId(me->GetZoneId());
+            ZoneScript* l_ZoneScript = GetAshranPvP(me);
             if (l_ZoneScript == nullptr)
                 return;
 
@@ -1004,7 +1004,7 @@ public:
             if (p_Damage < me->GetHealth())
                 return;
 
-            ZoneScript* l_ZoneScript = sOutdoorPvPMgr->GetOutdoorPvPToZoneId(me->GetZoneId());
+            ZoneScript* l_ZoneScript = GetAshranPvP(me);
             if (l_ZoneScript == nullptr)
                 return;
 
@@ -3562,7 +3562,7 @@ public:
 
         void IncreaseLapCount()
         {
-            OutdoorPvP* l_Outdoor = sOutdoorPvPMgr->GetOutdoorPvPToZoneId(me->GetZoneId());
+            OutdoorPvP* l_Outdoor = GetAshranPvP(me);
             if (OutdoorPvPAshran* l_Ashran = static_cast<OutdoorPvPAshran*>(l_Outdoor))
                 l_Ashran->SetEventData(EventStadiumRacing, TEAM_HORDE, 1);
         }

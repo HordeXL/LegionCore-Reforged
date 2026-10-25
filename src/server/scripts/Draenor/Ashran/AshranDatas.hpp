@@ -1,15 +1,15 @@
-////////////////////////////////////////////////////////////////////////////////
-//
-//  MILLENIUM-STUDIO
-//  Copyright 2016 Millenium-studio SARL
-//  All Rights Reserved.
-//
-////////////////////////////////////////////////////////////////////////////////
+////////////////////////////////////////////
+///                                      ///
+///         LEGIONCORE REFORGED          ///
+///    Copyright 2026 Titans-Project     ///
+///         All Rights Reserved.         ///
+///                                      ///
+////////////////////////////////////////////
 
 enum eAshranDatas
 {
     /// Maps, Zones, Areas IDs
-    AshranZoneID                = 6941,
+    AshranZoneID                = 8485,     ///< the battle map's own zone (6941 is the Draenor zone around the cities)
     AshranMapID                 = 1191,
     AshranNeutralMapID          = 1116,
     AshranPreAreaHorde          = 7333,

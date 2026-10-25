@@ -1,10 +1,10 @@
-////////////////////////////////////////////////////////////////////////////////
-//
-//  MILLENIUM-STUDIO
-//  Copyright 2016 Millenium-studio SARL
-//  All Rights Reserved.
-//
-////////////////////////////////////////////////////////////////////////////////
+////////////////////////////////////////////
+///                                      ///
+///         LEGIONCORE REFORGED          ///
+///    Copyright 2026 Titans-Project     ///
+///         All Rights Reserved.         ///
+///                                      ///
+////////////////////////////////////////////
 
 #include "AshranMgr.hpp"
 
@@ -118,7 +118,7 @@ public:
     {
         npc_faction_bossAI(Creature* creature) : ScriptedAI(creature)
         {
-            m_ZoneScript = sOutdoorPvPMgr->GetZoneScript(creature->GetZoneId());
+            m_ZoneScript = GetAshranPvP(creature);
         }
 
         enum eSpells
@@ -184,7 +184,7 @@ public:
             if (OutdoorPvPAshran* l_Ashran = static_cast<OutdoorPvPAshran*>(m_ZoneScript))
             {
                 auto l_GenericGuid = l_Ashran->GetFactionGenericMoP(me->GetEntry() == GrandMarshalTremblade ? TEAM_ALLIANCE : TEAM_HORDE);
-                if (Creature* l_GenericMoP = sObjectAccessor->FindCreature(l_GenericGuid))
+                if (Creature* l_GenericMoP = Creature::GetCreature(*me, l_GenericGuid))
                     l_GenericMoP->AI()->DoAction(me->GetEntry() == GrandMarshalTremblade ? AnnounceHordeKillBoss : AnnounceAllianceKillBoss);
 
                 l_Ashran->HandleFactionBossDeath(me->GetEntry() == GrandMarshalTremblade ? TEAM_HORDE : TEAM_ALLIANCE);
@@ -380,7 +380,7 @@ public:
     {
         npc_ashran_korlokAI(Creature* creature) : ScriptedAI(creature)
         {
-            m_OutdoorPvP = sOutdoorPvPMgr->GetOutdoorPvPToZoneId(creature->GetZoneId());
+            m_OutdoorPvP = GetAshranPvP(creature);
             m_IsAwake = false;
             m_InFight = false;
         }
@@ -662,7 +662,7 @@ public:
     {
         npc_ashran_faction_championsAI(Creature* creature) : ScriptedAI(creature)
         {
-            m_OutdoorPvP = sOutdoorPvPMgr->GetOutdoorPvPToZoneId(creature->GetZoneId());
+            m_OutdoorPvP = GetAshranPvP(creature);
 
             m_Rewarded = false;
         }
@@ -715,7 +715,7 @@ public:
             if (m_OutdoorPvP == nullptr)
                 return;
 
-            Creature* l_Korlok = sObjectAccessor->FindCreature(m_OutdoorPvP->GetCreature(NeutralKorlokTheOgreKing));
+            Creature* l_Korlok = Creature::GetCreature(*me, m_OutdoorPvP->GetCreature(NeutralKorlokTheOgreKing));
             if (l_Korlok == nullptr || !l_Korlok->IsAIEnabled)    ///< Shouldn't happens
                 return;
 
@@ -754,7 +754,7 @@ public:
             if (m_Rewarded)
                 return;
 
-            ZoneScript* l_ZoneScript = sOutdoorPvPMgr->GetOutdoorPvPToZoneId(me->GetZoneId());
+            ZoneScript* l_ZoneScript = GetAshranPvP(me);
             if (l_ZoneScript == nullptr)
                 return;
 
