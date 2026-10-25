@@ -1,11 +1,10 @@
-
-////////////////////////////////////////////////////////////////////////////////
-///
-///  MILLENIUM-STUDIO
-///  Copyright 2015 Millenium-studio SARL
-///  All Rights Reserved.
-///
-////////////////////////////////////////////////////////////////////////////////
+////////////////////////////////////////////
+///                                      ///
+///         LEGIONCORE REFORGED          ///
+///    Copyright 2026 Titans-Project     ///
+///         All Rights Reserved.         ///
+///                                      ///
+////////////////////////////////////////////
 
 #include "ScriptMgr.h"
 #include "ScriptedCreature.h"
@@ -61,7 +60,8 @@ enum eNyamiTalks
     NyamiSpell4     = 4,   ///< I Will Drown This World In Shadows!(43650)
     NyamiAggro      = 5,   ///< I Will Coil Your Souls Into Darkness!(43636)
     NyamiSlay       = 6,   ///< Shadows Envelop You! (43646)
-    NyamiDeath      = 7,   ///< Too Late...My Master...Comes...(43637) 
+    NyamiDeath      = 7,
+    NyamiSoulVesselEmote = 10,     ///< raid boss emote, written in creature_text and creature_text_locale   ///< Too Late...My Master...Comes...(43637) 
     Auchenaiwarden1 = 32,  ///< Champions! Nyami'S Agents - They Went This Way.
     Auchenaiwarden2 = 33,  ///< No...Oh...No...
     Auchenaiwarden3 = 34,  ///< The Barrier Protecting Auchindoun Is Asunder.
@@ -102,6 +102,22 @@ public:
 
     bool Execute(uint64 /*p_CurrTime*/, uint32 /*diff*/) override
     {
+        /// the loyal warden who came in from the entrance speaks to her troops
+        if (m_Modifier >= 10 && m_Obj && m_Obj->ToCreature() && m_Obj->ToCreature()->IsAIEnabled)
+        {
+            static uint8 const l_Lines[4] = {34, 35, 36, 37};
+            m_Obj->ToCreature()->AI()->Talk(l_Lines[m_Modifier - 10]);
+
+            /// "a foul force has penetrated these sacred chambers": the freed warden gets up and runs after Nyami's agents
+            if (m_Modifier == 12)
+                if (InstanceScript* l_Instance = m_Obj->GetInstanceScript())
+                    if (Creature* l_Freed = l_Instance->instance->GetCreature(l_Instance->GetGuidData(DataWarden)))
+                        l_Freed->m_Events.AddEvent(new EventPostNyamiFight(l_Freed, 2), l_Freed->m_Events.CalculateTime(3 * IN_MILLISECONDS));
+            if (m_Modifier < 13)
+                m_Obj->m_Events.AddEvent(new EventPostNyamiFight(m_Obj, m_Modifier + 1), m_Obj->m_Events.CalculateTime(5 * IN_MILLISECONDS));
+            return true;
+        }
+
         if (m_Obj)
         {
             if (InstanceScript* instance = m_Obj->GetInstanceScript())
@@ -117,8 +133,7 @@ public:
                                 l_Warden->SetCanFly(false);
                                 l_Warden->RemoveAllAuras();
                                 l_Warden->SetDisableGravity(false);
-                                l_Warden->AddAura(SpellKneel, l_Warden);
-                                l_Warden->m_Events.AddEvent(new EventPostNyamiFight(l_Warden, 2), l_Warden->m_Events.CalculateTime(6 * IN_MILLISECONDS));
+                                l_Warden->AddAura(SpellKneel, l_Warden);       /// he stays down until the warden from the entrance has spoken
                                 break;
                             }
                             case 2:
@@ -127,32 +142,81 @@ public:
                                 l_Warden->AI()->Talk(Auchenaiwarden1);
                                 l_Warden->RemoveAura(SpellKneel);
                                 l_Warden->RemoveFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_REMOVE_CLIENT_CONTROL);
-                                if (GameObject* l_Door = l_Warden->FindNearestGameObject(GameobjectHolyWall, 30.0f))
+                                /// the way to Azzakel: the southern holy gate opens
+                                if (GameObject* l_Door = l_Warden->FindNearestGameObject(GameobjectHolyGateSouth, 100.0f))
                                     l_Door->Delete();
 
+                                l_Warden->SetWalk(false);
                                 l_Warden->GetMotionMaster()->MovePoint(60, g_PositionWardenPosition1st);
-                                l_Warden->m_Events.AddEvent(new EventPostNyamiFight(l_Warden, 3), l_Warden->m_Events.CalculateTime(10 * IN_MILLISECONDS));
+                                l_Warden->m_Events.AddEvent(new EventPostNyamiFight(l_Warden, 4), l_Warden->m_Events.CalculateTime(3 * IN_MILLISECONDS));
                                 break;
                             }
-                            case 3:
+                            case 4:
                             {
-                                if (instance != nullptr)
+                                /// the window bursts as soon as he reaches it
+                                if (l_Warden->isMoving())
                                 {
-                                    if (GameObject* l_Window = instance->instance->GetGameObject(instance->GetGuidData(DataAuchindounWindow)))
-                                    {
-                                        l_Window->SetLootState(GO_READY);
-                                        l_Window->UseDoorOrButton(10 * IN_MILLISECONDS);
-                                    }
-
-                                    l_Warden->SetReactState(REACT_PASSIVE);
-                                    l_Warden->AddUnitMovementFlag(MOVEMENTFLAG_ROOT);
-                                    l_Warden->SetFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_REMOVE_CLIENT_CONTROL);
-                                    l_Warden->SetFlag(UNIT_FIELD_FLAGS_2, UNIT_FLAG2_DISABLE_TURN | UNIT_FLAG2_FEIGN_DEATH);
-                                    l_Warden->SummonCreature(CreatureFelborneAbyssal, l_Warden->GetPositionX(), l_Warden->GetPositionY(), l_Warden->GetPositionZ(), TEMPSUMMON_MANUAL_DESPAWN);
-
-                                    if (l_Warden->IsAIEnabled)
-                                        l_Warden->AI()->Talk(Auchenaiwarden2);
+                                    l_Warden->m_Events.AddEvent(new EventPostNyamiFight(l_Warden, 4), l_Warden->m_Events.CalculateTime(1 * IN_MILLISECONDS));
+                                    break;
                                 }
+
+                                /// he turns to the window: it bursts, the infernals fall on him
+                                GameObject* l_Window = l_Warden->FindNearestGameObject(GameobjectAuchindounWindow, 100.0f);       /// the instance never kept its guid
+                                if (l_Window)
+                                {
+                                    l_Warden->SetFacingToObject(l_Window);
+                                    l_Window->SetLootState(GO_READY);
+                                    l_Window->UseDoorOrButton(10 * IN_MILLISECONDS);
+                                }
+
+                                l_Warden->AI()->Talk(Auchenaiwarden2);
+                                l_Warden->SetReactState(REACT_PASSIVE);
+                                l_Warden->AddUnitMovementFlag(MOVEMENTFLAG_ROOT);
+
+                                /// the first infernal comes through the first window, onto him
+                                if (Creature* l_Infernal = l_Warden->SummonCreature(CreatureFelborneAbyssal, l_Warden->GetPositionX(), l_Warden->GetPositionY(), l_Warden->GetPositionZ() + 14.0f, l_Warden->GetOrientation() + float(M_PI), TEMPSUMMON_DEAD_DESPAWN))
+                                {
+                                    l_Infernal->RemoveFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_NOT_SELECTABLE | UNIT_FLAG_NON_ATTACKABLE);       /// the template keeps it out of reach: it fights, it has to be fought
+                                    l_Infernal->GetMotionMaster()->MoveFall();
+                                }
+
+                                /// the second one through the last window, a moment later
+                                l_Warden->AddDelayedEvent(2 * IN_MILLISECONDS, [l_Warden]() -> void
+                                {
+                                    GameObject* l_Last = l_Warden->FindNearestGameObject(233010, 150.0f);
+                                    if (!l_Last)
+                                        return;
+
+                                    l_Last->SetLootState(GO_READY);
+                                    l_Last->UseDoorOrButton(10 * IN_MILLISECONDS);
+
+                                    /// the floor takes its second hole: the destroyed state of the building, after the damaged one
+                                    l_Warden->AddDelayedEvent(1500, [l_Warden]() -> void
+                                    {
+                                        std::list<GameObject*> l_Sections;
+                                        AuchindounGameObjectsAnyPhase(l_Warden, l_Sections, GameobjectAuchindounSection, 400.0f);
+                                        for (GameObject* l_Section : l_Sections)
+                                            l_Section->SetDestructibleState(GO_DESTRUCTIBLE_DESTROYED);
+                                    });
+                                    if (Creature* l_Infernal = l_Warden->SummonCreature(CreatureFelborneAbyssal, l_Last->GetPositionX(), l_Last->GetPositionY() + 4.0f, l_Last->GetPositionZ() + 14.0f, 1.57f, TEMPSUMMON_DEAD_DESPAWN))
+                                    {
+                                        l_Infernal->RemoveFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_NOT_SELECTABLE | UNIT_FLAG_NON_ATTACKABLE);
+                                        l_Infernal->GetMotionMaster()->MoveFall();
+                                    }
+                                });
+
+                                l_Warden->m_Events.AddEvent(new EventPostNyamiFight(l_Warden, 5), l_Warden->m_Events.CalculateTime(1500));
+                                break;
+                            }
+                            case 5:
+                            {
+                                /// crushed; the floor where the infernal hit is broken
+                                l_Warden->Kill(l_Warden);
+
+                                std::list<GameObject*> l_Sections;
+                                AuchindounGameObjectsAnyPhase(l_Warden, l_Sections, GameobjectAuchindounSection, 400.0f);
+                                for (GameObject* l_Section : l_Sections)
+                                    l_Section->SetDestructibleState(GO_DESTRUCTIBLE_DAMAGED);
                                 break;
                             }
                             default:
@@ -172,6 +236,13 @@ private:
 };
 
 /// Nyami - 76177
+/// the Auchenai fallen in the hall: Nyami raises her spirits from their corpses
+static void GetNyamiCorpses(WorldObject* p_Source, std::list<Creature*>& p_List, float p_Range)
+{
+    for (uint32 l_Entry : {76293, 76294, 76297})
+        p_Source->GetCreatureListWithEntryInGrid(p_List, l_Entry, p_Range);
+}
+
 class boss_nyami : public CreatureScript
 {
 public:
@@ -191,6 +262,8 @@ public:
         uint32 m_DiffChannel;
         bool m_CanChain;
         bool m_First;
+        uint8 m_Corner = 0;
+        uint8 m_TornWaves = 0;
 
         void Reset() override
         {
@@ -220,11 +293,14 @@ public:
         void EnterCombat(Unit* /*who*/) override
         {
             _EnterCombat();
+            me->RemoveAura(SpellDispersionVisualNyami);
+            me->SetSpeed(MOVE_RUN, 1.5f, true);
 
             if (m_Instance)
                 m_Instance->SendEncounterUnit(ENCOUNTER_FRAME_ENGAGE, me);
 
             Talk(NyamiAggro);
+            m_TornWaves = 0;
             events.RescheduleEvent(EventMindSpikeNyami, urand(8 * IN_MILLISECONDS, 15 * IN_MILLISECONDS));
             events.RescheduleEvent(EventShadowWordPain, urand(12 * IN_MILLISECONDS, 18 * IN_MILLISECONDS));
             events.RescheduleEvent(EventSoulVessel, 20 * IN_MILLISECONDS);
@@ -248,56 +324,98 @@ public:
                 if (Creature* l_Warden = m_Instance->instance->GetCreature(m_Instance->GetGuidData(DataWarden)))
                 {
                     l_Warden->GetMotionMaster()->MoveTakeoff(2, l_Warden->GetPositionX(), l_Warden->GetPositionY(), 34.764f);
-                    l_Warden->RemoveAura(SpellPrisonAura);
+                    l_Warden->RemoveAura(SpellVoidShellNyami);
                 }
                 me->m_Events.AddEvent(new EventPostNyamiFight(me, 1), me->m_Events.CalculateTime(5 * IN_MILLISECONDS));
+
+                /// the barrier of the entrance falls
+                std::list<GameObject*> l_Barriers;
+                AuchindounGameObjectsAnyPhase(me, l_Barriers, GameobjectHolyBarrierEntra, 300.0f);
+                for (GameObject* l_Barrier : l_Barriers)
+                    l_Barrier->Delete();
+
+                /// a warden comes in from the entrance to take the hall back
+                if (TempSummon* l_Loyal = me->GetMap()->SummonCreature(CreatureAucheniWarden, Position(1590.0f, 2953.0f, 35.2f, 0.0f)))
+                {
+                    l_Loyal->setFaction(FriendlyFaction);
+                    l_Loyal->SetDisplayId(60170);       /// a female warden: her lines have no male text, nothing showed with the male model
+                    l_Loyal->SetReactState(REACT_PASSIVE);
+                    l_Loyal->SetWalk(false);
+                    l_Loyal->GetMotionMaster()->MovePoint(0, 1630.0f, 2953.0f, 35.2f);
+                    l_Loyal->AddDelayedEvent(6 * IN_MILLISECONDS, [l_Loyal]() -> void
+                    {
+                        l_Loyal->SetWalk(true);
+                        l_Loyal->GetMotionMaster()->MovePoint(0, 1652.0f, 2953.0f, 35.2f);
+                    });
+                    l_Loyal->m_Events.AddEvent(new EventPostNyamiFight(l_Loyal, 10), l_Loyal->m_Events.CalculateTime(15 * IN_MILLISECONDS));
+                }
+
+                /// Tuulani comes back through her gate, runs, walks the last yards and kneels by Nyami
+                /// the Tuulani of the room of Kaathar stays out of sight there; another one comes through the gate
+                if (Creature* l_Former = m_Instance->instance->GetCreature(m_Instance->GetGuidData(DataTuulani)))
+                    l_Former->SetPhaseMask(2, true);
+
+                /// she comes from the first barrier she opened, west of the room
+                Position const l_TuulaniSpawn(1621.0f, 2953.2f, 35.24f, 0.0f);
+                if (Creature* l_Tuulani = me->GetMap()->SummonCreature(CreatureSoulBinderTuulani, l_TuulaniSpawn))
+                {
+                    /// she runs to a dozen yards of Nyami's body, walks the last ones and kneels five yards from it
+                    float l_Angle = me->GetAngle(&l_TuulaniSpawn);
+                    Position l_Run(me->GetPositionX() + 12.0f * std::cos(l_Angle), me->GetPositionY() + 12.0f * std::sin(l_Angle), me->GetPositionZ());
+                    Position l_Kneel(me->GetPositionX() + 5.0f * std::cos(l_Angle), me->GetPositionY() + 5.0f * std::sin(l_Angle), me->GetPositionZ());
+                    float l_RunTime = l_Run.GetExactDist2d(&l_TuulaniSpawn) / 7.0f;
+
+                    l_Tuulani->SetWalk(false);
+                    l_Tuulani->GetMotionMaster()->MovePoint(0, l_Run, true, 7.0f);
+                    l_Tuulani->AddDelayedEvent(uint64((l_RunTime + 0.5f) * IN_MILLISECONDS), [l_Tuulani, l_Kneel]() -> void
+                    {
+                        l_Tuulani->SetWalk(true);
+                        l_Tuulani->GetMotionMaster()->MovePoint(0, l_Kneel, true, 2.5f);
+                    });
+                    l_Tuulani->AddDelayedEvent(uint64((l_RunTime + 4.0f) * IN_MILLISECONDS), [l_Tuulani]() -> void
+                    {
+                        l_Tuulani->SetStandState(UNIT_STAND_STATE_KNEEL);
+                    });
+                }
             }
         }
 
         void HandleNonCombatVisuals(uint32 const diff)
         {
-            /// Non Combat
-            if (!UpdateVictim())
+            /// the Nyami of the first room shares this script: she stays in her cage over the crystal
+            if (me->GetEntry() != BossNyami || UpdateVictim())
+                return;
+
+            if (m_DiffVisual <= diff)
             {
-                if (m_DiffVisual <= diff)
-                {
-                    std::list<Creature*> listCorpsesTriggers;
-                    me->GetCreatureListWithEntryInGrid(listCorpsesTriggers, CreatureCorpsesNyamiFight, 40.0f);
-                    if (!listCorpsesTriggers.empty())
-                    {
-                        std::list<Creature*>::const_iterator itr = listCorpsesTriggers.begin();
-                        std::advance(itr, urand(0, listCorpsesTriggers.size() - 1));
+                static float const l_Corners[4][2] = { { 8.0f, 8.0f }, { 8.0f, -8.0f }, { -8.0f, -8.0f }, { -8.0f, 8.0f } };
+                m_Corner = (m_Corner + 1 + urand(0, 2)) % 4;
 
-                        if (*itr)
-                        {
-                            m_CanChain = true;
+                Position l_Home = me->GetHomePosition();
+                me->InterruptNonMeleeSpells(false);
+                me->AddAura(SpellDispersionVisualNyami, me);
+                me->SetSpeed(MOVE_RUN, 3.0f, true);
+                me->GetMotionMaster()->MovePoint(0, l_Home.GetPositionX() + l_Corners[m_Corner][0], l_Home.GetPositionY() + l_Corners[m_Corner][1], l_Home.GetPositionZ());
 
-                            me->RemoveAura(SpellVoidChanneling);
-                            me->CastSpell(*itr, SpellTournSpiritsJump);
-                            me->GetMotionMaster()->MoveJump((*itr)->GetPositionX(), (*itr)->GetPositionY(), (*itr)->GetPositionZ(), 0.0f, 15.0f, 5.0f);
-
-                            Position l_Source(me->m_positionX, me->m_positionY, me->m_positionZ);
-                            Position l_Dest(me->m_positionX, me->m_positionY, me->m_positionZ + 5.0f);
-                            Position l_Orientation(0.0f, 0.0f, 0.0f);
-
-                            me->PlayOrphanSpellVisual(l_Source, l_Orientation, l_Dest, SpellVisualKitNyamiSpiralUponTornSpirit, 1.0f);
-                        }
-                    }
-
-                    m_DiffChannel = 2 * IN_MILLISECONDS;
-                    m_DiffVisual = 15 * IN_MILLISECONDS;
-                }
-                else
-                    m_DiffVisual -= diff;
-
-                if (m_DiffChannel <= diff && m_CanChain)
-                {
-                    me->CastSpell(me, SpellVoidChanneling);
-                    m_CanChain = false;
-                }
-                else
-                    m_DiffChannel -= diff;
+                m_CanChain = true;
+                m_DiffChannel = 3 * IN_MILLISECONDS;
+                m_DiffVisual = 12 * IN_MILLISECONDS;
             }
+            else
+                m_DiffVisual -= diff;
+
+            if (!m_CanChain)
+                return;
+
+            /// at each stop she takes her shape again and calls the spirits of the fallen; out of combat nothing rises
+            if (m_DiffChannel <= diff)
+            {
+                m_CanChain = false;
+                me->RemoveAura(SpellDispersionVisualNyami);
+                me->CastSpell(me, SpellTornSpritsDummy, false);
+            }
+            else
+                m_DiffChannel -= diff;
         }
 
         void UpdateAI(uint32 diff) override
@@ -330,7 +448,8 @@ public:
                     {
                         me->CastSpell(me, SpellSoulVesselDummy);
                         m_Instance->DoRemoveAurasDueToSpellOnPlayers(SpellSoulBubbleBuff);
-                        me->MonsterTextEmote("Soulbinder Nyami begins to cast|cffff0000[Soul Vessel]|cfffaeb00!", me->GetGUID(), true);
+                        Talk(NyamiSoulVesselEmote);
+                        DespawnCreaturesInArea(CreatureSoulVesselHackBubbleEffect, me);       /// one safe zone at a time
                         if (Creature* l_Bubble = me->SummonCreature(CreatureSoulVesselHackBubbleEffect, g_PositionBubble, TEMPSUMMON_MANUAL_DESPAWN))
                         {
                             if (l_Bubble->IsAIEnabled)
@@ -342,13 +461,16 @@ public:
                 case EventTornSpirit:
                 {
                     std::list<Creature*> listCorpsesTriggers;
-                    me->GetCreatureListWithEntryInGrid(listCorpsesTriggers, CreatureCorpsesNyamiFight, 40.0f);
+                    GetNyamiCorpses(me, listCorpsesTriggers, 40.0f);
                     if (!listCorpsesTriggers.empty())
                     {
                         std::list<Creature*>::const_iterator itr = listCorpsesTriggers.begin();
                         std::advance(itr, urand(0, listCorpsesTriggers.size() - 1));
                         if (*itr)
                         {
+                            me->SetFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_NOT_SELECTABLE | UNIT_FLAG_NON_ATTACKABLE);
+                            me->AttackStop();
+                            me->AddAura(SpellDispersionVisualNyami, me);
                             me->SetReactState(REACT_PASSIVE);
                             me->SetSpeed(MOVE_RUN, 20.0f, true);
                             me->CastSpell(*itr, SpellDispersionVisualNyami);
@@ -356,10 +478,13 @@ public:
                         }
                     }
                     events.RescheduleEvent(EventTornSpiritsDummy, 3 * IN_MILLISECONDS);
-                    events.RescheduleEvent(EventTornSpirit, 35 * IN_MILLISECONDS);
+                    if (++m_TornWaves < 3)
+                        events.RescheduleEvent(EventTornSpirit, 35 * IN_MILLISECONDS);
                     break;
                 }
                 case EventTornSpiritsDummy:
+                    me->RemoveAura(SpellDispersionVisualNyami);
+                    me->RemoveFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_NOT_SELECTABLE | UNIT_FLAG_NON_ATTACKABLE);
                     me->SetSpeed(MOVE_RUN, 1.5f, true);
                     me->SetReactState(REACT_AGGRESSIVE);
                     me->CastSpell(me, SpellTornSpritsDummy);
@@ -396,18 +521,24 @@ public:
 
         void Reset() override
         {
-            if (!m_First)
-            {
-                m_First = true;
-                me->AddAura(SpellPrisonAura, me);
-            }
-
+            me->AddAura(SpellVoidShellNyami, me);       /// his prison: one shell around him
             me->SetCanFly(true);
             me->SetDisableGravity(true);
             me->SetReactState(REACT_PASSIVE);
             me->CastSpell(me, SpellStrangulateState);
             me->AddUnitMovementFlag(MOVEMENTFLAG_FLYING);
             me->RemoveFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_REMOVE_CLIENT_CONTROL);
+        }
+
+        /// summoned by the map, he is set on the ground before his script lets him fly: he rises back into his shell once in the world
+        void UpdateAI(uint32 /*diff*/) override
+        {
+            if (m_First)
+                return;
+
+            m_First = true;
+            if (me->GetPositionZ() < 40.0f)
+                me->GetMotionMaster()->MoveTakeoff(0, me->GetPositionX(), me->GetPositionY(), 44.0f);
         }
     };
 
@@ -493,26 +624,8 @@ public:
             }
         }
 
-        void DoAction(int32 const actionID) override
-        {
-            switch (actionID)
-            {
-                case ActionReleaseAnimationPreSoulVessel:
-                {
-                    me->CancelOrphanSpellVisual(SpellVisualKitNyamiSoulVesselCircle);
-                    me->CancelOrphanSpellVisual(SpellVisualKitNyamiSoulVesselSpiralCircle);
-
-                    if (m_Visual)
-                        m_Visual = false;
-                    else
-                        m_Visual = true;
-                    break;
-                }
-                default:
-                    break;
-            }
-        }
-
+        /// the stream it sent across the room, slowly, every second, was not part of the shelter
+        void DoAction(int32 const /*actionID*/) override { }
     };
 
     CreatureAI* GetAI(Creature* creature) const override
@@ -649,7 +762,7 @@ public:
                 {
                     me->CastSpell(me, SpellRadiantFuryAreatrigger, true);
 
-                    m_RadiantDiff = 200;
+                    m_RadiantDiff = 300;
                 }
                 else
                     m_RadiantDiff -= diff;
@@ -672,7 +785,7 @@ public:
 
                     float l_X = me->GetPositionX() + 30 * cos(me->GetOrientation());
                     float l_Y = me->GetPositionY() + 30 * sin(me->GetOrientation());
-                    me->GetMotionMaster()->MoveJump(l_X, l_Y, me->GetPositionZ(), 20.0f, 7.0f, 10.0f);
+                    me->GetMotionMaster()->MoveJump(l_X, l_Y, me->GetPositionZ(), me->GetOrientation(), 30.0f, 8.0f, MovementInformedRadiantFury);       /// the trail stops when she lands
 
                     events.RescheduleEvent(EventRadiantFuryStop, 6 * IN_MILLISECONDS);
                     break;
@@ -714,8 +827,7 @@ public:
 
         enum eTwistedMagusSpells
         {
-            SpellArcaneBolt = 153235,
-            SpellArcaneBombDummy = 157652,
+            SpellArcaneBolt = 154235,
         };
 
         enum eTwistedMagusEvents
@@ -735,8 +847,7 @@ public:
 
         void EnterCombat(Unit* /*atacker*/) override
         {
-            events.RescheduleEvent(EventArcaneBolt, 4 * IN_MILLISECONDS);
-            events.RescheduleEvent(EventArcaneBomb, 12 * IN_MILLISECONDS);
+            events.RescheduleEvent(EventArcaneBolt, 2 * IN_MILLISECONDS);
         }
 
         void UpdateAI(uint32 diff) override
@@ -754,11 +865,7 @@ public:
                 case EventArcaneBolt:
                     if (Unit* l_Target = SelectTarget(SELECT_TARGET_RANDOM, 0, 50.0f, true))
                         me->CastSpell(l_Target, SpellArcaneBolt);
-                    events.RescheduleEvent(EventArcaneBolt, 15 * IN_MILLISECONDS);
-                    break;
-                case EventArcaneBomb:
-                    me->CastSpell(me, SpellArcaneBombDummy);
-                    events.RescheduleEvent(EventArcaneBomb, 25 * IN_MILLISECONDS);
+                    events.RescheduleEvent(EventArcaneBolt, 4 * IN_MILLISECONDS);
                     break;
                 default:
                     break;
@@ -787,16 +894,21 @@ public:
         {
             uint32 l_Entries[3] = {CreatureMaleficDefender, CreatureTwistedMagus, CreatureSpitefulArbitrer};
 
-            if (Unit* caster = GetCaster())
-            {
-                if (Creature* l_Trigger = GetCaster()->FindNearestCreature(CreatureCorpsesNyamiFight, 100.0f, true))
-                {
-                    Position position = l_Trigger->GetRandomNearPosition(4.0f);
+            Unit* caster = GetCaster();
+            if (!caster || !caster->isInCombat())
+                return;
 
-                    for (uint32 entry : l_Entries)
-                        caster->SummonCreature(entry, position, TEMPSUMMON_MANUAL_DESPAWN);
-                }
-            }
+            std::list<Creature*> l_Corpses;
+            GetNyamiCorpses(caster, l_Corpses, 100.0f);
+            if (l_Corpses.empty())
+                return;
+
+            std::list<Creature*>::iterator l_Itr = l_Corpses.begin();
+            std::advance(l_Itr, urand(0, uint32(l_Corpses.size()) - 1));
+            Position position = (*l_Itr)->GetRandomNearPosition(4.0f);
+
+            for (uint32 entry : l_Entries)
+                caster->SummonCreature(entry, position, TEMPSUMMON_MANUAL_DESPAWN);
         }
 
         void Register() override
@@ -825,12 +937,13 @@ public:
         void RecalculateDamage(SpellEffIndex /*effectIndex*/)
         {
             if (GetHitUnit() && GetHitUnit()->HasAura(SpellSoulBubbleBuff))
-                SetHitDamage(0);
+                PreventHitDefaultEffect(EFFECT_0);
         }
 
         void Register() override
         {
-            OnEffectHitTarget += SpellEffectFn(auchindoun_nyami_spell_soul_vessel_SpellScript::RecalculateDamage, SpellEffIndex::EFFECT_0, SpellEffects::SPELL_EFFECT_SCHOOL_DAMAGE);
+            /// the damage of this core is dealt at launch: a hook at the hit came too late
+            OnEffectLaunchTarget += SpellEffectFn(auchindoun_nyami_spell_soul_vessel_SpellScript::RecalculateDamage, SpellEffIndex::EFFECT_0, SpellEffects::SPELL_EFFECT_SCHOOL_DAMAGE);
         }
     };
 
@@ -911,7 +1024,7 @@ void AddSC_boss_nyami()
     new auchindoun_nyami_mob_spiteful_arbitrer();       ///< 76284
     new auchindoun_nyami_mob_twisted_magus();           ///< 76296
     new auchindoun_nyami_mob_warden_cosmetic();         ///< 76572
-    //new auchindoun_nyami_mob_bubble();                  ///< 342652
+    new auchindoun_nyami_mob_bubble();                    ///< 342652
     new auchindoun_nyami_spell_soul_vessel();           ///< 153994
     new auchindoun_nyami_spell_torn_spirits();          ///< 154187
     new auchindoun_nyami_spell_soul_vessel_dummy();     ///< 155327

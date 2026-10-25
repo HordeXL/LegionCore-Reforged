@@ -1,11 +1,10 @@
-
-////////////////////////////////////////////////////////////////////////////////
-///
-///  MILLENIUM-STUDIO
-///  Copyright 2015 Millenium-studio SARL
-///  All Rights Reserved.
-///  Coded by Davethebrave
-////////////////////////////////////////////////////////////////////////////////
+////////////////////////////////////////////
+///                                      ///
+///         LEGIONCORE REFORGED          ///
+///    Copyright 2026 Titans-Project     ///
+///         All Rights Reserved.         ///
+///                                      ///
+////////////////////////////////////////////
 
 #include "ScriptedCreature.h"
 #include "auchindoun.hpp"
@@ -57,7 +56,9 @@ enum eAzzakelTalks
     AzzakelSpell01 = 41,  ///< Come Forth, Servants!(46779)
     AzzakelKill01  = 42,  ///< The Masters Blase Your Soul! (46777)
     AzzakelKill02  = 43,  ///< Burn! (46778)
-    AzzakelDeath   = 44   ///< (46775)
+    AzzakelDeath   = 44,  ///< (46775)
+    AzzakelClawsEmote   = 50,     ///< raid boss emotes, in the language of each player (creature_text and its locales)
+    AzzakelCurtainEmote = 51
 };
 
 enum eAzzakelCreatures
@@ -158,8 +159,10 @@ public:
                 switch (summon->GetEntry())
                 {
                     case CreatureBlazingTrickster:
+                    case CreatureBlazingTrickster02:
                     case CreatureCacklingPyromaniac:
                     case CreatureFelguard:
+                        summon->setFaction(HostileFaction);       /// they take the faction of the controller, kept friendly before the fight
                         summon->SetReactState(REACT_AGGRESSIVE);
                         summon->SetInCombatWithZone();
                         break;
@@ -177,7 +180,18 @@ public:
                 {
                     m_Counting = m_Counting + 1;
 
-                    if (m_Counting > 6 && !m_Summoned)
+                    /// Azzakel comes once every demon of the room is dead, not after a fixed number of them
+                    bool l_Remaining = false;
+                    for (uint32 l_Entry : { uint32(CreatureFelguardTrash), uint32(CreatureCacklingPyromaniacTrash), uint32(CreatureLegionTrash) })
+                    {
+                        std::list<Creature*> l_Demons;
+                        me->GetCreatureListWithEntryInGrid(l_Demons, l_Entry, 80.0f);
+                        for (Creature* l_Demon : l_Demons)
+                            if (l_Demon->IsAlive())
+                                l_Remaining = true;
+                    }
+
+                    if (!l_Remaining && !m_Summoned)
                     {
                         m_Summoned = true;
                         me->CastSpell(me, SpellVisualFelBurst);
@@ -201,12 +215,12 @@ public:
                 {
                     if (Creature* TempAzzakael = me->SummonCreature(BossAzaakel, *me, TEMPSUMMON_MANUAL_DESPAWN))
                     {
+                        /// he turns hostile in the next step whether or not the portal appeared: tied to it, he stayed friendly when it failed
+                        m_Azzakel = TempAzzakael->GetGUID();
                         if (GameObject* l_Portal = me->SummonGameObject(GameobjectDemonicPortal, *me, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0))
-                        {
-                            m_Azzakel = TempAzzakael->GetGUID();
-                            l_Portal->SetFlag(11, GO_FLAG_NOT_SELECTABLE | GO_FLAG_NODESPAWN | GO_FLAG_INTERACT_COND);
-                            TempAzzakael->GetMotionMaster()->MoveJump(g_PositionSpawningFlyCoords[1].GetPositionX(), g_PositionSpawningFlyCoords[1].GetPositionY(), g_PositionSpawningFlyCoords[1].GetPositionZ(), 0.0f, 30.0f, 25.0f);
-                        }
+                            l_Portal->SetFlag(GAMEOBJECT_FIELD_FLAGS, GO_FLAG_NOT_SELECTABLE | GO_FLAG_NODESPAWN | GO_FLAG_INTERACT_COND);
+
+                        TempAzzakael->GetMotionMaster()->MoveJump(g_PositionSpawningFlyCoords[1].GetPositionX(), g_PositionSpawningFlyCoords[1].GetPositionY(), g_PositionSpawningFlyCoords[1].GetPositionZ(), 0.0f, 30.0f, 25.0f);
                     }
                     events.RescheduleEvent(EventSummonAzzakel02, 1 * IN_MILLISECONDS);
                     break;
@@ -218,6 +232,7 @@ public:
                         if (Creature* l_Azzakael = Creature::GetCreature(*me, m_Azzakel))
                         {
                             l_Azzakael->setFaction(HostileFaction);
+                            l_Azzakael->RemoveFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_IMMUNE_TO_PC | UNIT_FLAG_IMMUNE_TO_NPC | UNIT_FLAG_NON_ATTACKABLE);       /// his template keeps him immune to players
                             l_Azzakael->GetMotionMaster()->MoveCharge(1911.93f, 2754.40f, 30.973f, 42.0f);
                         }
                         break;
@@ -454,6 +469,7 @@ public:
         {
             _JustDied();
             Talk(AzzakelDeath);
+            HandleDoors(me);       /// the fel barrier he raised at the pull
             for (uint32 entry : {CreatureCacklingPyromaniac, CreatureBlazingTrickster, CreatureFelguard, CreatureBlazingTrickster02})
                 DespawnCreaturesInArea(entry, me);
 
@@ -474,6 +490,16 @@ public:
                     if (me->GetMap() && me->GetMap()->IsHeroic())
                         m_Instance->DoCompleteAchievement(AchievementDemonSouls);
                 }
+
+                /// Teron'gor arrives: his scene (914), anchored where he stands
+                Position l_ScenePosition = me->GetPosition();
+                if (Creature* l_Teronogor = m_Instance->instance->GetCreature(m_Instance->GetGuidData(DataBossTeronogor)))
+                    l_ScenePosition = l_Teronogor->GetPosition();
+
+                Map::PlayerList const& l_Players = m_Instance->instance->GetPlayers();
+                for (Map::PlayerList::const_iterator l_Itr = l_Players.begin(); l_Itr != l_Players.end(); ++l_Itr)
+                    if (Player* l_Player = l_Itr->getSource())
+                        l_Player->SendSpellScene(SpellAuchindounSceneTeronogorSpawn, nullptr, true, &l_ScenePosition);
             }
         }
 
@@ -532,7 +558,7 @@ public:
                     Talk(AzzakelSpell01);
                     me->AddUnitMovementFlag(MOVEMENTFLAG_FLYING);
                     me->CastSpell(me, SpellClawsOfArgusVisual);
-                    me->MonsterTextEmote("Azzakel casts |cffff0000[Azzakael casts [Claws of Agrus]|cfffaeb00!", me->GetGUID(), true);
+                    Talk(AzzakelClawsEmote);
                     events.RescheduleEvent(EventClawsOfArgus, 45 * IN_MILLISECONDS);
                     break;
                 }
@@ -542,10 +568,7 @@ public:
                     {
                         Talk(AzzakelSpell03);
                         me->AddAura(SpellCurtainOfFlameAura, l_Target);
-                        std::string l_Str;
-                        l_Str += "Azzakel casts |cffff0000[Curtain of Flame]|cfffaeb00! on ";
-                        l_Str += l_Target->GetName();
-                        me->MonsterTextEmote(l_Str.c_str(), me->GetGUID(), true);
+                        Talk(AzzakelCurtainEmote, l_Target->GetGUID());
                     }
 
                     events.RescheduleEvent(EventCurtainOfFlame, urand(8 * IN_MILLISECONDS, 15 * IN_MILLISECONDS));
@@ -808,8 +831,8 @@ void AddSC_boss_azzakel()
 {
     new boss_azzakel();                             ///< 75927
     new auchindoun_azzakel_mob_controller();        ///< 76216
-    //new auchindoun_azzakel_mob_fel_spark_trigger(); ///< 326527
-    //new auchindoun_azzakel_mob_fel_pool();          ///< 326526
+    new auchindoun_azzakel_mob_fel_spark_trigger();   ///< 326527
+    new auchindoun_azzakel_mob_fel_pool();            ///< 326526
     new auchindoun_azzakel_spell_curtain_flames();  ///< 153392
     new auchindoun_azzakel_spell_claws_of_argus();  ///< 153764
 }

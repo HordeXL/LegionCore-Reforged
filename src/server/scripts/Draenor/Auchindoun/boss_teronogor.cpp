@@ -1,11 +1,10 @@
-
-////////////////////////////////////////////////////////////////////////////////
-///
-///  MILLENIUM-STUDIO
-///  Copyright 2015 Millenium-studio SARL
-///  All Rights Reserved.
-///  Coded by Davethebrave
-////////////////////////////////////////////////////////////////////////////////
+////////////////////////////////////////////
+///                                      ///
+///         LEGIONCORE REFORGED          ///
+///    Copyright 2026 Titans-Project     ///
+///         All Rights Reserved.         ///
+///                                      ///
+////////////////////////////////////////////
 
 #include "ScriptedCreature.h"
 #include "auchindoun.hpp"
@@ -44,6 +43,7 @@ enum eTerongorSpells
     SpellSummonAbyssalGroundEffect          = 159681,
     SpellSummonAbyssalDummy                 = 157214,
     SpellSummonAbyssalSummonSpell           = 157216,
+    SpellBloomOfMalevolence                 = 166461,
     SpellDemonicCircleVisual                = 149133,
     SpellTeronogorShield                    = 157017,
     SpellBrokenSouls                        = 72398,
@@ -279,8 +279,9 @@ public:
             {
                 if (m_Instance)
                 {
-                    if (Creature* l_Jorra = m_Instance->instance->GetCreature(m_Instance->GetGuidData(DataIruun)))
-                        me->CastSpell(l_Jorra, SpellDrainSoulVisual);
+                    /// the high soulpriest Durem (kept under DataElum by the instance)
+                    if (Creature* l_Durem = m_Instance->instance->GetCreature(m_Instance->GetGuidData(DataElum)))
+                        me->CastSpell(l_Durem, SpellDrainSoulVisual);
                 }
 
                 if (m_First)
@@ -363,6 +364,7 @@ public:
                             events.RescheduleEvent(EventAgony, 16 * IN_MILLISECONDS);
                             events.RescheduleEvent(EventDrainLife, urand(13 * IN_MILLISECONDS, 16 * IN_MILLISECONDS));
                             events.RescheduleEvent(EventUnstableAffliction, 20 * IN_MILLISECONDS);
+                            events.RescheduleEvent(EventBloomOfMalevolence, 18 * IN_MILLISECONDS);
                             me->m_Events.AddEvent(new EventTeronogorTransform(me, TransformationPreChannel, 0), me->m_Events.CalculateTime(2 * IN_MILLISECONDS));
                             break;
                         case TransformationDestruction: // Arcanist Jorra's - destruction
@@ -384,6 +386,7 @@ public:
                             events.RescheduleEvent(EventCorruption, urand(10 * IN_MILLISECONDS, 14 * IN_MILLISECONDS));
                             events.RescheduleEvent(EventChaosBolt, 25 * IN_MILLISECONDS);
                             events.RescheduleEvent(EventTouchOfChaos, 16 * IN_MILLISECONDS);
+                            events.RescheduleEvent(EventChaosWave, 12 * IN_MILLISECONDS);
                             me->m_Events.AddEvent(new EventTeronogorTransform(me, TransformationPreChannel, 2), me->m_Events.CalculateTime(2 * IN_MILLISECONDS));
                             break;
                         default:
@@ -620,6 +623,14 @@ public:
                     events.RescheduleEvent(EventTouchOfChaos, 16 * IN_MILLISECONDS);
                     break;
                 }
+                case EventBloomOfMalevolence:
+                {
+                    if (Unit* l_Random = SelectTarget(SELECT_TARGET_RANDOM, 0, 50.0f, true))
+                        me->CastSpell(l_Random, SpellBloomOfMalevolence);
+
+                    events.RescheduleEvent(EventBloomOfMalevolence, 20 * IN_MILLISECONDS);
+                    break;
+                }
                 default:
                     break;
             }
@@ -681,7 +692,7 @@ public:
                 if (Creature* l_Teronogor = m_Instance->instance->GetCreature(m_Instance->GetGuidData(DataBossTeronogor)))
                 {
                     me->CastStop();
-                    me->CastSpell(l_Teronogor, SpellDrainSoulVisual);
+                    me->CastSpell(l_Teronogor, SpellCosmeticShadowChannel);
                 }
             }
 
@@ -785,7 +796,7 @@ public:
                 if (Creature* l_Teronogor = m_Instance->instance->GetCreature(m_Instance->GetGuidData(DataBossTeronogor)))
                 {
                     me->CastStop();
-                    me->CastSpell(l_Teronogor, SpellDrainSoulVisual);
+                    me->CastSpell(l_Teronogor, SpellCosmeticShadowChannel);
                 }
             }
 
@@ -938,8 +949,8 @@ public:
         {
             SpellGrimoireOfSacrifice = 159024,
             SpellImmolate = 156964,
-            SpellIncinrate = 146963,
-            SpellRainOfFire = 65757
+            SpellIncinrate = 157051,
+            SpellRainOfFire = 156974
         };
 
         enum eGromkashEvents
@@ -962,7 +973,7 @@ public:
             if (m_Instance)
             {
                 if (Creature* l_Teronogor = m_Instance->instance->GetCreature(m_Instance->GetGuidData(DataBossTeronogor)))
-                    me->CastSpell(l_Teronogor, SpellDrainSoulVisual);
+                    me->CastSpell(l_Teronogor, SpellCosmeticShadowChannel);
             }
         }
 
@@ -977,13 +988,9 @@ public:
                 me->CastSpell(l_Zashoo, SpellGrimoireOfSacrifice);
         }
 
+        /// the shield of Teron'gor falls with the last of the three warlocks feeding it, whichever it is: the instance sees to it
         void JustDied(Unit* /*killer*/) override
         {
-            if (m_Instance)
-            {
-                if (Creature* Teronogor = m_Instance->instance->GetCreature(m_Instance->GetGuidData(DataBossTeronogor)))
-                    Teronogor->RemoveAura(SpellTeronogorShield);
-            }
         }
 
         void UpdateAI(uint32 diff) override
@@ -1069,7 +1076,7 @@ public:
                 AddDelayedEvent(2 * IN_MILLISECONDS, [this]() -> void
                 {
                     me->SetInCombatWithZone();
-                    me->SetDisplayId(InvisibleDisplay);
+                    me->SetDisplayId(me->GetNativeDisplayId());       /// the meteor has landed: the abyssal shows
                     me->SetReactState(REACT_AGGRESSIVE);
                     me->RemoveFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_REMOVE_CLIENT_CONTROL | UNIT_FLAG_IMMUNE_TO_PC | UNIT_FLAG_IMMUNE_TO_NPC);
                 });
@@ -1365,7 +1372,7 @@ public:
                     case 100:
                         m_Obj->RemoveAura(SpellTranscend);
                         m_Obj->RemoveUnitMovementFlag(MOVEMENTFLAG_ROOT);
-                        m_Obj->RemoveFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_REMOVE_CLIENT_CONTROL);
+                        m_Obj->RemoveFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_REMOVE_CLIENT_CONTROL | UNIT_FLAG_IMMUNE_TO_NPC);       /// set for the journey only: kept, nothing could be attacked any more
                         m_Obj->RemoveFlag(UNIT_FIELD_FLAGS_2, UNIT_FLAG2_DISABLE_TURN);
                         break;
                     default:
@@ -1610,7 +1617,7 @@ void AddSC_boss_teronogor()
 {
     new boss_teronogor();                                           ///< 77734
     new auchindoun_teronogor_mob_gromkash();                        ///< 77889
-    //new auchindoun_teronogor_mob_abyssal();                         ///< 77905
+    new auchindoun_teronogor_mob_abyssal();                           ///< 213593
     new auchindoun_teronogor_mob_durag();                           ///< 77890
     new auchindoun_teronogor_mob_gulkosh();                         ///< 78437
     new auchindoun_teronogor_mob_shaadum();                         ///< 78728
@@ -1620,7 +1627,7 @@ void AddSC_boss_teronogor()
     new auchindoun_teronogor_spell_seed_of_malevolence();           ///< 156921
     new auchindoun_teronogor_spell_demonic_leap_jump();             ///< 157039
     new auchindoun_teronogor_gameobject_soul_transporter_01();      ///< 231736
-    //new auchindoun_teronogor_gameobject_soul_transporter_02();      ///< 345366
-    //new auchindoun_teronogor_gameobject_soul_transporter_03();      ///< 345367
-    //new auchindoun_teronogor_gameobject_soul_transporter_04();      ///< 345368
+    new auchindoun_teronogor_gameobject_soul_transporter_02();        ///< 231739
+    new auchindoun_teronogor_gameobject_soul_transporter_03();        ///< 231740
+    new auchindoun_teronogor_gameobject_soul_transporter_04();        ///< 231741
 }
