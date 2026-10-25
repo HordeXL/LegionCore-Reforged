@@ -983,8 +983,12 @@ void WorldSession::HandlePlayerLogin(LoginQueryHolder const& holder)
 
         if (!player->GetMap()->AddPlayerToMap(player) || !player->GetMap()->IsGarrison() && !player->CheckInstanceLoginValid())
         {
+            WorldLocation const& entryPoint = player->GetBattlegroundEntryPoint();
             if (AreaTriggerStruct const* at = sAreaTriggerDataStore->GetGoBackTrigger(player->GetMapId()))
                 player->TeleportTo(at->target_mapId, at->target_X, at->target_Y, at->target_Z, player->GetOrientation());
+            // a scenario has no way back of its own: the player goes back where the dungeon finder took him from
+            else if (player->GetMap()->IsScenario() && entryPoint.GetMapId() != MAPID_INVALID && entryPoint.GetMapId() != player->GetMapId())
+                player->TeleportTo(entryPoint);
             else
                 player->TeleportTo(player->m_homebindMapId, player->m_homebindX, player->m_homebindY, player->m_homebindZ, player->GetOrientation());
         }

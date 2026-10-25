@@ -1,16 +1,16 @@
-////////////////////////////////////////////////////////////////////////////////
-///
-///  MILLENIUM-STUDIO
-///  Copyright 2015 Millenium-studio SARL
-///  All Rights Reserved.
-///  Coded by Davethebrave
-////////////////////////////////////////////////////////////////////////////////
+////////////////////////////////////////////
+///                                      ///
+///         LEGIONCORE REFORGED          ///
+///    Copyright 2026 Titans-Project     ///
+///         All Rights Reserved.         ///
+///                                      ///
+////////////////////////////////////////////
 
 #include "ScriptedCreature.h"
 #include "auchindoun.hpp"
 #include "Object.h"
 
-Position const g_PositionKaatharCrystalPosition = {1909.75f, 3188.70f, 66.786f, 5.401960f};
+Position const g_PositionKaatharCrystalPosition = {1911.5f, 3182.5f, 55.6f, 5.66f};
 
 /// 1st Starting Event
 class EventTuulaniIntroduction : public BasicEvent
@@ -52,7 +52,7 @@ public:
                                     l_Nyami->CastSpell(l_Trigger, SpellShadowBeam);
                                 }
 
-                                l_Tuulina->AI()->Talk(TUULANITALK18);
+                                l_Tuulina->AI()->Talk(TUULANITALK2);
                                 l_Tuulina->GetMotionMaster()->MovePoint(MovementInformTuulani02, g_PositionTuulaniMovements[1]);
                                 break;
                             }
@@ -89,10 +89,12 @@ public:
                             }
                             case 7:
                             {
-                                if (GameObject* l_NearestHolyWall = l_Tuulina->FindNearestGameObject(GameobjectHolyWall, 60.0f))
-                                    l_NearestHolyWall->Delete();
+                                /// the gate she stood before opens when her spell is over
+                                if (GameObject* l_Gate = l_Tuulina->FindNearestGameObject(GameobjectHolyGate, 30.0f))
+                                    l_Gate->Delete();
 
-                                l_Tuulina->AI()->Talk(TUULANITALK2);
+                                l_Tuulina->AI()->Talk(TUULANITALK18);
+                                l_Tuulina->InterruptNonMeleeSpells(false);       /// her unlock beam has no end of its own: the wardens holding the barriers use it for good
                                 l_Tuulina->GetMotionMaster()->MovePoint(MovementInformTuulani05, g_PositionTuulaniMovements[5]);
                                 break;
                             }
@@ -145,8 +147,9 @@ public:
                                             continue;
 
                                         itr->NearTeleportTo(*l_Tuulina);
-                                        itr->CastSpell(itr, 204673); // scene spell?
-                                        //itr->PlayScene(SpellAuchindounSceneTulaaniReachNyami, itr);
+                                        /// Tuulani running to the boss room (scene 913, flags 17 from spell_scene)
+                                        Position l_ScenePosition = l_Tuulina->GetPosition();
+                                        itr->SendSpellScene(SpellAuchindounSceneTulaaniReachNyami, nullptr, true, &l_ScenePosition);
                                     }
                                 }
 
@@ -159,15 +162,15 @@ public:
                             }
                             case 12:
                             {
-
+                                //l_Tuulina->AI()->Talk(TUULANITALK6);      /// the scene already plays the voices
                                 l_Tuulina->GetMotionMaster()->MovePoint(MovementInformTuulani10, g_PositionTuulaniMovements[10]);
                                 break;
                             }
                             case 13:
                             {
-                                //l_Tuulina->AI()->Talk(TUULANITALK7);
                                 l_Tuulina->AddUnitMovementFlag(MOVEMENTFLAG_ROOT);
                                 l_Tuulina->AddAura(SpellTuulaniCapturedVoidPrison, l_Tuulina);
+                                l_Tuulina->AI()->DoAction(ActionTuulaniImprisoned);
                                 l_Tuulina->SetFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_REMOVE_CLIENT_CONTROL);
                                 l_Tuulina->SetFlag(UNIT_FIELD_FLAGS_2, UNIT_FLAG2_DISABLE_TURN);
                                 //l_Tuulina->m_Events.AddEvent(new EventTuulaniIntroduction(l_Tuulina, 15, m_InstanceScript), l_Tuulina->m_Events.CalculateTime(7 * IN_MILLISECONDS));
@@ -196,40 +199,44 @@ public:
                                 }
                                 */
 
+                                //l_Tuulina->m_Events.AddEvent(new EventTuulaniIntroduction(l_Tuulina, 16, m_InstanceScript), l_Tuulina->m_Events.CalculateTime(2 * IN_MILLISECONDS));      /// Nyami's lines are in the scene
                                 break;
                             }
-                            /*
                             case 16:
                             {
-                            l_Nyami->AI()->Talk(NYAMITALK2);
-                            l_Tuulina->m_Events.AddEvent(new EventTuulaniIntroduction(l_Tuulina, 17, m_InstanceScript), l_Tuulina->m_Events.CalculateTime(9 * IN_MILLISECONDS));
-                            break;
+                                l_Nyami->AI()->Talk(NYAMITALK1);
+                                l_Tuulina->m_Events.AddEvent(new EventTuulaniIntroduction(l_Tuulina, 17, m_InstanceScript), l_Tuulina->m_Events.CalculateTime(6 * IN_MILLISECONDS));
+                                break;
                             }
                             case 17:
                             {
-                            l_Nyami->AI()->Talk(NYAMITALK3);
-                            l_Tuulina->m_Events.AddEvent(new EventTuulaniIntroduction(l_Tuulina, 18, m_InstanceScript), l_Tuulina->m_Events.CalculateTime(9 * IN_MILLISECONDS));
-                            break;
+                                l_Nyami->AI()->Talk(NYAMITALK2);
+                                l_Tuulina->m_Events.AddEvent(new EventTuulaniIntroduction(l_Tuulina, 18, m_InstanceScript), l_Tuulina->m_Events.CalculateTime(9 * IN_MILLISECONDS));
+                                break;
                             }
                             case 18:
                             {
-                            l_Nyami->AI()->Talk(NYAMITALK4);
-                            l_Tuulina->m_Events.AddEvent(new EventTuulaniIntroduction(l_Tuulina, 19, m_InstanceScript), l_Tuulina->m_Events.CalculateTime(9 * IN_MILLISECONDS));
-                            break;
+                                l_Nyami->AI()->Talk(NYAMITALK3);
+                                l_Tuulina->m_Events.AddEvent(new EventTuulaniIntroduction(l_Tuulina, 19, m_InstanceScript), l_Tuulina->m_Events.CalculateTime(9 * IN_MILLISECONDS));
+                                break;
                             }
                             case 19:
                             {
-                            l_Tuulina->AI()->Talk(TUULANITALK8);
-                            l_Tuulina->m_Events.AddEvent(new EventTuulaniIntroduction(l_Tuulina, 20, m_InstanceScript), l_Tuulina->m_Events.CalculateTime(9 * IN_MILLISECONDS));
-                            break;
+                                l_Nyami->AI()->Talk(NYAMITALK4);
+                                l_Tuulina->m_Events.AddEvent(new EventTuulaniIntroduction(l_Tuulina, 20, m_InstanceScript), l_Tuulina->m_Events.CalculateTime(9 * IN_MILLISECONDS));
+                                break;
                             }
                             case 20:
                             {
-                            l_Nyami->AI()->Talk(NYAMITALK5);
-                            l_Tuulina->m_Events.AddEvent(new EventTuulaniIntroduction(l_Tuulina, 21, m_InstanceScript), l_Tuulina->m_Events.CalculateTime(9 * IN_MILLISECONDS));
-                            break;
+                                l_Tuulina->AI()->Talk(TUULANITALK8);
+                                l_Tuulina->m_Events.AddEvent(new EventTuulaniIntroduction(l_Tuulina, 21, m_InstanceScript), l_Tuulina->m_Events.CalculateTime(9 * IN_MILLISECONDS));
+                                break;
                             }
-                            */
+                            case 21:
+                            {
+                                l_Nyami->AI()->Talk(NYAMITALK5);
+                                break;
+                            }
                             default:
                                 break;
                         }
@@ -261,10 +268,20 @@ public:
         {
             m_Instance = creature->GetInstanceScript();
             m_First = true;
+            m_Started = false;
+            m_PendingStep = -1;
+            m_Cried = false;
+            m_SceneOver = false;
+            m_PendingFirstLine = false;
         }
 
         InstanceScript* m_Instance;
         bool m_First;
+        bool m_Started;
+        bool m_Cried;
+        bool m_SceneOver;
+        bool m_PendingFirstLine;
+        int32 m_PendingStep;
         uint32 m_FirstDiff;
         EventMap events;
 
@@ -272,20 +289,81 @@ public:
         {
             events.Reset();
             m_First = false;
+            m_Started = false;
+            m_PendingStep = -1;
             me->setFaction(FriendlyFaction);
-            Talk(TUULANITALK1);
             me->SetSpeed(MOVE_RUN, 1.2f, true);
             me->SetSpeed(MOVE_WALK, 1.2f, true);
             me->SetFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_IMMUNE_TO_NPC);
-
-            AddDelayedEvent(4 * IN_MILLISECONDS, [this]() -> void
-            {
-                me->GetMotionMaster()->MovePoint(MovementInformTuulani01, g_PositionTuulaniMovements[0]);
-            });
         }
 
+        /// her cry once the scene is over (watched to the end or skipped) and she is caught in the void: once, whatever the number of players
+        void DoAction(int32 const p_Action) override
+        {
+            if (p_Action == ActionTuulaniSkipIntro)
+            {
+                m_Started = true;
+                m_PendingStep = -1;
+                m_PendingFirstLine = false;
+                return;
+            }
+
+            if (p_Action == ActionTuulaniSceneOver)
+                m_SceneOver = true;
+            else if (p_Action != ActionTuulaniImprisoned)
+                return;
+
+            if (m_Cried || !m_SceneOver || !me->HasAura(SpellTuulaniCapturedVoidPrison))
+                return;
+
+            m_Cried = true;
+            Talk(TUULANITALK10);
+        }
+
+        /// a player who walked about ten yards in from the portal of the entrance
+        bool IsPlayerPastEntrance() const
+        {
+            Map::PlayerList const& l_Players = me->GetMap()->GetPlayers();
+            for (Map::PlayerList::const_iterator l_Itr = l_Players.begin(); l_Itr != l_Players.end(); ++l_Itr)
+            {
+                Player* l_Player = l_Itr->getSource();
+                if (l_Player && l_Player->IsInWorld() && !l_Player->IsBeingTeleported() && l_Player->GetExactDist2d(1487.36f, 2953.42f) >= 10.0f)
+                    return true;
+            }
+
+            return false;
+        }
+
+        /// once a player has passed the entrance, her whole walk goes on by itself: no step waits for the players any more
         void UpdateAI(uint32 /*diff*/) override
         {
+            if (m_PendingStep >= 0)
+            {
+                me->m_Events.AddEvent(new EventTuulaniIntroduction(me, uint32(m_PendingStep), m_Instance), me->m_Events.CalculateTime(1 * IN_MILLISECONDS));
+                m_PendingStep = -1;
+            }
+
+            if (m_PendingFirstLine)
+            {
+                m_PendingFirstLine = false;
+                Talk(TUULANITALK1);
+                me->m_Events.AddEvent(new EventTuulaniIntroduction(me, 0, m_Instance), me->m_Events.CalculateTime(5 * IN_MILLISECONDS));
+            }
+
+            if (m_Started)
+                return;
+
+            if (m_Instance && (m_Instance->GetData(DataPreKaatharCleared) || m_Instance->GetBossState(DataBossKathaar) == DONE))
+            {
+                m_Started = true;       /// the instance put her back where she belongs
+                return;
+            }
+
+            if (!IsPlayerPastEntrance())
+                return;
+
+            m_Started = true;
+            me->GetMotionMaster()->MovePoint(MovementInformTuulani01, g_PositionTuulaniMovements[0]);
         }
 
         void MovementInform(uint32 /*moveType*/, uint32 id) override
@@ -296,10 +374,10 @@ public:
                 switch (id)
                 {
                     case MovementInformTuulani01:
-                        me->m_Events.AddEvent(new EventTuulaniIntroduction(me, 0, m_Instance), me->m_Events.CalculateTime(1 * IN_MILLISECONDS));
+                        m_PendingFirstLine = true;
                         break;
                     case MovementInformTuulani02:
-                        me->m_Events.AddEvent(new EventTuulaniIntroduction(me, 1, m_Instance), me->m_Events.CalculateTime(1 * IN_MILLISECONDS));
+                        m_PendingStep = 1;
                         break;
                     case MovementInformTuulani03:
                         if (m_Instance)
@@ -309,19 +387,19 @@ public:
                             break;
                         }
                     case MovementInformTuulani04:
-                        me->m_Events.AddEvent(new EventTuulaniIntroduction(me, 5, m_Instance), me->m_Events.CalculateTime(1 * IN_MILLISECONDS));
+                        m_PendingStep = 5;
                         break;
                     case MovementInformTuulani05:
-                        me->m_Events.AddEvent(new EventTuulaniIntroduction(me, 8, m_Instance), me->m_Events.CalculateTime(1 * IN_MILLISECONDS));
+                        m_PendingStep = 8;
                         break;
                     case MovementInformTuulani06:
-                        me->m_Events.AddEvent(new EventTuulaniIntroduction(me, 9, m_Instance), me->m_Events.CalculateTime(1 * IN_MILLISECONDS));
+                        m_PendingStep = 9;
                         break;
                     case MovementInformTuulani07:
-                        me->m_Events.AddEvent(new EventTuulaniIntroduction(me, 10, m_Instance), me->m_Events.CalculateTime(1 * IN_MILLISECONDS));
+                        m_PendingStep = 10;
                         break;
                     case MovementInformTuulani08:
-                        me->m_Events.AddEvent(new EventTuulaniIntroduction(me, 11, m_Instance), me->m_Events.CalculateTime(1 * IN_MILLISECONDS));
+                        me->m_Events.AddEvent(new EventTuulaniIntroduction(me, 11, m_Instance), me->m_Events.CalculateTime(1 * IN_MILLISECONDS));       /// the scene brings the players to her
                         break;
                     case MovementInformTuulani09:
                         me->m_Events.AddEvent(new EventTuulaniIntroduction(me, 12, m_Instance), me->m_Events.CalculateTime(1 * IN_MILLISECONDS));
@@ -365,7 +443,7 @@ public:
 
         enum eSargereiSoulbinderSpells
         {
-            SpellVoidShell = 160312,
+            SpellMindSear = 157170,
             SpellBendWill = 154527
         };
 
@@ -408,8 +486,8 @@ public:
             {
                 case EventMindShear:
                     if (Unit* l_Target = SelectTarget(SELECT_TARGET_RANDOM, 0, 50.0f, true))
-                        me->CastSpell(l_Target, SpellVoidShell);
-                    events.RescheduleEvent(EventBendWill, 8 * IN_MILLISECONDS);
+                        me->CastSpell(l_Target, SpellMindSear);
+                    events.RescheduleEvent(EventMindShear, 15 * IN_MILLISECONDS);
                     break;
                 case EventBendWill:
                     if (Unit* l_Target = SelectTarget(SELECT_TARGET_RANDOM, 0, 50.0f, true))
@@ -961,6 +1039,7 @@ public:
         enum eSargereiMagusSpells
         {
             SpellArcaneChanneling = 161383,
+            SpellVoidChannelingHands = 160677,
             SpellArcaneBombDummy = 157652,
             SpellArcaneBoltPeriod = 157505,
             SpellArcaneBoltProje = 157931
@@ -985,6 +1064,7 @@ public:
 
             events.Reset();
             me->CastSpell(me, eSargereiMagusSpells::SpellArcaneChanneling);
+            me->AddAura(eSargereiMagusSpells::SpellVoidChannelingHands, me);       /// the void in his hands: the arcane he channels is corrupted
         }
 
         void MovementInform(uint32 /*moveType*/, uint32 id) override
@@ -1015,8 +1095,9 @@ public:
         void EnterCombat(Unit* atacker) override
         {
             me->RemoveAura(eSargereiMagusSpells::SpellArcaneChanneling);
-            events.RescheduleEvent(eSargereiMagusEvents::EventArcaneBomb, 13 * IN_MILLISECONDS);
-            events.RescheduleEvent(eSargereiMagusEvents::EventArcaneBolt, 20 * IN_MILLISECONDS);
+            me->RemoveAura(eSargereiMagusSpells::SpellVoidChannelingHands);
+            /// the arcane bombs belong to the Auchenai magi, out of combat: the Sargerei only cast their bolts
+            events.RescheduleEvent(eSargereiMagusEvents::EventArcaneBolt, 6 * IN_MILLISECONDS);
 
             std::list<Creature*> l_mobsPrisoners;
             me->GetCreatureListWithEntryInGrid(l_mobsPrisoners, CreatureAucheniSoulPriest, 20.0f);
@@ -1050,7 +1131,7 @@ public:
                     break;
                 case eSargereiMagusEvents::EventArcaneBolt:
                     me->CastSpell(me, eSargereiMagusSpells::SpellArcaneBoltPeriod);
-                    events.RescheduleEvent(eSargereiMagusEvents::EventArcaneBolt, 20 * IN_MILLISECONDS);
+                    events.RescheduleEvent(eSargereiMagusEvents::EventArcaneBolt, 14 * IN_MILLISECONDS);
                     break;
                 default:
                     break;
@@ -1129,7 +1210,7 @@ public:
             {
                 case eSoulPriestEvents::EventShadowWordPainSoulPriest:
                     if (Unit* l_Target = SelectTarget(SELECT_TARGET_RANDOM, 0, 100.0f, true, -SpellShadowWordPainPriest))
-                        me->CastSpell(me, eSoulPriestSpells::SpellShadowWordPainPriest);
+                        me->CastSpell(l_Target, eSoulPriestSpells::SpellShadowWordPainPriest);
                     events.RescheduleEvent(eSoulPriestEvents::EventShadowWordPainSoulPriest, urand(8 * IN_MILLISECONDS, 12 * IN_MILLISECONDS));
                     break;
                 case eSoulPriestEvents::EventPsychicTerrors:
@@ -1379,6 +1460,7 @@ public:
 
         void EnterCombat(Unit* atacker) override
         {
+            me->InterruptNonMeleeSpells(false);       /// the summoning circle has no end of its own
             events.RescheduleEvent(eCacklingPyromaniacEvents::EventFelBlast, 6 * IN_MILLISECONDS);
         }
 
@@ -1915,15 +1997,27 @@ public:
         {
             /// Clears all targets at start, fetching new ones
             targets.clear();
+            Unit* l_Caster = GetCaster();
             std::list<Creature*> l_ListTriggerWall;
-            GetCaster()->GetCreatureListWithEntryInGrid(l_ListTriggerWall, CreatureLightWallTargets, 15.0f);
-            if (!l_ListTriggerWall.empty())
+            l_Caster->GetCreatureListWithEntryInGrid(l_ListTriggerWall, CreatureLightWallTargets, 15.0f);
+
+            /// the wardens and clerics holding a barrier side by side each take the points closer to them than to the others
+            std::list<Creature*> l_Peers;
+            if (l_Caster->GetEntry() != CreatureSoulBinderTuulani)
+                l_Caster->GetCreatureListWithEntryInGrid(l_Peers, l_Caster->GetEntry(), 30.0f);
+
+            for (Creature* itr : l_ListTriggerWall)
             {
-                for (Creature* itr : l_ListTriggerWall)
-                {
-                    if (itr && itr->IsInWorld())
-                        targets.push_back(itr->ToUnit());
-                }
+                if (!itr || !itr->IsInWorld())
+                    continue;
+
+                bool l_Mine = true;
+                for (Creature* l_Peer : l_Peers)
+                    if (l_Peer != l_Caster && l_Peer->IsAlive() && l_Peer->GetExactDist2d(itr) < l_Caster->GetExactDist2d(itr))
+                        l_Mine = false;
+
+                if (l_Mine)
+                    targets.push_back(itr->ToUnit());
             }
         }
 
@@ -1931,6 +2025,9 @@ public:
         {
             if (Unit* caster = GetCaster())
             {
+                if (caster->GetEntry() != CreatureSoulBinderTuulani)
+                    return;
+
                 if (GameObject * l_GameObject = caster->FindNearestGameObject(GameobjectHolyBarrierEntra, 5.0f))
                 {
                     l_GameObject->Delete();
@@ -1941,6 +2038,7 @@ public:
         void Register() override
         {
             OnObjectAreaTargetSelect += SpellObjectAreaTargetSelectFn(auchindoun_spell_tuulani_unlock_SpellScript::CorrectTargets, SpellEffIndex::EFFECT_0, Targets::TARGET_UNIT_DEST_AREA_ENTRY);
+            AfterCast += SpellCastFn(auchindoun_spell_tuulani_unlock_SpellScript::HandleAfterCast);
         }
     };
 
@@ -2005,9 +2103,119 @@ public:
     }
 };
 
+/// Auchenai Cleric - 77947: two of them hold the barrier near the entrance, but only once the Sargerei have closed it (second phase)
+class auchindoun_mob_barrier_keeper : public CreatureScript
+{
+public:
+
+    auchindoun_mob_barrier_keeper() : CreatureScript("auchindoun_mob_barrier_keeper") { }
+
+    struct auchindoun_mob_barrier_keeperAI : public ScriptedAI
+    {
+        explicit auchindoun_mob_barrier_keeperAI(Creature* creature) : ScriptedAI(creature), m_Active(false), m_Timer(0) { }
+
+        bool m_Active;
+        uint32 m_Timer;
+
+        bool IsKeeper() const
+        {
+            uint64 l_Spawn = me->GetDBTableGUIDLow();
+            return l_Spawn == 10530211 || l_Spawn == 10530215;
+        }
+
+        void Reset() override
+        {
+            m_Active = false;
+            m_Timer = 0;
+        }
+
+        /// the instance holds the barrier with Tuulani's beam now: the holy beam only shone on the cleric himself, and never ended
+        void DoAction(int32 const /*p_Action*/) override { }
+
+        void UpdateAI(uint32 p_Diff) override
+        {
+            if (UpdateVictim())
+            {
+                DoMeleeAttackIfReady();
+                return;
+            }
+
+            if (!m_Active)
+                return;
+
+            if (m_Timer > p_Diff)
+            {
+                m_Timer -= p_Diff;
+                return;
+            }
+
+            m_Timer = 1000;
+
+            if (me->HasUnitState(UNIT_STATE_CASTING))
+                return;
+
+            std::list<Creature*> l_Stalkers;
+            me->GetCreatureListWithEntryInGrid(l_Stalkers, CreatureLightWallTargets, 25.0f);
+            if (l_Stalkers.empty())
+                return;
+
+            std::list<Creature*>::iterator l_Itr = l_Stalkers.begin();
+            std::advance(l_Itr, urand(0, uint32(l_Stalkers.size()) - 1));
+            me->CastSpell(*l_Itr, SpellHolyBeam, false);
+        }
+    };
+
+    CreatureAI* GetAI(Creature* creature) const override
+    {
+        return new auchindoun_mob_barrier_keeperAI(creature);
+    }
+};
+
+/// Scene 913: Tuulani runs to the boss room. When it ends the players stand at its last place
+class auchindoun_scene_tuulani_reach_nyami : public SceneTriggerScript
+{
+public:
+
+    auchindoun_scene_tuulani_reach_nyami() : SceneTriggerScript("auchindoun_scene_tuulani_reach_nyami") { }
+
+    bool OnTrigger(Player* p_Player, SpellScene const* /*p_Trigger*/, std::string p_Type) override
+    {
+        if (p_Type != "complete")
+            return false;
+
+        p_Player->NearTeleportTo(1848.0f, 3196.0f, 29.4f, 0.4f);
+
+        /// skipping the scene ends it too: the client reports a cancel, which completes it
+        if (InstanceScript* l_Instance = p_Player->GetInstanceScript())
+            if (Creature* l_Tuulani = l_Instance->instance->GetCreature(l_Instance->GetGuidData(DataTuulani)))
+                if (l_Tuulani->IsAIEnabled)
+                    l_Tuulani->AI()->DoAction(ActionTuulaniSceneOver);
+
+        return false;
+    }
+};
+
+/// Teron'gor arrives (scene 914, after Azzakel): he and his followers are there once it is over, watched or skipped
+class auchindoun_scene_teronogor_arrival : public SceneTriggerScript
+{
+public:
+    auchindoun_scene_teronogor_arrival() : SceneTriggerScript("auchindoun_scene_teronogor_arrival") { }
+
+    bool OnTrigger(Player* p_Player, SpellScene const* /*p_Trigger*/, std::string p_Type) override
+    {
+        if (p_Type == "complete")
+            AuchindounRevealTeronogor(p_Player);
+
+        return false;
+    }
+};
+
 void AddSC_auchindoun()
 {
+    new auchindoun_scene_teronogor_arrival();       ///< scene 914
     new auchindoun_mob_tuulani();                   ///< 79248
+    new auchindoun_mob_barrier_keeper();            ///< 77947
+    new auchindoun_scene_tuulani_reach_nyami();     ///< scene 913
     new auchindoun_mob_sargerei_soulbinder();       ///< 77812  
     new auchindoun_mob_sargerei_cleric();           ///< 77134
     new auchindoun_mob_sargerei_ritualist();        ///< 77130

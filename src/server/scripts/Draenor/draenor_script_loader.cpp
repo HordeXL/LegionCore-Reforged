@@ -8,11 +8,16 @@
 
 void AddSC_wod_gorgrond();
 void AddSC_wod_spires_of_arak();
+void AddSC_wod_talador();
 void AddSC_wod_tanaan_jungle();
 void AddSC_edge_of_reality();
 void AddSC_wod_dark_portal();
 void AddSC_wod_frostfire_ridge();
 void AddSC_wod_shadowmoon_valley();
+void AddSC_instance_defense_of_karabor();
+void AddSC_defense_of_karabor();
+void AddSC_instance_battle_for_shattrath();
+void AddSC_battle_for_shattrath();
 
 void AddSC_instance_auchindoun();
 void AddSC_auchindoun();
@@ -85,11 +90,16 @@ void AddDraenorScripts()
 {
     AddSC_wod_gorgrond();
     AddSC_wod_spires_of_arak();
+    AddSC_wod_talador();
     AddSC_wod_tanaan_jungle();
     AddSC_edge_of_reality();
     AddSC_wod_dark_portal();
     AddSC_wod_frostfire_ridge();
     AddSC_wod_shadowmoon_valley();
+    AddSC_instance_defense_of_karabor();
+    AddSC_defense_of_karabor();
+    AddSC_instance_battle_for_shattrath();
+    AddSC_battle_for_shattrath();
 
     AddSC_instance_auchindoun();
     AddSC_auchindoun();

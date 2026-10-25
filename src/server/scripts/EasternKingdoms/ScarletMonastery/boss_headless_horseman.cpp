@@ -1,3 +1,17 @@
+////////////////////////////////////////////
+///                                      ///
+///         LEGIONCORE REFORGED          ///
+///    Copyright 2026 Titans-Project     ///
+///         All Rights Reserved.         ///
+///                                      ///
+///      Based on TrinityCore code       ///
+///   Copyright 2008-2012 TrinityCore    ///
+///   <http://www.trinitycore.org/>      ///
+///   Copyright 2005-2009 MaNGOS         ///
+///   <http://getmangos.com/>            ///
+///                                      ///
+////////////////////////////////////////////
+
 #include "scarlet_monastery.h"
 #include "LFGMgr.h"
 #include "Group.h"
@@ -395,7 +409,7 @@ struct boss_headless_horseman : public ScriptedAI
     {
         me->StopMoving();
         Talk(4);
-        Position pos;
+        Position pos = me->GetPosition();
 
         if (auto flame = me->SummonCreature(HELPER, pos.GetPositionX(), pos.GetPositionY(), pos.GetPositionZ(), pos.GetOrientation(), TEMPSUMMON_TIMED_DESPAWN, 60000))
             flame->CastSpell(flame, SPELL_BODY_FLAME, false);
@@ -763,12 +777,9 @@ class go_loosely_turned_soil : public GameObjectScript
 public:
     go_loosely_turned_soil() : GameObjectScript("go_loosely_turned_soil") {}
 
+    // the event dungeon of the group finder has nobody else to call him: the soil does it there too
     bool OnGossipHello(Player* player, GameObject* go)
     {
-        if (auto group = player->GetGroup())
-            if (group->isLFGGroup())
-                return false;
-
         InstanceScript* instance = player->GetInstanceScript();
         if (!instance)
             return true;

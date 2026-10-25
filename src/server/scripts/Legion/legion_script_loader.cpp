@@ -175,6 +175,48 @@ void AddSC_DarkMoonConcertBlightBoar();
 void AddSC_TheGreatGromereganRun();
 void AddSC_MoonkinFestival();
 
+// Scenarios
+void AddSC_brokenIslands();
+void AddSC_instance_broken_islands();
+void AddSC_instance_broken_shore();
+void AddSC_paladin_broken_shore();
+void AddSC_instance_shields_rest();
+void AddSC_shields_rest();
+void AddSC_DH_vengeance_art_scenario();
+void AddSC_Dreadblades();
+void AddSC_Kingslayers();
+void AddSC_instance_kingslayers();
+void AddSC_Devourer();
+void AddSC_instance_devourer();
+void AddSC_wars_intro_scenario();
+void AddSC_Warswords();
+void AddSC_instance_warswords();
+void AddSC_EarthWarder();
+void AddSC_Tuure();
+void AddSC_instance_tuure();
+void AddSC_SilverHand();
+void AddSC_instance_silver_hand();
+void AddSC_Sharasdal();
+void AddSC_instance_sharasdal();
+void AddSC_monk_intro_scenario();
+void AddSC_Sheylun();
+void AddSC_instance_class_art_scenarios();
+void AddSC_AssaultBrokenShore();
+void AddSC_instance_AssaultBrokenShore();
+void AddSC_InvasionAzsuna();
+void AddSC_instance_InvasionAzsuna();
+void AddSC_InvasionHM();
+void AddSC_instance_invasion_HM();
+void AddSC_InvasionValshara();
+void AddSC_instance_invasion_valshara();
+void AddSC_InvasionStormheim();
+void AddSC_instance_invasion_stormheim();
+void AddSC_instance_walling_caverns_pet();
+void AddSC_instance_dead_mines_per();
+void AddSC_army_training();
+void AddSC_instance_army_training();
+void AddSC_instance_temple_of_the_jade_serpent();
+
 void AddLegionScripts()
 {
     AddSC_azsuna();
@@ -352,4 +394,46 @@ void AddLegionScripts()
     AddSC_DarkMoonConcertBlightBoar();
     AddSC_TheGreatGromereganRun();
     AddSC_MoonkinFestival();
+
+    // Scenarios
+    AddSC_brokenIslands();
+    AddSC_instance_broken_islands();
+    AddSC_instance_broken_shore();
+    AddSC_paladin_broken_shore();
+    AddSC_instance_shields_rest();
+    AddSC_shields_rest();
+    AddSC_DH_vengeance_art_scenario();
+    AddSC_Dreadblades();
+    AddSC_Kingslayers();
+    AddSC_instance_kingslayers();
+    AddSC_Devourer();
+    AddSC_instance_devourer();
+    AddSC_wars_intro_scenario();
+    AddSC_Warswords();
+    AddSC_instance_warswords();
+    AddSC_EarthWarder();
+    AddSC_Tuure();
+    AddSC_instance_tuure();
+    AddSC_SilverHand();
+    AddSC_instance_silver_hand();
+    AddSC_Sharasdal();
+    AddSC_instance_sharasdal();
+    AddSC_monk_intro_scenario();
+    AddSC_Sheylun();
+    AddSC_instance_class_art_scenarios();
+    AddSC_AssaultBrokenShore();
+    AddSC_instance_AssaultBrokenShore();
+    AddSC_InvasionAzsuna();
+    AddSC_instance_InvasionAzsuna();
+    AddSC_InvasionHM();
+    AddSC_instance_invasion_HM();
+    AddSC_InvasionValshara();
+    AddSC_instance_invasion_valshara();
+    AddSC_InvasionStormheim();
+    AddSC_instance_invasion_stormheim();
+    AddSC_instance_walling_caverns_pet();
+    AddSC_instance_dead_mines_per();
+    AddSC_army_training();
+    AddSC_instance_army_training();
+    AddSC_instance_temple_of_the_jade_serpent();
 }

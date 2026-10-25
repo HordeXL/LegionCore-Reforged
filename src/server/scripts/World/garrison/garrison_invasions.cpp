@@ -1120,6 +1120,9 @@ public:
         if (!ai)
             return false;
 
+        // the sergeant is also a quest objective to talk to (New Goods)
+        player->TalkedToCreature(creature->GetEntry(), creature->GetGUID());
+
         player->PlayerTalkClass->ClearMenus();
         player->PrepareGossipMenu(creature, creature->GetCreatureTemplate()->GossipMenuId, true);
 

@@ -863,6 +863,10 @@ void Loot::AddItem(LootStoreItem const & item, std::vector<uint32> const& bonusL
                 generatedLoot.item.ItemBonus.BonusListIDs = sObjectMgr->GetItemBonusTree(generatedLoot.item.ItemID, _itemContext, m_lootOwner->getLevel(), _levelBonus, _challengeLevel, _needLevel);
         }
 
+        // an event dungeon's level reaches its old items too, which otherwise keep Blizzard's own bonuses
+        if (_needLevel && m_lootOwner->GetMap()->GetDifficultyID() == DIFFICULTY_EVENT_DUNGEON)
+            generatedLoot.item.ItemBonus.BonusListIDs = sObjectMgr->GetItemBonusForLevel(generatedLoot.item.ItemID, _itemContext, m_lootOwner->getLevel(), _needLevel);
+
         generatedLoot.item.ItemBonus.Context = _itemContext;
     }
 
@@ -972,6 +976,16 @@ bool Loot::FillLoot(uint32 lootId, LootStore const& store, Player* lootOwner, bo
     if (!_isTokenLoot && !_isItemLoot && !sWorld->getBoolConfig(CONFIG_ITEMLEVEL_CATCHUP_ENABLE))
         if (uint32 tierItemLevel = GetPatchItemLevelForDifficulty(lootOwner->GetMapId(), _DifficultyID, objEntry))
             _needLevel = tierItemLevel;
+
+    // the holiday bosses of the group finder (Headless Horseman, Ahune, Coren Direbrew...) reward a little above a heroic
+    // dungeon of the hero's expansion: Legion's at level 110, Draenor's (630) from 90 to 99; their old items included (AddItem)
+    if (!_isTokenLoot && !_isItemLoot && lootOwner->GetMap()->GetDifficultyID() == DIFFICULTY_EVENT_DUNGEON)
+    {
+        if (lootOwner->getLevel() == MAX_LEVEL)
+            _needLevel = sWorld->getIntConfig(CONFIG_ITEMLEVEL_DUNGEON_HEROIC) + 5;
+        else if (lootOwner->getLevel() >= 90 && lootOwner->getLevel() < 100)
+            _needLevel = 630 + 5;
+    }
 
     Challenge* _challenge = nullptr;
     // Generate data for Challenge

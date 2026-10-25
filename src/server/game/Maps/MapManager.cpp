@@ -175,8 +175,14 @@ bool MapManager::CanPlayerEnter(uint32 mapid, Player* player, bool loginCheck)
     if (!entry->IsDungeon() || entry->IsGarrison())
         return true;
 
+    // logging back into a scenario keeps the player in it while its instance still runs (a client crash, a cut)
     if (loginCheck && entry->IsScenario())
-        return false;
+    {
+        Map* current = player->GetMap();
+        Scenario* scenario = current && current->GetId() == mapid ? sScenarioMgr->GetScenario(current->GetInstanceId()) : nullptr;
+        if (!scenario || scenario->GetMap() != current)
+            return false;
+    }
 
     InstanceTemplate const* instance = sObjectMgr->GetInstanceTemplate(mapid);
     if (!instance && !entry->IsScenario())

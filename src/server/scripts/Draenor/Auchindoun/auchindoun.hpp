@@ -1,14 +1,17 @@
-////////////////////////////////////////////////////////////////////////////////
-///
-///  MILLENIUM-STUDIO
-///  Copyright 2015 Millenium-studio SARL
-///  All Rights Reserved.
-///
-////////////////////////////////////////////////////////////////////////////////
+////////////////////////////////////////////
+///                                      ///
+///         LEGIONCORE REFORGED          ///
+///    Copyright 2026 Titans-Project     ///
+///         All Rights Reserved.         ///
+///                                      ///
+////////////////////////////////////////////
 
 #pragma once
 
 #include "Common.h"
+#include "CellImpl.h"
+#include "GridNotifiers.h"
+#include "GridNotifiersImpl.h"
 
 #define DataHeader "AD"
 
@@ -290,7 +293,7 @@ enum eAuchindounDatas
 
 enum eAuchindounBosses
 {
-    BossKaathar   = 86217,
+    BossKaathar   = 75839,
     BossNyami     = 76177,
     BossAzaakel   = 75927,
     BossTeronogor = 77734
@@ -335,11 +338,21 @@ enum eAuchindounCreatures
     CreatureIruun                  = 77762,
     CreatureDurem                  = 77743,
     CreatureJoraa                  = 77756,
+    CreatureTeronogorEscortA       = 77752,
+    CreatureTeronogorEscortB       = 77808,
+    CreatureFelguardTrash          = 79507,
+    ActionBarrierKeeperStart       = 100,
+    ActionTuulaniSceneOver         = 101,
+    ActionTuulaniImprisoned        = 102,
+    ActionTuulaniSkipIntro         = 103,
+    DataPreKaatharCleared          = 200,      ///< saved with the instance: the first room is cleared and Kaathar is awake
+    CreatureCacklingPyromaniacTrash = 79510,
+    CreatureLegionTrash            = 79511,
     CreatureShieldStalker          = 82681,
     CreatureWardenAzzakael         = 76572,
     CreatureLightWall              = 953642,
     CreatureLightWallTargets       = 79417,
-    CreatureShadowBeam             = 100055,
+    CreatureShadowBeam             = 79417,       ///< an invisible stalker: 100055 is another creature in this database
     CreatureShieldVisual           = 82681,
     CreatureArcaneBomb             = 324156,
     CreatureCorpsesNyamiFight      = 456234,
@@ -348,7 +361,7 @@ enum eAuchindounCreatures
     CreatureWardensHammer          = 76655,
     CreatureDemonsSummoner         = 76216,
     CreatureFelborneAbyssal        = 79508,
-    CreatureLeftCrystalTrigger     = 100055,
+    CreatureLeftCrystalTrigger     = 79417,       ///< an invisible stalker: 100055 is another creature in this database
     CreatureAuchenaiShield         = 82681
 };
 
@@ -425,7 +438,9 @@ enum eAuchindounSpells
     SpellWardenChainDot                 = 154831,
     SpellApplaud                        = 106301,
     SpellGuard                          = 156893,
+    SpellVigilantSubmergeState          = 157266,
     SpellShadowBeam                     = 156862,
+    SpellCosmeticShadowChannel          = 177757,       ///< the three warlocks of the platforms on Teron'gor
     SpellKneel                          = 142479,
     SpellTuulaniUnlock                  = 160415,
     SpellBarrierVisual                  = 160993,
@@ -440,6 +455,9 @@ enum eAuchindounSpells
     SpellCrystalEarthquake              = 150209,
     SpellVoidChannel                    = 170677,
     SpellPrisonAura                     = 167081,
+    SpellVoidShellNyami                 = 157234,
+    SpellBloodSplatter                  = 167641,
+    SpellVoidChannelingCosmetic         = 160677,
     SpellStrangulate                    = 78037,
     SpellDrainSoulVisual                = 156862,
     SpellAbyssalVisual                  = 159610,
@@ -515,14 +533,18 @@ enum eAuchindounObjects
     GameobjectTaladorPortal      = 236689,
     GameobjectChestAucheni       = 231241,
     GameobjectNightmareBell      = 237479,
-    GameobjectDemonicPortal      = 543242,
+    GameobjectDemonicPortal      = 233102,       ///< the portal Azzakel comes out of; 543242 did not exist, so neither did the portal
     GameobjectPuddle             = 237542,
     GameobjectAuchindounWindow   = 233009,
-    GameobjectSoulTransportStart = 231736,
-    GameobjectSoulTransport1     = 345366,
-    GameobjectSoulTransport2     = 345367,
-    GameobjectSoulTransport3     = 345368,
+    GameobjectKaatharRoomBarrier = 230511,       ///< at the door of the room of Kaathar, falls with the crystal
+    GameobjectAuchindounSection  = 227633,       ///< the floor of the eastern wing, a destructible building: damaged, it shows the impact of the infernal
+    GameobjectSoulTransportStart = 231737,       ///< by the room of Azzakel, opened by his death
+    GameobjectSoulTransport1     = 231739,       ///< on the platform of Durag; 345366 to 345368 never existed
+    GameobjectSoulTransport2     = 231740,       ///< on the platform of Gul'kosh
+    GameobjectSoulTransport3     = 231741,       ///< on the platform of Grom'tash
     GameobjectHolyBarrierEntra   = 231679,
+    GameobjectHolyGate           = 230398,
+    GameobjectHolyGateSouth      = 230397,
 	GameObjectAuchindounCrystal	 = 23524
 };
 
@@ -545,8 +567,8 @@ enum eAuchindounSpellVisualKit
 
 enum eAuchindounScenes
 {
-    SpellAuchindounSceneTulaaniReachNyami = 1365,
-    SpellAuchindounSceneTeronogorSpawn = 1366
+    SpellAuchindounSceneTulaaniReachNyami = 913,    ///< spell_scene, script package 1365 (1365 as a scene id is the Scepter of Sargeras)
+    SpellAuchindounSceneTeronogorSpawn = 914     ///< spell_scene, script package 1366
 };
 
 enum eAuchindounChallengeDatas
@@ -565,3 +587,114 @@ enum eAuchindounChallengeDatas
     TerongorCriteriaID          = 24991,
     EnnemiesCriteriaID          = 26335
 };
+
+/// a grid search only sees the phase of the one who searches: what the second phase hides is searched in every phase
+inline void AuchindounCreaturesAnyPhase(WorldObject* p_Source, std::list<Creature*>& p_List, uint32 p_Entry, float p_Range)
+{
+    CellCoord l_Pair(Trinity::ComputeCellCoord(p_Source->GetPositionX(), p_Source->GetPositionY()));
+    Cell l_Cell(l_Pair);
+    l_Cell.SetNoCreate();
+
+    Trinity::AllCreaturesOfEntryInRange l_Check(p_Source, p_Entry, p_Range);
+    Trinity::CreatureListSearcher<Trinity::AllCreaturesOfEntryInRange> l_Searcher(p_Source, p_List, l_Check);
+    l_Searcher.i_phaseMask = PHASEMASK_ANYWHERE;
+    l_Cell.Visit(l_Pair, Trinity::makeGridVisitor(l_Searcher), *p_Source->GetMap(), *p_Source, p_Range);
+}
+
+inline void AuchindounGameObjectsAnyPhase(WorldObject* p_Source, std::list<GameObject*>& p_List, uint32 p_Entry, float p_Range)
+{
+    CellCoord l_Pair(Trinity::ComputeCellCoord(p_Source->GetPositionX(), p_Source->GetPositionY()));
+    Cell l_Cell(l_Pair);
+    l_Cell.SetNoCreate();
+
+    Trinity::AllGameObjectsWithEntryInRange l_Check(p_Source, p_Entry, p_Range);
+    Trinity::GameObjectListSearcher<Trinity::AllGameObjectsWithEntryInRange> l_Searcher(p_Source, p_List, l_Check);
+    l_Searcher.i_phaseMask = PHASEMASK_ANYWHERE;
+    l_Cell.Visit(l_Pair, Trinity::makeGridVisitor(l_Searcher), *p_Source->GetMap(), *p_Source, p_Range);
+}
+
+/// the demons of the room of Azzakel, shown after Kaathar: they are killed to call Azzakel
+inline void AuchindounRevealAzzakelRoom(WorldObject* p_Source)
+{
+    std::list<Creature*> l_Creatures;
+    for (uint32 l_Entry : { uint32(CreatureFelguardTrash), uint32(CreatureCacklingPyromaniacTrash), uint32(CreatureLegionTrash) })
+        AuchindounCreaturesAnyPhase(p_Source, l_Creatures, l_Entry, 700.0f);
+
+    for (Creature* l_Creature : l_Creatures)
+        l_Creature->SetPhaseMask(1, true);
+}
+
+/// Teron'gor and his followers, shown at the end of the scene of his arrival, after Azzakel
+inline void AuchindounRevealTeronogor(WorldObject* p_Source)
+{
+    std::list<Creature*> l_Creatures;
+    for (uint32 l_Entry : { uint32(CreatureZipteq), uint32(CreatureZashoo), uint32(CreatureShaadum), uint32(CreatureGromtashTheDestructor), uint32(CreatureGulkosh),
+        uint32(CreatureDurem), uint32(BossTeronogor), uint32(CreatureDuragTheDominator), uint32(CreatureIruun), uint32(CreatureJoraa),
+        uint32(CreatureTeronogorEscortA), uint32(CreatureTeronogorEscortB) })
+        AuchindounCreaturesAnyPhase(p_Source, l_Creatures, l_Entry, 700.0f);
+
+    Creature* l_Teronogor = nullptr;
+    Creature* l_Durem = nullptr;
+    for (Creature* l_Creature : l_Creatures)
+    {
+        l_Creature->SetPhaseMask(1, true);
+        if (l_Creature->GetEntry() == BossTeronogor)
+            l_Teronogor = l_Creature;
+        else if (l_Creature->GetEntry() == CreatureDurem)
+            l_Durem = l_Creature;
+    }
+
+    /// their drain soul was cast while they were hidden and did not hold: the warlocks drain Teron'gor, Teron'gor drains the high soulpriest Durem
+    if (!l_Teronogor)
+        return;
+
+    for (Creature* l_Creature : l_Creatures)
+    {
+        uint32 l_Entry = l_Creature->GetEntry();
+        if (l_Creature->IsAlive() && !l_Creature->isInCombat() && (l_Entry == CreatureGromtashTheDestructor || l_Entry == CreatureGulkosh || l_Entry == CreatureDuragTheDominator))
+            l_Creature->CastSpell(l_Teronogor, SpellCosmeticShadowChannel, false);
+    }
+
+    if (l_Durem && l_Teronogor->IsAlive() && !l_Teronogor->isInCombat())
+        l_Teronogor->CastSpell(l_Durem, SpellShadowBeam, false);
+}
+
+/// Second phase of the dungeon, shown when Kaathar has fallen (and again when the instance is reloaded after his death)
+inline void AuchindounRevealSecondPhase(WorldObject* p_Source)
+{
+    std::list<Creature*> l_Creatures;
+    for (uint32 l_Entry : { 87073, 87074, 76293, 76294, 76297, 88658, 76263, 76466, 76595, 77042, 77080, 77935, 78093, 78095, 77960, 77961, 77962, 77963 })
+        AuchindounCreaturesAnyPhase(p_Source, l_Creatures, l_Entry, 700.0f);
+
+    /// of the fallen of the hall, only the three in its middle are shown
+    uint64 const l_FallenShown[] = { 10530237, 10530247, 10530250 };
+
+    for (Creature* l_Creature : l_Creatures)
+    {
+        uint32 l_Entry = l_Creature->GetEntry();
+        if ((l_Entry == 76293 || l_Entry == 76294 || l_Entry == 76297)
+            && std::find(std::begin(l_FallenShown), std::end(l_FallenShown), l_Creature->GetDBTableGUIDLow()) == std::end(l_FallenShown))
+            continue;
+
+        l_Creature->SetPhaseMask(1, true);
+    }
+
+    /// the Auchenai of the first phase leave; stay the clerics of the western barrier, the three wardens of the eastern door,
+    /// the loyal ones fighting behind it, and the two the traitors strike down near the room of Kaathar
+    std::list<Creature*> l_Leaving;
+    for (uint32 l_Entry : { 77693, 76632, 77694, 77947, 77948, 77949, 77950, 77951, 77952, 77704, 87075, 77696, 77695 })
+        p_Source->GetCreatureListWithEntryInGrid(l_Leaving, l_Entry, 1000.0f);
+
+    uint64 const l_Kept[] = { 10530211, 10530215, 10530116, 10530119, 10530123, 10530197, 10530203, 10530207, 10530200, 10530149, 10530181,
+        10530222, 10530221, 10530214, 10530223 };
+    for (Creature* l_Creature : l_Leaving)
+        if (std::find(std::begin(l_Kept), std::end(l_Kept), l_Creature->GetDBTableGUIDLow()) == std::end(l_Kept))
+            l_Creature->DespawnOrUnsummon();
+
+    std::list<GameObject*> l_GameObjects;
+    AuchindounGameObjectsAnyPhase(p_Source, l_GameObjects, GameobjectHolyBarrierEntra, 700.0f);
+    AuchindounGameObjectsAnyPhase(p_Source, l_GameObjects, GameobjectHolyWall, 700.0f);
+
+    for (GameObject* l_GameObject : l_GameObjects)
+        l_GameObject->SetPhaseMask(1, true);
+}

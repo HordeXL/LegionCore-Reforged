@@ -501,6 +501,7 @@ bool PhaseMgr::IsConditionTypeSupported(ConditionTypes const conditionType)
         case CONDITION_QUEST_OBJECTIVE_DONE:
         case CONDITION_AREAID:
         case CONDITION_ZONEID:
+        case CONDITION_MAPID:       // scenario copies of a zone (Karabor, map 1277) share its area and zone ids
         case CONDITION_SCENARION_STEP:
         case CONDITION_ACTIVE_EVENT:
         case CONDITION_ON_TRANSPORT:

@@ -1,19 +1,14 @@
-/*
- * Copyright (C) 2008-2012 TrinityCore <http://www.trinitycore.org/>
- *
- * This program is free software; you can redistribute it and/or modify it
- * under the terms of the GNU General Public License as published by the
- * Free Software Foundation; either version 2 of the License, or (at your
- * option) any later version.
- *
- * This program is distributed in the hope that it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for
- * more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program. If not, see <http://www.gnu.org/licenses/>.
- */
+////////////////////////////////////////////
+///                                      ///
+///         LEGIONCORE REFORGED          ///
+///    Copyright 2026 Titans-Project     ///
+///         All Rights Reserved.         ///
+///                                      ///
+///      Based on TrinityCore code       ///
+///   Copyright 2008-2012 TrinityCore    ///
+///   <http://www.trinitycore.org/>      ///
+///                                      ///
+////////////////////////////////////////////
 
 #include "Common.h"
 #include "SharedDefines.h"
@@ -2307,7 +2302,8 @@ LfgLockMap LFGMgr::GetLockedDungeons(ObjectGuid guid)
             lockData.status = LFG_LOCKSTATUS_TEMPORARILY_DISABLED;
         else if (dungeon->minlevel > level)
             lockData.status = LFG_LOCKSTATUS_TOO_LOW_LEVEL;
-        else if (dungeon->maxlevel != 0 && dungeon->maxlevel < level)
+        // 0x800 marks the scenarios a quest sends the player into (Defense of Karabor, Thunder Forge...): the quest gates them, not the level cap
+        else if (dungeon->maxlevel != 0 && dungeon->maxlevel < level && !(dungeon->dbc->Flags & 0x800))
             lockData.status = LFG_LOCKSTATUS_TOO_HIGH_LEVEL;
         else if (dungeon->seasonal && !IsSeasonActive(dungeon->id))
             lockData.status = LFG_LOCKSTATUS_NOT_IN_SEASON;

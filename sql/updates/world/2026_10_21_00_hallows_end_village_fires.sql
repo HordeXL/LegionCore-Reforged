@@ -30,6 +30,9 @@ INSERT INTO `conditions` (`SourceTypeOrReferenceId`, `SourceGroup`, `SourceEntry
 (13, 1, 42339, 0, 0, 31, 0, 3, 23537, 0, 0, 0, '', 'Bucket Lands - Headless Horseman - Fire (DND)'),
 (13, 1, 42339, 0, 1, 31, 0, 4, 0, 0, 0, 0, '', 'Bucket Lands - player');
 
+DELETE FROM `spell_script_names` WHERE `spell_id` = 42339;
+INSERT INTO `spell_script_names` (`spell_id`, `ScriptName`) VALUES (42339, 'spell_hallows_end_bucket_lands');
+
 -- The village Fires quests need Fire Brigade Practice / Fire Training
 DELETE FROM `conditions` WHERE `SourceTypeOrReferenceId` = 19 AND `SourceEntry` IN (11131, 12135, 11219, 12139);
 INSERT INTO `conditions` (`SourceTypeOrReferenceId`, `SourceGroup`, `SourceEntry`, `SourceId`, `ElseGroup`, `ConditionTypeOrReference`, `ConditionTarget`, `ConditionValue1`, `ConditionValue2`, `ConditionValue3`, `NegativeCondition`, `ErrorTextId`, `ScriptName`, `Comment`) VALUES

@@ -12488,32 +12488,23 @@ void Player::SendInitWorldStates(uint32 zoneid, uint32 areaid)
 
     if (sBattlegroundMgr->IsBrawlActive(expirationTimer))
     {
-        switch (sBattlegroundMgr->GetBrawlIternalGroup())
+        // the brawl cards of the adventure guide show when this state holds their value (WorldStateExpression)
+        uint32 brawlState = 0;
+        switch (sBattlegroundMgr->GetBrawlData().JournalId)
         {
-        case 0:
-            packet.Worldstates.emplace_back(static_cast<WorldStates>(13119), 3);
-            break;
-        case 1:
-            packet.Worldstates.emplace_back(static_cast<WorldStates>(13119), 10);
-            break;
-        case 4:
-            packet.Worldstates.emplace_back(static_cast<WorldStates>(13119), 8);
-            break;
-        case 5:
-            packet.Worldstates.emplace_back(static_cast<WorldStates>(13119), 4);
-            break;
-        case 6:
-            packet.Worldstates.emplace_back(static_cast<WorldStates>(13119), 11);
-            break;
-        case 2:
-        case 7:
-            packet.Worldstates.emplace_back(static_cast<WorldStates>(13119), 0);
-            break;
-        case 3:
-        case 8:
-            packet.Worldstates.emplace_back(static_cast<WorldStates>(13119), 4);
-            break;
+            case 328: brawlState = 2;  break;   // Southshore vs. Tarren Mill
+            case 323: brawlState = 3;  break;   // Temple of Hotmogu
+            case 324: brawlState = 4;  break;   // Gravity Lapse
+            case 321: brawlState = 5;  break;   // Arathi Blizzard
+            case 325: brawlState = 6;  break;   // Deepwind Dunk
+            case 326: brawlState = 7;  break;   // Eye of the Corn
+            case 327: brawlState = 8;  break;   // Packed House
+            case 322: brawlState = 9;  break;   // Warsong Scramble
+            case 329: brawlState = 10; break;   // Shado-Pan Showdown
+            case 348: brawlState = 11; break;   // The Magnificent Six
+            default: break;
         }
+        packet.Worldstates.emplace_back(static_cast<WorldStates>(13119), brawlState);
     }
 
     SendDirectMessage(packet.Write());
@@ -20405,6 +20396,12 @@ void Player::MarkGarrisonInvasion(uint32 questId)
         SetWeeklyTrackingQuest(GarrisonInvasion::Types[type].PendingTracking);
 }
 
+// the command table opens with Delegating on Draenor (Alliance) or Mission Probable (Horde), then stays usable
+bool Player::CanUseGarrisonMissionTable() const
+{
+    return GetQuestStatus(34692) != QUEST_STATUS_NONE || GetQuestStatus(34775) != QUEST_STATUS_NONE;
+}
+
 bool Player::SatisfyQuestSeasonal(Quest const* qInfo)
 {
     if (!qInfo->IsSeasonal() || m_seasonalquests.empty())
@@ -21826,8 +21823,7 @@ QuestGiverStatus Player::GetQuestDialogStatus(Object* questgiver)
         if (!sConditionMgr->IsObjectMeetToConditions(this, conditions))
             continue;
 
-        if (!sConditionMgr->IsObjectMeetToConditions(this, sConditionMgr->GetConditionsForNotGroupedEntry(CONDITION_SOURCE_TYPE_QUEST_ACCEPT, quest->GetQuestId())))
-            continue;
+        // what the quest needed to be taken (place, faction, earlier quest) no longer matters once it is in the log
 
         switch (GetQuestStatus(questId))
         {

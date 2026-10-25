@@ -27,6 +27,7 @@ void AddSC_challenge_scripts();
 void AddSC_player_special_scripts();
 void AddSC_fireworks_spectacular();
 void AddSC_hallows_end_village_fires();
+void AddSC_hallows_end_stink_bombs();
 void AddSC_custom_events();
 void AddSC_scene_scripts();
 
@@ -59,6 +60,7 @@ void AddWorldScripts()
     AddSC_player_special_scripts();
     AddSC_fireworks_spectacular();
     AddSC_hallows_end_village_fires();
+    AddSC_hallows_end_stink_bombs();
     AddSC_custom_events();
     AddSC_scene_scripts();
 
