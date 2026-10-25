@@ -18,6 +18,14 @@ void AddSC_instance_defense_of_karabor();
 void AddSC_defense_of_karabor();
 void AddSC_instance_battle_for_shattrath();
 void AddSC_battle_for_shattrath();
+void AddSC_instance_battle_of_thunder_pass();
+void AddSC_battle_of_thunder_pass();
+void AddSC_instance_grommashar();
+void AddSC_grommashar();
+void AddSC_instance_iron_approach();
+void AddSC_iron_approach();
+void AddSC_instance_trial_of_faith();
+void AddSC_trial_of_faith();
 
 void AddSC_instance_auchindoun();
 void AddSC_auchindoun();
@@ -109,6 +117,14 @@ void AddDraenorScripts()
     AddSC_defense_of_karabor();
     AddSC_instance_battle_for_shattrath();
     AddSC_battle_for_shattrath();
+    AddSC_instance_battle_of_thunder_pass();
+    AddSC_battle_of_thunder_pass();
+    AddSC_instance_grommashar();
+    AddSC_grommashar();
+    AddSC_instance_iron_approach();
+    AddSC_iron_approach();
+    AddSC_instance_trial_of_faith();
+    AddSC_trial_of_faith();
 
     AddSC_instance_auchindoun();
     AddSC_auchindoun();
