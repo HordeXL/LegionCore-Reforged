@@ -8,6 +8,7 @@
 
 void AddSC_wod_gorgrond();
 void AddSC_wod_spires_of_arak();
+void AddSC_wod_talador();
 void AddSC_wod_tanaan_jungle();
 void AddSC_edge_of_reality();
 void AddSC_wod_dark_portal();
@@ -85,6 +86,7 @@ void AddDraenorScripts()
 {
     AddSC_wod_gorgrond();
     AddSC_wod_spires_of_arak();
+    AddSC_wod_talador();
     AddSC_wod_tanaan_jungle();
     AddSC_edge_of_reality();
     AddSC_wod_dark_portal();
