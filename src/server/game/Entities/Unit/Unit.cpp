@@ -16,6 +16,7 @@
 #include "Battlefield.h"
 #include "BattlefieldMgr.h"
 #include "Battleground.h"
+#include "BattlegroundMap.h"
 #include "BattlegroundScore.h"
 #include "CellImpl.h"
 #include "Challenge.h"
@@ -19295,6 +19296,11 @@ void Unit::SetContestedPvP(Player* attackedPlayer /*= nullptr*/, bool forceByAur
 
 OutdoorPvP* Unit::GetOutdoorPvP() const
 {
+    if (Map* map = FindMap())
+        if (BattlegroundMap* bgMap = map->ToBgMap())
+            if (OutdoorPvP* pvp = bgMap->GetOutdoorPvP())
+                return pvp;
+
     if (OutdoorPvP* pvp = sOutdoorPvPMgr->GetOutdoorPvPToZoneId(GetCurrentZoneID()))
         return pvp;
     if (OutdoorPvP* pvp = sOutdoorPvPMgr->GetOutdoorPvPToZoneId(GetCurrentAreaID()))

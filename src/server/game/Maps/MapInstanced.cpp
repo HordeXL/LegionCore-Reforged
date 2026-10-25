@@ -608,11 +608,17 @@ BattlegroundMap* MapInstanced::CreateBattleground(uint32 InstanceId, Battlegroun
 
     TC_LOG_DEBUG("maps", "MapInstanced::CreateBattleground: map bg %d for %d created.", InstanceId, GetId());
 
-    BattlegroundMap* map = new BattlegroundMap(GetId(), GetGridExpiry(), InstanceId, this, DIFFICULTY_NORMAL);
+    // the fixed population of a world PvP map (Ashran) is spawned for its own difficulty only: hold the game in that one
+    Difficulty difficulty = DIFFICULTY_NORMAL;
+    if (!sDB2Manager.GetMapDifficultyData(GetId(), DIFFICULTY_NORMAL) && sDB2Manager.GetMapDifficultyData(GetId(), DIFFICULTY_WORLD_PVP_SCENARIO))
+        difficulty = DIFFICULTY_WORLD_PVP_SCENARIO;
+
+    BattlegroundMap* map = new BattlegroundMap(GetId(), GetGridExpiry(), InstanceId, this, difficulty);
     ASSERT(map->IsBattlegroundOrArena());
     map->SetBG(bg);
     map->InitVisibilityDistance();
     bg->SetBgMap(map);
+    bg->OnMapCreated();
 
     sTransportMgr->CreateInstanceTransports(map);
 
@@ -629,6 +635,9 @@ bool MapInstanced::DestroyInstance(uint32 instanceId, Map* uMap)
     uMap->RemoveAllPlayers();
     if (uMap->HavePlayers())
         return false;
+
+    // a world PvP engine goes back to the base map while its instance is still whole
+    uMap->ReleaseOutdoorPvP();
 
     // a reset requested since the last update is applied now (no player left), before UnloadAll which acts on it
     if (InstanceMap* instance = uMap->ToInstanceMap())

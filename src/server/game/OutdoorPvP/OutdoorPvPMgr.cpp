@@ -17,10 +17,36 @@
 
 #include "OutdoorPvPMgr.h"
 #include "ObjectMgr.h"
+#include "BattlegroundMap.h"
 #include "Player.h"
 #include "DisableMgr.h"
 #include "ScriptMgr.h"
 #include "DatabaseEnv.h"
+
+namespace
+{
+    // an engine bound to an instance runs in the thread of that map: a player of another map must not reach it
+    bool IsReachableBy(OutdoorPvP const* pvp, Player const* player)
+    {
+        return !pvp->IsBoundToInstance() || pvp->GetMap() == player->GetMap();
+    }
+
+    // A game of a battleground has an engine of its own, which the lists below do not hold
+    OutdoorPvP* GetGameEngine(Player const* player)
+    {
+        if (Map* map = player->GetMap())
+            if (BattlegroundMap* bgMap = map->ToBgMap())
+                return bgMap->GetOutdoorPvP();
+
+        return nullptr;
+    }
+
+    // Engines made per game of a battleground, never registered on a zone: only their template is kept
+    bool IsGameEngine(OutdoorPvPTypes type)
+    {
+        return type == OUTDOOR_PVP_ASHRAN;
+    }
+}
 
 OutdoorPvPMgr::OutdoorPvPMgr()
 {
@@ -98,6 +124,9 @@ void OutdoorPvPMgr::InitOutdoorPvP()
             continue;
         }
 
+        if (IsGameEngine(OutdoorPvPTypes(i)))
+            continue;
+
         OutdoorPvP* pvp = sScriptMgr->CreateOutdoorPvP(iter->second);
         if (!pvp)
         {
@@ -118,6 +147,22 @@ void OutdoorPvPMgr::InitOutdoorPvP()
     TC_LOG_INFO("server.loading", ">> Loaded %u outdoor PvP definitions in %u ms", count, GetMSTimeDiffToNow(oldMSTime));
 }
 
+OutdoorPvP* OutdoorPvPMgr::CreateGameEngine(OutdoorPvPTypes type)
+{
+    auto itr = m_OutdoorPvPDatas.find(type);
+    if (itr == m_OutdoorPvPDatas.end() || !IsGameEngine(type))
+    {
+        TC_LOG_ERROR("outdoorpvp", "OutdoorPvP: no template for the engine of type %u (table `outdoorpvp_template`).", uint32(type));
+        return nullptr;
+    }
+
+    OutdoorPvP* pvp = sScriptMgr->CreateOutdoorPvP(itr->second);
+    if (!pvp)
+        TC_LOG_ERROR("outdoorpvp", "OutdoorPvP: could not create the engine of type %u; got nullptr pointer from script.", uint32(type));
+
+    return pvp;
+}
+
 void OutdoorPvPMgr::AddZone(uint32 zoneid, OutdoorPvP* handle)
 {
     m_OutdoorPvPZone[zoneid] = handle;
@@ -136,7 +181,12 @@ void OutdoorPvPMgr::AddZone(uint32 zoneid, OutdoorPvP* handle)
             if (!map->OutdoorPvPList)
                 map->OutdoorPvPList = GetOutdoorPvPMap(areaEntry->ContinentID);
             handle->SetMap(map);
-            handle->Initialize(zoneid);
+
+            // nobody stands on the base map of an instanceable map: the engine is initialised when it moves to an instance
+            if (map->Instanceable())
+                handle->m_initZone = zoneid;
+            else
+                handle->Initialize(zoneid);
         }
     }
 }
@@ -219,8 +269,15 @@ void OutdoorPvPMgr::Update(uint32 diff)
 
 bool OutdoorPvPMgr::HandleCustomSpell(Player* player, uint32 spellId, GameObject* go)
 {
+    if (OutdoorPvP* game = GetGameEngine(player))
+        if (game->HandleCustomSpell(player, spellId, go))
+            return true;
+
     for (OutdoorPvPSet::iterator itr = m_OutdoorPvPSet.begin(); itr != m_OutdoorPvPSet.end(); ++itr)
     {
+        if (!IsReachableBy(*itr, player))
+            continue;
+
         if ((*itr)->HandleCustomSpell(player, spellId, go))
             return true;
     }
@@ -234,8 +291,15 @@ ZoneScript* OutdoorPvPMgr::GetZoneScript(uint32 zoneId)
 
 bool OutdoorPvPMgr::HandleOpenGo(Player* player, ObjectGuid guid)
 {
+    if (OutdoorPvP* game = GetGameEngine(player))
+        if (game->HandleOpenGo(player, guid))
+            return true;
+
     for (OutdoorPvPSet::iterator itr = m_OutdoorPvPSet.begin(); itr != m_OutdoorPvPSet.end(); ++itr)
     {
+        if (!IsReachableBy(*itr, player))
+            continue;
+
         if ((*itr)->HandleOpenGo(player, guid))
             return true;
     }
@@ -244,8 +308,15 @@ bool OutdoorPvPMgr::HandleOpenGo(Player* player, ObjectGuid guid)
 
 void OutdoorPvPMgr::HandleGossipOption(Player* player, ObjectGuid guid, uint32 gossipid)
 {
+    if (OutdoorPvP* game = GetGameEngine(player))
+        if (game->HandleGossipOption(player, guid, gossipid))
+            return;
+
     for (OutdoorPvPSet::iterator itr = m_OutdoorPvPSet.begin(); itr != m_OutdoorPvPSet.end(); ++itr)
     {
+        if (!IsReachableBy(*itr, player))
+            continue;
+
         if ((*itr)->HandleGossipOption(player, guid, gossipid))
             return;
     }
@@ -253,8 +324,15 @@ void OutdoorPvPMgr::HandleGossipOption(Player* player, ObjectGuid guid, uint32 g
 
 bool OutdoorPvPMgr::CanTalkTo(Player* player, Creature* creature, GossipMenuItems const& gso)
 {
+    if (OutdoorPvP* game = GetGameEngine(player))
+        if (game->CanTalkTo(player, creature, gso))
+            return true;
+
     for (OutdoorPvPSet::iterator itr = m_OutdoorPvPSet.begin(); itr != m_OutdoorPvPSet.end(); ++itr)
     {
+        if (!IsReachableBy(*itr, player))
+            continue;
+
         if ((*itr)->CanTalkTo(player, creature, gso))
             return true;
     }
@@ -263,8 +341,15 @@ bool OutdoorPvPMgr::CanTalkTo(Player* player, Creature* creature, GossipMenuItem
 
 void OutdoorPvPMgr::HandleDropFlag(Player* player, uint32 spellId)
 {
+    if (OutdoorPvP* game = GetGameEngine(player))
+        if (game->HandleDropFlag(player, spellId))
+            return;
+
     for (OutdoorPvPSet::iterator itr = m_OutdoorPvPSet.begin(); itr != m_OutdoorPvPSet.end(); ++itr)
     {
+        if (!IsReachableBy(*itr, player))
+            continue;
+
         if ((*itr)->HandleDropFlag(player, spellId))
             return;
     }

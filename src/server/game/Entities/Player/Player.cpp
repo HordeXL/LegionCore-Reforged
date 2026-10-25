@@ -24,6 +24,7 @@
 #include "Battlefield.h"
 #include "BattlefieldMgr.h"
 #include "BattlegroundAlteracValley.h"
+#include "BattlegroundMap.h"
 #include "BattlegroundMgr.h"
 #include "BattlegroundPackets.h"
 #include "Bracket.h"
@@ -7118,6 +7119,10 @@ void Player::ResurrectPlayer(float restore_percent, bool applySickness)
     UpdateZone(newzone, newarea);
     sOutdoorPvPMgr->HandlePlayerResurrects(this, newzone);
 
+    if (BattlegroundMap* bgMap = GetMap()->ToBgMap())
+        if (OutdoorPvP* gamePvP = bgMap->GetOutdoorPvP())
+            gamePvP->HandleGamePlayerResurrects(this);
+
     if (InBattleground())
     {
         if (Battleground* bg = GetBattleground())
@@ -10204,6 +10209,10 @@ void Player::UpdateArea(uint32 newArea)
         sOutdoorPvPMgr->HandlePlayerLeaveArea(GetGUID(), m_oldAreaId);
         sOutdoorPvPMgr->HandlePlayerEnterArea(GetGUID(), m_areaId);
 
+        if (BattlegroundMap* bgMap = GetMap()->ToBgMap())
+            if (OutdoorPvP* gamePvP = bgMap->GetOutdoorPvP())
+                gamePvP->ChangeGamePlayerArea(this, m_oldAreaId, m_areaId);
+
         if (m_oldAreaId)
             RemovePlayerFromArea(m_oldAreaId);
         if (m_areaId)
@@ -12074,7 +12083,7 @@ void Player::SendLoot(ObjectGuid guid, LootType loot_type, bool AoeLoot, uint8 p
 
         loot = &personalLoot[guid];
 
-        if (auto outdoorPvP = sOutdoorPvPMgr->GetOutdoorPvPToZoneId(GetCurrentZoneID()))
+        if (auto outdoorPvP = GetOutdoorPvP())
             if (outdoorPvP->GetTypeId() == OutdoorPvPTypes::OUTDOOR_PVP_ASHRAN)
                 outdoorPvP->FillCustomPvPLoots(this, *loot, bones->GetOwnerGUID());
 

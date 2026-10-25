@@ -271,7 +271,7 @@ class spell_ashran_artifacts_collected : public SpellScriptLoader
 
                 if (Creature* l_Caster = GetCaster()->ToCreature())
                 {
-                    ZoneScript* l_ZoneScript = sOutdoorPvPMgr->GetZoneScript(l_Caster->GetZoneId());
+                    ZoneScript* l_ZoneScript = GetAshranPvP(l_Caster);
                     if (l_ZoneScript == nullptr)
                         return;
 
@@ -426,7 +426,7 @@ class spell_ashran_pocket_flying_machine : public SpellScriptLoader
 
                 if (Player* l_Player = GetHitUnit()->ToPlayer())
                 {
-                    ZoneScript* l_ZoneScript = sOutdoorPvPMgr->GetOutdoorPvPToZoneId(l_Player->GetZoneId());
+                    ZoneScript* l_ZoneScript = GetAshranPvP(l_Player);
                     if (l_ZoneScript == nullptr)
                         return;
 
@@ -810,7 +810,7 @@ class spell_ashran_ancient_artifact : public SpellScriptLoader
                 AuraRemoveMode l_RemoveMode = GetTargetApplication()->GetRemoveMode();
                 if (Unit* l_Target = GetTarget())
                 {
-                    OutdoorPvP* l_Outdoor = sOutdoorPvPMgr->GetOutdoorPvPToZoneId(l_Target->GetZoneId());
+                    OutdoorPvP* l_Outdoor = GetAshranPvP(l_Target);
                     if (OutdoorPvPAshran* l_Ashran = static_cast<OutdoorPvPAshran*>(l_Outdoor))
                         l_Ashran->HandleArtifactDrop(l_Target, l_RemoveMode == AURA_REMOVE_BY_EXPIRE ? 0 : GetDuration());
                 }

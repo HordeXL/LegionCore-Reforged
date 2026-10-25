@@ -17,6 +17,7 @@
  */
 
 #include "Battlefield.h"
+#include "BattlegroundMap.h"
 #include "BattlefieldMgr.h"
 #include "CellImpl.h"
 #include "CharmInfo.h"
@@ -2944,7 +2945,17 @@ void WorldObject::SetZoneScript()
     if (Map* map = FindMap())
     {
         if (map->IsDungeon() || map->IsGarrison())
+        {
             m_zoneScript = reinterpret_cast<ZoneScript*>(map->ToInstanceMap()->GetInstanceScript());
+            // a world PvP battle held in a scenario-typed map (Ashran) has no instance script: its engine stands for it
+            if (!m_zoneScript)
+                m_zoneScript = map->GetBoundOutdoorPvP();
+        }
+        else if (BattlegroundMap* bgMap = map->ToBgMap())
+        {
+            // a game of Ashran has a world PvP engine of its own; the other battlegrounds have no zone script
+            m_zoneScript = bgMap->GetOutdoorPvP();
+        }
         else if (!map->IsBattlegroundOrArena())
         {
             if (Battlefield* bf = sBattlefieldMgr->GetBattlefieldToZoneId(m_zoneId))

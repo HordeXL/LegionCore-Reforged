@@ -105,6 +105,8 @@ class Unit;
 struct GossipMenuItems;
 class OutdoorPvP;
 class OutdoorGraveyard;
+class Battleground;
+class Map;
 
 typedef std::set<Player*> PlayerSet;
 typedef std::vector<OutdoorGraveyard*> GraveyardVector;
@@ -282,6 +284,22 @@ class TC_GAME_API OutdoorPvP : public ZoneScript
 
         void SetMap(Map* map);
         Map* GetMap() const;
+
+        // An engine of an instanceable map (Ashran) is registered on the base map, where nobody stands: it moves to the
+        // instance the players enter, and back when that instance is destroyed. Its spawns are then made in the instance.
+        void BindToInstance(Map* instance);
+        virtual void ReleaseInstance(Map* baseMap);
+        bool IsBoundToInstance() const { return m_boundToInstance; }
+
+        // An engine made for one game of a battleground (Ashran) is not on the zone list of OutdoorPvPMgr: the game binds it
+        // to its own map and drives it (updates, players, end). Whatever the open world cycle did, the game replaces.
+        void BindToGame(Battleground* game, Map* map);
+        Battleground* GetGame() const { return m_game; }
+        virtual void HandleGameStart() { }
+        void AddGamePlayer(Player* player);
+        void RemoveGamePlayer(ObjectGuid guid);
+        void ChangeGamePlayerArea(Player* player, uint32 oldArea, uint32 newArea);
+        void HandleGamePlayerResurrects(Player* player);
         virtual void HandleBFMGREntryInviteResponse(bool /*accepted*/, Player* /*p_Player*/) { }
 
         virtual WorldSafeLocsEntry const* GetClosestGraveyard(Player* p_Player);
@@ -352,6 +370,9 @@ class TC_GAME_API OutdoorPvP : public ZoneScript
         GraveyardVector m_GraveyardList;
 
         Map* m_map;
+        bool m_boundToInstance;
+        Battleground* m_game;
+        uint32 m_initZone;                      // zone Initialize is run for once the engine is bound to an instance
 
         uint32 m_TypeId;
         uint32 m_LastResurectTimer;
@@ -363,6 +384,7 @@ class TC_GAME_API OutdoorGraveyard
 {
     public:
         explicit OutdoorGraveyard(OutdoorPvP* p_OutdoorPvP);
+        virtual ~OutdoorGraveyard() = default;
 
         void GiveControlTo(TeamId p_Team);
         TeamId GetControlTeamId();

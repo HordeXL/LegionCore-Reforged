@@ -610,28 +610,46 @@ OutdoorPvPAshran::OutdoorPvPAshran()
 {
     m_TypeId = OUTDOOR_PVP_ASHRAN;
     m_WorldPvPAreaId = AshranPvPAreaID;
+
+    m_Guid = ObjectGuid::Create<HighGuid::PVPQueueGroup>(AshranMapID, m_WorldPvPAreaId, 0).GetLowPart();
+    m_Guid |= BattlefieldWorldPvP;
+
+    ResetState();
+}
+
+void OutdoorPvPAshran::ResetState()
+{
+    m_GraveYard = nullptr;
     m_InitPointsTimer = 0;
     m_IsInitialized = false;
     m_WillBeReset = false;
+    m_GameOpen = false;
     m_CurrentBattleState = WorldStateTheCrossroadsBattle;
     m_NextBattleTimer = AshranTimeForBattle * IN_MILLISECONDS;
     m_MaxBattleTime = 0;
     m_GladiatorRespawnTime = 0;
     m_AncientArtifactTime = 0;
 
+    m_HeraldGuid.Clear();
+    m_HighWarlordVolrath.Clear();
+    m_GrandMasrhalTremblade.Clear();
+
+    for (uint8 l_I = 0; l_I < MaxBattleType; ++l_I)
+    {
+        m_ControlPoints[l_I] = nullptr;
+        m_GenericMoPGuids[l_I].Clear();
+    }
+
     m_PlayerCurrencyLoots.clear();
     m_NeutralVignettes.clear();
     m_ActiveCaptains.clear();
 
-    m_Guid = ObjectGuid::Create<HighGuid::PVPQueueGroup>(AshranMapID, m_WorldPvPAreaId, 0).GetLowPart();
-    m_Guid |= BattlefieldWorldPvP;
-
     for (uint8 l_Team = 0; l_Team < TEAM_NEUTRAL; ++l_Team)
     {
         m_PlayersInWar[l_Team].clear();
-        m_InvitedPlayers[l_Team].clear();
         m_PlayersWillBeKick[l_Team].clear();
         m_FactionVignettes[l_Team].clear();
+        m_FactionGenericMoP[l_Team].Clear();
 
         m_EnnemiesKilled[l_Team] = 0;
         m_EnnemiesKilledMax[l_Team] = EnnemiesSlainCap2;
@@ -639,6 +657,7 @@ OutdoorPvPAshran::OutdoorPvPAshran()
 
         for (uint8 l_I = 0; l_I < MaxArtifactCounts; ++l_I)
         {
+            m_ArtifactsNPCGuids[l_Team][l_I].Clear();
             m_ArtifactsCollected[l_Team][l_I] = 0;
             m_ArtifactEventsLaunched[l_Team][l_I] = false;
         }
@@ -650,6 +669,33 @@ OutdoorPvPAshran::OutdoorPvPAshran()
         m_AshranEventsWarned[l_Index] = false;
         m_AshranEventsLaunched[l_Index] = false;
     }
+}
+
+void OutdoorPvPAshran::ReleaseInstance(Map* baseMap)
+{
+    OutdoorPvP::ReleaseInstance(baseMap);
+    ResetState();
+}
+
+bool OutdoorPvPAshran::SetupOutdoorPvP()
+{
+    // one engine per game of the Ashran battleground, bound to the map of the game: nothing is registered on the zone
+    return true;
+}
+
+void OutdoorPvPAshran::HandleGameStart()
+{
+    m_GameOpen = true;
+
+    // the first battle opens with the game, no "next battle" wait
+    m_NextBattleTimer = 1;
+}
+
+void OutdoorPvPAshran::Initialize(uint32 zone)
+{
+    // a game opens its battle itself (HandleGameStart)
+    if (m_game)
+        m_NextBattleTimer = 0;
 
     AddCreature(AllianceFactionBoss, g_FactionBossesSpawn[0], 5 * MINUTE);
     AddCreature(AllianceMarshalKarshStormforge, g_FactionBossesGuardians[0], 5 * MINUTE);
@@ -657,19 +703,7 @@ OutdoorPvPAshran::OutdoorPvPAshran()
     AddCreature(HordeFactionBoss, g_FactionBossesSpawn[3], 5 * MINUTE);
     AddCreature(HordeGeneralAevd, g_FactionBossesGuardians[6], 5 * MINUTE);
     AddCreature(HordeWarlordNoktyn, g_FactionBossesGuardians[7], 5 * MINUTE);
-}
 
-bool OutdoorPvPAshran::SetupOutdoorPvP()
-{
-    TC_LOG_ERROR("misc", "OutdoorPvPAshran: SetupOutdoorPvP");
-
-    RegisterZone(AshranZoneID);
-
-    return true;
-}
-
-void OutdoorPvPAshran::Initialize(uint32 zone)
-{
     for (uint8 i = EmberfallTower; i < MaxBattleType; ++i)
     {
         if (g_MiddleBattlesEntries[i] == m_CurrentBattleState)
@@ -727,18 +761,19 @@ void OutdoorPvPAshran::HandlePlayerEnterMap(ObjectGuid guid, uint32 zoneID)
     if (!player || player->GetTeamId() >= MAX_TEAMS)
         return;
 
-    if (player->getLevel() < PlayerMinLevel)
+    // the bracket of the battleground already holds the levels
+    if (!m_game && player->getLevel() < PlayerMinLevel)
     {
         if (m_PlayersWillBeKick[player->GetTeamId()].count(player->GetGUID()) == 0)
             m_PlayersWillBeKick[player->GetTeamId()][player->GetGUID()] = uint32(GameTime::GetGameTime()) + 10;
         return;
     }
 
-    if (m_PlayersInWar[player->GetTeamId()].count(player->GetGUID()) || m_InvitedPlayers[player->GetTeamId()].count(player->GetGUID()))
+    if (m_PlayersInWar[player->GetTeamId()].count(player->GetGUID()))
         return;
 
-    m_InvitedPlayers[player->GetTeamId()][player->GetGUID()] = uint32(GameTime::GetGameTime()) + AshranTimeForInvite;
-    sLFGMgr->LeaveLfg(player->GetGUID());
+    // the 7.3.5 client has no world PvP entry invitation any more: entering the battle map is joining the battle
+    HandleBFMGREntryInviteResponse(true, player);
 
     player->CastSpell(player, SpellLootable, true);
 
@@ -769,11 +804,20 @@ void OutdoorPvPAshran::HandlePlayerLeaveMap(ObjectGuid guid, uint32 mapID)
 {
     Player* player = ObjectAccessor::GetObjectInMap(guid, m_map, (Player*)nullptr);
     if (!player)
+    {
+        // gone from the map already (logged out of a game): only what the engine keeps of him
+        for (uint8 team = 0; team < TEAM_NEUTRAL; ++team)
+        {
+            m_PlayersInWar[team].erase(guid);
+            m_PlayersWillBeKick[team].erase(guid);
+            m_players[team].erase(guid);
+            m_PlayerCurrencyLoots.erase(guid);
+        }
         return;
+    }
 
     if (player->GetTeamId() < TEAM_NEUTRAL)
     {
-        m_InvitedPlayers[player->GetTeamId()].erase(player->GetGUID());
         m_PlayersInWar[player->GetTeamId()].erase(player->GetGUID());
         m_PlayersWillBeKick[player->GetTeamId()].erase(player->GetGUID());
 
@@ -805,7 +849,7 @@ void OutdoorPvPAshran::HandlePlayerEnterArea(ObjectGuid guid, uint32 areaID)
     if (!player)
         return;
 
-    if (areaID == AshranPreAreaHorde || areaID == AshranPreAreaAlliance)
+    if (!m_game && (areaID == AshranPreAreaHorde || areaID == AshranPreAreaAlliance))
     {
         ObjectGuid guid = player->GetGUID();
         player->AddDelayedEvent(Seconds(5).count(), [guid]() -> void
@@ -1120,22 +1164,6 @@ bool OutdoorPvPAshran::Update(uint32 p_Diff)
 
     for (uint8 l_Team = 0; l_Team < 2; ++l_Team)
     {
-        l_TempList[l_Team] = m_InvitedPlayers[l_Team];
-
-        for (PlayerTimerMap::iterator l_Iter = l_TempList[l_Team].begin(); l_Iter != l_TempList[l_Team].end(); ++l_Iter)
-        {
-            if ((*l_Iter).second <= GameTime::GetGameTime())
-            {
-                if (Player* l_Player = sObjectAccessor->FindPlayer((*l_Iter).first))
-                {
-                    if (l_Player->GetTeamId() == TEAM_HORDE)
-                        l_Player->TeleportTo(WorldLocation(AshranNeutralMapID, g_HordeTeleportPos));
-                    else
-                        l_Player->TeleportTo(WorldLocation(AshranNeutralMapID, g_AllianceTeleportPos));
-                }
-            }
-        }
-
         l_TempList[l_Team] = m_PlayersWillBeKick[l_Team];
 
         for (PlayerTimerMap::iterator l_Iter = l_TempList[l_Team].begin(); l_Iter != l_TempList[l_Team].end(); ++l_Iter)
@@ -1153,11 +1181,22 @@ bool OutdoorPvPAshran::Update(uint32 p_Diff)
         }
     }
 
-    ScheduleNextBattle(p_Diff);
-    ScheduleEndOfBattle(p_Diff);
+    // the preparation of a game only sets the field up: the cycle of the battle starts with the game
+    bool const battleOn = !m_game || m_GameOpen;
+
+    if (battleOn)
+    {
+        ScheduleNextBattle(p_Diff);
+        ScheduleEndOfBattle(p_Diff);
+    }
+
     ScheduleInitPoints(p_Diff);
-    ScheduleEventsUpdate(p_Diff);
-    ScheduleGladiatorRespawn(p_Diff);
+
+    if (battleOn)
+    {
+        ScheduleEventsUpdate(p_Diff);
+        ScheduleGladiatorRespawn(p_Diff);
+    }
 
     return OutdoorPvP::Update(p_Diff);
 }
@@ -1427,17 +1466,6 @@ void OutdoorPvPAshran::SendEventWarningToPlayers(uint32 p_LangID)
             //    l_Player->BuildPlayerChat(&l_Data, 0, CHAT_MSG_TEXT_EMOTE, l_Player->GetSession()->GetTrinityString(p_LangID).c_str(), LANG_UNIVERSAL);
             //    l_Player->GetSession()->SendPacket(&l_Data);
             //}
-
-            /// Send announces to invitees too
-            for (auto l_Invitee : m_InvitedPlayers[l_I])
-            {
-                if (Player* l_Player = sObjectAccessor->FindPlayer(l_Invitee.first))
-                {
-                    //            WorldPacket l_Data;
-                    //            l_Player->BuildPlayerChat(&l_Data, 0, CHAT_MSG_TEXT_EMOTE, l_Player->GetSession()->GetTrinityString(p_LangID).c_str(), LANG_UNIVERSAL);
-                    //            l_Player->GetSession()->SendPacket(&l_Data);
-                }
-            }
         }
     }
 }
@@ -1641,10 +1669,11 @@ void OutdoorPvPAshran::HandleBFMGREntryInviteResponse(bool accepted, Player* pla
     if (accepted)
     {
         m_PlayersInWar[player->GetTeamId()].insert(player->GetGUID());
-        m_InvitedPlayers[player->GetTeamId()].erase(player->GetGUID());
         m_players[player->GetTeamId()].emplace(player->GetGUID());
 
-        player->GetSession()->SendBfEntered(m_Guid, false, false);
+        // in a battleground the client already knows the battle it is in
+        if (!m_game)
+            player->GetSession()->SendBfEntered(m_Guid, false, false);
     }
     else
     {
@@ -2053,6 +2082,13 @@ uint32 OutdoorPvPAshran::GetCurrentBattleType() const
 
 void OutdoorPvPAshran::HandleFactionBossDeath(uint8 p_Faction)
 {
+    // in a game the death of a leader decides it, the faction given being the winner's
+    if (m_game)
+    {
+        m_game->EndBattleground(p_Faction == TEAM_ALLIANCE ? ALLIANCE : HORDE);
+        return;
+    }
+
     if (m_CurrentBattleState == WorldStateHighWarlordVolrath)
     {
         SendUpdateWorldState(WorldStateSlayVolrath, WorldStateDisabled);
@@ -2467,5 +2503,5 @@ public:
 
 void AddSC_AshranMgr()
 {
-    //new OutdoorPvP_Ashran();
+    new OutdoorPvP_Ashran();
 }

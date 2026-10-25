@@ -251,6 +251,11 @@ class TC_GAME_API Map
         virtual void UpdateSessions(uint32 diff);
         void UpdateOutdoorPvP(uint32 diff);
 
+        // world PvP engine of an instanceable map: moved to the instance by its first player, back when the instance is destroyed
+        void BindOutdoorPvP();
+        void ReleaseOutdoorPvP();
+        OutdoorPvP* GetBoundOutdoorPvP() const;
+
         uint32 GetCurrentDiff() const;
 
         float GetVisibilityRange(uint32 zoneId = 0, uint32 areaId = 0) const;

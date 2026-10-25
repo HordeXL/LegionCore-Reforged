@@ -293,6 +293,8 @@ public:
     void Update(uint32 diff);
 
     virtual bool SetupBattleground() { return true; } 
+    // the map of the game now exists, no player is in it yet
+    virtual void OnMapCreated() { }
     virtual void Reset();
     virtual void StartingEventCloseDoors() { }
     virtual void StartingEventOpenDoors() { }

@@ -533,6 +533,43 @@ void Map::UpdateOutdoorPvPScript()
     }
 }
 
+void Map::BindOutdoorPvP()
+{
+    // a battleground game owns its engine (created by the game itself), it never inherits the one of the base map
+    if (OutdoorPvPList || m_parentMap == this || !m_parentMap->OutdoorPvPList || !Instanceable() || IsBattlegroundOrArena())
+        return;
+
+    // Initialize may register spawns that look the list up: it is set first
+    std::vector<OutdoorPvP*> const engines(m_parentMap->OutdoorPvPList->begin(), m_parentMap->OutdoorPvPList->end());
+    OutdoorPvPList = m_parentMap->OutdoorPvPList;
+
+    for (OutdoorPvP* pvp : engines)
+        if (pvp && pvp->GetMap() == m_parentMap)
+            pvp->BindToInstance(this);
+}
+
+void Map::ReleaseOutdoorPvP()
+{
+    if (!OutdoorPvPList || m_parentMap == this)
+        return;
+
+    for (OutdoorPvP* pvp : *OutdoorPvPList)
+        if (pvp && pvp->GetMap() == this)
+            pvp->ReleaseInstance(m_parentMap);
+
+    OutdoorPvPList = nullptr;
+}
+
+OutdoorPvP* Map::GetBoundOutdoorPvP() const
+{
+    if (OutdoorPvPList)
+        for (OutdoorPvP* pvp : *OutdoorPvPList)
+            if (pvp && pvp->GetMap() == this)
+                return pvp;
+
+    return nullptr;
+}
+
 void Map::LoadMapAndVMap(int gx, int gy)
 {
     LoadMap(gx, gy);
@@ -899,6 +936,9 @@ bool Map::AddPlayerToMap(Player* player, bool initPlayer /*= true*/)
         TC_LOG_ERROR("maps", "Map::Add: Player (GUID: %u) has invalid coordinates X:%f Y:%f grid cell [%u:%u]", player->GetGUIDLow(), player->GetPositionX(), player->GetPositionY(), cellCoord.x_coord, cellCoord.y_coord);
         return false;
     }
+
+    // before the grid of the player is loaded: the creatures it holds look for the engine as they enter the world
+    BindOutdoorPvP();
 
     Cell cell(cellCoord);
     EnsureGridLoadedForActiveObject(cell, player);
@@ -1365,9 +1405,10 @@ void Map::UpdateOutdoorPvP(uint32 diff)
 
     uint32 _s = getMSTime();
 
+    // on the base map of an instanceable map the engine waits, unbound, for its instance
     if (OutdoorPvPList && !OutdoorPvPList->empty())
         for (auto itr : *OutdoorPvPList)
-            if (itr && itr->GetMap() == this)
+            if (itr && itr->GetMap() == this && (itr->IsBoundToInstance() || !Instanceable()))
                 itr->Update(diff);
 
     if (BattlefieldList && !BattlefieldList->empty())

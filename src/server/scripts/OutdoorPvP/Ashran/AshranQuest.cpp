@@ -120,7 +120,7 @@ public:
             if (p_Action)
                 return;
 
-            ZoneScript* l_ZoneScript = sOutdoorPvPMgr->GetOutdoorPvPToZoneId(me->GetZoneId());
+            ZoneScript* l_ZoneScript = GetAshranPvP(me);
             if (l_ZoneScript == nullptr)
                 return;
 
@@ -182,7 +182,7 @@ public:
             if (p_Action)
                 return;
 
-            ZoneScript* l_ZoneScript = sOutdoorPvPMgr->GetOutdoorPvPToZoneId(me->GetZoneId());
+            ZoneScript* l_ZoneScript = GetAshranPvP(me);
             if (l_ZoneScript == nullptr)
                 return;
 

@@ -102,6 +102,8 @@ public:
     bool SetupOutdoorPvP() override;
 
     void Initialize(uint32 zone) override;
+    void ReleaseInstance(Map* baseMap) override;
+    void HandleGameStart() override;
 
     void HandlePlayerEnterMap(ObjectGuid guid, uint32 zoneID) override;
     void HandlePlayerLeaveMap(ObjectGuid guid, uint32 zoneID) override ;
@@ -183,6 +185,8 @@ public:
 
 private:
 
+    void ResetState();
+
     OPvPCapturePoint_Graveyard* m_GraveYard;
     OPvPCapturePoint_Middle* m_ControlPoints[MaxBattleType];
     ObjectGuid m_GenericMoPGuids[MaxBattleType];
@@ -190,6 +194,7 @@ private:
     uint32 m_InitPointsTimer;
     bool m_IsInitialized;
     bool m_WillBeReset;
+    bool m_GameOpen;                    ///< the battle of a game is on: the countdown of the preparation is over
 
     uint64 m_Guid;
     ObjectGuid m_HeraldGuid;
@@ -198,7 +203,6 @@ private:
     uint32 m_WorldPvPAreaId;
 
     GuidSet m_PlayersInWar[TEAM_NEUTRAL];
-    PlayerTimerMap m_InvitedPlayers[TEAM_NEUTRAL];
     PlayerTimerMap m_PlayersWillBeKick[TEAM_NEUTRAL];
     PlayerCurrencyLoot m_PlayerCurrencyLoots;
 
@@ -224,5 +228,11 @@ private:
     AshranVignettesMap m_FactionVignettes[TEAM_NEUTRAL];
     ActiveCaptains m_ActiveCaptains;
 };
+
+/// The engine of the game an object stands in; null anywhere else
+inline OutdoorPvP* GetAshranPvP(WorldObject const* object)
+{
+    return object ? dynamic_cast<OutdoorPvP*>(object->GetZoneScript()) : nullptr;
+}
 
 #endif ///< ASHRAN_MGR_HPP_ASHRAN

@@ -81,6 +81,9 @@ class TC_GAME_API OutdoorPvPMgr
 
         ZoneScript* GetZoneScript(uint32 zoneId);
 
+        // an engine for one game of a battleground (Ashran), built from its template; the caller owns it
+        OutdoorPvP* CreateGameEngine(OutdoorPvPTypes type);
+
         void AddZone(uint32 zoneid, OutdoorPvP* handle);
 
         std::set<OutdoorPvP*>* GetOutdoorPvPMap(uint32 MapID);
