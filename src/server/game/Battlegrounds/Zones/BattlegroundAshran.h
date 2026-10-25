@@ -27,7 +27,9 @@ public:
     BattlegroundAshran();
 
     void OnMapCreated() override;
+    bool SetupBattleground() override;
     void AddPlayer(Player* player) override;
+    void StartingEventCloseDoors() override;
     void StartingEventOpenDoors() override;
     void FillInitialWorldStates(WorldPackets::WorldState::InitWorldStates& packet) override;
     WorldSafeLocsEntry const* GetClosestGraveYard(Player* player) override;

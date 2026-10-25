@@ -2396,6 +2396,7 @@ void Battleground::_CheckPositions(uint32 diff)
         case 607: // Strand of the Ancients 
         case 1101: // Deathmatch
         case 1803: // seething shore
+        case 1191: // Ashran: the gates of the bases hold the players in
             return;
         default:
             break;

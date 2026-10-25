@@ -7,10 +7,45 @@
 namespace
 {
     uint32 const EngineUpdateInterval = 1000;    // same pace as OutdoorPvPMgr gave the engines of the open world
+
+    enum AshranGates
+    {
+        GATE_ALLIANCE,
+        GATE_HORDE,
+        GATE_MAX
+    };
+
+    // the garrison gates of Draenor shut the way out of each base until the game starts
+    uint32 const GateEntry[GATE_MAX] = { 229498, 234092 };
+    Position const GatePos[GATE_MAX] =
+    {
+        { 4088.4f, -4121.0f, 48.3f, 2.55f },
+        { 4945.9f, -4170.4f, 38.3f, 0.45f },
+    };
 }
 
 BattlegroundAshran::BattlegroundAshran() : m_engineTimer(0)
 {
+    BgObjects.resize(GATE_MAX);
+}
+
+bool BattlegroundAshran::SetupBattleground()
+{
+    for (uint8 i = 0; i < GATE_MAX; ++i)
+    {
+        Position const& pos = GatePos[i];
+        float const o = pos.GetOrientation();
+        if (!AddObject(i, GateEntry[i], pos.GetPositionX(), pos.GetPositionY(), pos.GetPositionZ(), o, 0.0f, 0.0f, std::sin(o / 2.0f), std::cos(o / 2.0f), RESPAWN_IMMEDIATELY))
+            return false;
+    }
+
+    return true;
+}
+
+void BattlegroundAshran::StartingEventCloseDoors()
+{
+    for (uint8 i = 0; i < GATE_MAX; ++i)
+        DoorClose(i);
 }
 
 OutdoorPvP* BattlegroundAshran::GetEngine() const
@@ -51,6 +86,9 @@ void BattlegroundAshran::RemovePlayer(Player* /*player*/, ObjectGuid guid, uint3
 
 void BattlegroundAshran::StartingEventOpenDoors()
 {
+    for (uint8 i = 0; i < GATE_MAX; ++i)
+        DoorOpen(i);
+
     if (OutdoorPvP* engine = GetEngine())
         engine->HandleGameStart();
 }
