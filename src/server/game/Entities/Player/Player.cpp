@@ -21722,8 +21722,7 @@ QuestGiverStatus Player::GetQuestDialogStatus(Object* questgiver)
         if (!sConditionMgr->IsObjectMeetToConditions(this, conditions))
             continue;
 
-        if (!sConditionMgr->IsObjectMeetToConditions(this, sConditionMgr->GetConditionsForNotGroupedEntry(CONDITION_SOURCE_TYPE_QUEST_ACCEPT, quest->GetQuestId())))
-            continue;
+        // what the quest needed to be taken (place, faction, earlier quest) no longer matters once it is in the log
 
         switch (GetQuestStatus(questId))
         {
