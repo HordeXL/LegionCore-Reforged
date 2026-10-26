@@ -1,19 +1,14 @@
-/*
- * Copyright (C) 2008-2012 TrinityCore <http://www.trinitycore.org/>
- *
- * This program is free software; you can redistribute it and/or modify it
- * under the terms of the GNU General Public License as published by the
- * Free Software Foundation; either version 2 of the License, or (at your
- * option) any later version.
- *
- * This program is distributed in the hope that it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for
- * more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program. If not, see <http://www.gnu.org/licenses/>.
- */
+////////////////////////////////////////////
+///                                      ///
+///         LEGIONCORE REFORGED          ///
+///    Copyright 2026 Titans-Project     ///
+///         All Rights Reserved.         ///
+///                                      ///
+///      Based on TrinityCore code       ///
+///   Copyright 2008-2012 TrinityCore    ///
+///   <http://www.trinitycore.org/>      ///
+///                                      ///
+////////////////////////////////////////////
 
 #ifndef OUTDOOR_PVP_H_
 #define OUTDOOR_PVP_H_
@@ -105,6 +100,8 @@ class Unit;
 struct GossipMenuItems;
 class OutdoorPvP;
 class OutdoorGraveyard;
+class Battleground;
+class Map;
 
 typedef std::set<Player*> PlayerSet;
 typedef std::vector<OutdoorGraveyard*> GraveyardVector;
@@ -282,6 +279,22 @@ class TC_GAME_API OutdoorPvP : public ZoneScript
 
         void SetMap(Map* map);
         Map* GetMap() const;
+
+        // An engine of an instanceable map (Ashran) is registered on the base map, where nobody stands: it moves to the
+        // instance the players enter, and back when that instance is destroyed. Its spawns are then made in the instance.
+        void BindToInstance(Map* instance);
+        virtual void ReleaseInstance(Map* baseMap);
+        bool IsBoundToInstance() const { return m_boundToInstance; }
+
+        // An engine made for one game of a battleground (Ashran) is not on the zone list of OutdoorPvPMgr: the game binds it
+        // to its own map and drives it (updates, players, end). Whatever the open world cycle did, the game replaces.
+        void BindToGame(Battleground* game, Map* map);
+        Battleground* GetGame() const { return m_game; }
+        virtual void HandleGameStart() { }
+        void AddGamePlayer(Player* player);
+        void RemoveGamePlayer(ObjectGuid guid);
+        void ChangeGamePlayerArea(Player* player, uint32 oldArea, uint32 newArea);
+        void HandleGamePlayerResurrects(Player* player);
         virtual void HandleBFMGREntryInviteResponse(bool /*accepted*/, Player* /*p_Player*/) { }
 
         virtual WorldSafeLocsEntry const* GetClosestGraveyard(Player* p_Player);
@@ -352,6 +365,9 @@ class TC_GAME_API OutdoorPvP : public ZoneScript
         GraveyardVector m_GraveyardList;
 
         Map* m_map;
+        bool m_boundToInstance;
+        Battleground* m_game;
+        uint32 m_initZone;                      // zone Initialize is run for once the engine is bound to an instance
 
         uint32 m_TypeId;
         uint32 m_LastResurectTimer;
@@ -363,6 +379,7 @@ class TC_GAME_API OutdoorGraveyard
 {
     public:
         explicit OutdoorGraveyard(OutdoorPvP* p_OutdoorPvP);
+        virtual ~OutdoorGraveyard() = default;
 
         void GiveControlTo(TeamId p_Team);
         TeamId GetControlTeamId();

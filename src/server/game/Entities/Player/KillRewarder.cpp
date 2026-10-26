@@ -291,6 +291,12 @@ void KillRewarder::Reward()
         if (Map* instance = _victim->GetMap())
             if (uint32 instanceId =  instance->GetInstanceId())
                 if (Scenario* progress = sScenarioMgr->GetScenario(instanceId))
+                {
                     progress->UpdateAchievementCriteria(CRITERIA_TYPE_KILL_CREATURE, victim->GetEntry(), 1, 0, victim, _killer);
+                    // steps also count kill credits, as quests do ("clear a path": any attacker credits the Iron Grunt)
+                    for (uint32 credit : victim->GetCreatureTemplate()->KillCredit)
+                        if (credit && credit != victim->GetEntry())
+                            progress->UpdateAchievementCriteria(CRITERIA_TYPE_KILL_CREATURE, credit, 1, 0, victim, _killer);
+                }
     }
 }

@@ -5190,6 +5190,50 @@ void SpellMgr::LoadSpellCustomAttr()
         spellInfo->Effects[0]->TargetB = TARGET_UNIT_SRC_AREA_ALLY;
     });
 
+    // Tuulani Unlock Visual (Auchindoun): the wardens and clerics holding a barrier channel it for good, not for 4 seconds
+    ApplySpellFix({160415}, [](SpellInfo* spellInfo)
+    {
+        spellInfo->Misc.Duration.Duration = -1;
+        spellInfo->Misc.Duration.MaxDuration = -1;
+        for (SpellMiscData* misc : { spellInfo->GetMisc(DIFFICULTY_NORMAL), spellInfo->GetMisc(DIFFICULTY_HEROIC), spellInfo->GetMisc(DIFFICULTY_MYTHIC_DUNGEON), spellInfo->GetMisc(DIFFICULTY_TIMEWALKING) })
+        {
+            misc->Duration.Duration = -1;
+            misc->Duration.MaxDuration = -1;
+        }
+    });
+
+    // Summon Abyssal (Auchindoun): the summoning circle of the cackling pyromaniacs around the room of Azzakel lasts until they fight, not 20 seconds
+    ApplySpellFix({159610}, [](SpellInfo* spellInfo)
+    {
+        spellInfo->Misc.Duration.Duration = -1;
+        spellInfo->Misc.Duration.MaxDuration = -1;
+        for (SpellMiscData* misc : { spellInfo->GetMisc(DIFFICULTY_NORMAL), spellInfo->GetMisc(DIFFICULTY_HEROIC), spellInfo->GetMisc(DIFFICULTY_MYTHIC_DUNGEON), spellInfo->GetMisc(DIFFICULTY_TIMEWALKING) })
+        {
+            misc->Duration.Duration = -1;
+            misc->Duration.MaxDuration = -1;
+        }
+    });
+
+    // Holy Beam (Auchindoun): Nyami wakes Kaathar with it from above the crystal, out of its short range: the channel broke at once
+    ApplySpellFix({158565}, [](SpellInfo* spellInfo)
+    {
+        for (SpellMiscData* misc : { spellInfo->GetMisc(DIFFICULTY_NORMAL), spellInfo->GetMisc(DIFFICULTY_HEROIC), spellInfo->GetMisc(DIFFICULTY_MYTHIC_DUNGEON), spellInfo->GetMisc(DIFFICULTY_TIMEWALKING) })
+            misc->RangeEntry = sSpellRangeStore.LookupEntry(13);     // anywhere
+    });
+
+    // Cosmetic Shadow Channel (Auchindoun): the three warlocks feed the shield of Teron'gor from their platforms for as long as they live
+    ApplySpellFix({177757}, [](SpellInfo* spellInfo)
+    {
+        spellInfo->Misc.Duration.Duration = -1;
+        spellInfo->Misc.Duration.MaxDuration = -1;
+        for (SpellMiscData* misc : { spellInfo->GetMisc(DIFFICULTY_NORMAL), spellInfo->GetMisc(DIFFICULTY_HEROIC), spellInfo->GetMisc(DIFFICULTY_MYTHIC_DUNGEON), spellInfo->GetMisc(DIFFICULTY_TIMEWALKING) })
+        {
+            misc->Duration.Duration = -1;
+            misc->Duration.MaxDuration = -1;
+            misc->RangeEntry = sSpellRangeStore.LookupEntry(13);     // anywhere
+        }
+    });
+
     // Light's Beacon
     ApplySpellFix({53651}, [](SpellInfo* spellInfo)
     {

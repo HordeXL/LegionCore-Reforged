@@ -1,3 +1,10 @@
+////////////////////////////////////////////
+///                                      ///
+///         LEGIONCORE REFORGED          ///
+///    Copyright 2026 Titans-Project     ///
+///         All Rights Reserved.         ///
+///                                      ///
+////////////////////////////////////////////
 
 #ifndef __BattlegroundDefinesH
 #define __BattlegroundDefinesH
@@ -222,6 +229,10 @@ namespace MS
                 BrawlBattlegroundSeethingShore      = 890,
                 BattlegroundSeethingShore           = 894,
 
+                // 894 is the last record the 7.3.5 client ships in BattlemasterList.db2; anything
+                // above it is a record the hotfix tables create.
+                BattlegroundAshran                  = 901,
+
                 Max
             };
         }
@@ -253,6 +264,7 @@ namespace MS
 
                 ///< custom
                 ArenaSoloQ3v3,
+                BattlegroundAshran,
 
                 Max
             };
@@ -296,6 +308,7 @@ namespace MS
                 case BattlegroundTypeId::BattlegroundWarsongGulch:
                 case BattlegroundTypeId::RatedBattleground: // is rly needed there?
                 case BattlegroundTypeId::BattlegroundSeethingShore:
+                case BattlegroundTypeId::BattlegroundAshran:
                     return true;
                 default:
                     return false;
@@ -394,6 +407,8 @@ namespace MS
                     return BattlegroundQueueTypeId::BattlegroundDeepwindGorge;
                 case BattlegroundTypeId::BattlegroundSeethingShore:
                     return BattlegroundQueueTypeId::BattlegroundSeethingShore;
+                case BattlegroundTypeId::BattlegroundAshran:
+                    return BattlegroundQueueTypeId::BattlegroundAshran;
                 case BattlegroundTypeId::BrawlBattlegroundWarsongScramble:
                 case BattlegroundTypeId::BrawlBattlegroundSouthshoreVsTarrenMill:
                 case BattlegroundTypeId::BrawlBattleground1:
@@ -469,6 +484,8 @@ namespace MS
                     return BattlegroundTypeId::BattlegroundTwinPeaks;
                 case BattlegroundQueueTypeId::BattlegroundSeethingShore:
                     return BattlegroundTypeId::BattlegroundSeethingShore;
+                case BattlegroundQueueTypeId::BattlegroundAshran:
+                    return BattlegroundTypeId::BattlegroundAshran;
                 case BattlegroundQueueTypeId::BattlegroundBattleForGilneas:
                     return BattlegroundTypeId::BattlegroundBattleForGilneas;
                 case BattlegroundQueueTypeId::BattlegroundRandom:

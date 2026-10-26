@@ -1,0 +1,2 @@
+-- Ashran: remove the fixed spawns of map 1191 that the engine of each game spawns itself (leaders, guardians, gladiators, tower guards, base taxis).
+DELETE FROM `creature` WHERE `map` = 1191 AND `guid` IN (257491, 257501, 257503, 257511, 257512, 257515, 257523, 257525, 257526, 257533, 257535, 257537, 257538, 257541, 257543, 257550, 257555, 257569, 257571, 257575, 257580, 257582, 257585, 257900, 257905, 257925, 257930, 257932, 257933, 257942, 257947, 257948);

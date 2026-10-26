@@ -97,6 +97,54 @@ void AddSC_kun_lai_summit();
 void AddSC_WanderingIsland();
 void AddSC_timeless_isle();
 
+// Scenarios
+void AddSC_instance_arena_of_annihilation();
+void AddSC_boss_scar_shell();
+void AddSC_boss_jolgrum();
+void AddSC_boss_little_liuyang();
+void AddSC_boss_chagan_firehoof();
+void AddSC_arena_of_annihilation();
+void AddSC_fall_of_shan_bu();
+void AddSC_instance_fall_of_shan_bu();
+void AddSC_pursing_the_black_harvest();
+void AddSC_instance_pursuing_the_black_harvest();
+void AddSC_thunder_forge();
+void AddSC_instance_thunder_forge();
+void AddSC_troves_of_the_thunder_king();
+void AddSC_instance_troves_of_the_thunder_king();
+void AddSC_a_brewing_storm();
+void AddSC_instance_a_brewing_storm();
+void AddSC_a_little_patience();
+void AddSC_instance_a_little_patience();
+void AddSC_assault_on_zanvess();
+void AddSC_instance_assault_on_zanvess();
+void AddSC_battle_on_the_high_seas();
+void AddSC_instance_battle_on_the_high_seas();
+void AddSC_blood_in_the_snow();
+void AddSC_instance_blood_in_the_snow();
+void AddSC_brewmoon_festival();
+void AddSC_instance_brewmoon_festival();
+void AddSC_celestial_tournament();
+void AddSC_instance_celestial_tournament();
+void AddSC_crypt_of_forgotten_kings();
+void AddSC_instance_crypt_of_forgotten_kings();
+void AddSC_dagger_in_the_dark();
+void AddSC_instance_dagger_in_the_dark();
+void AddSC_dark_heart_of_pandaria();
+void AddSC_instance_dark_heart_of_pandaria();
+void AddSC_domination_point();
+void AddSC_instance_domination_point();
+void AddSC_greenstone_village();
+void AddSC_instance_greenstone_village();
+void AddSC_lions_landing();
+void AddSC_instance_lions_landing();
+void AddSC_the_secrets_of_ragefire();
+void AddSC_instance_the_secrets_of_ragefire();
+void AddSC_unga_ingoo();
+void AddSC_instance_unga_ingoo();
+void AddSC_instance_proving_grounds();
+void AddSC_proving_grounds();
+
 void AddPandariaScripts()
 {
     AddSC_instance_temple_of_jade_serpent();        // Temple of Jade Serpent
@@ -198,4 +246,52 @@ void AddPandariaScripts()
 
     AddSC_WanderingIsland();
     AddSC_timeless_isle();
+
+    // Scenarios
+    AddSC_instance_arena_of_annihilation();
+    AddSC_boss_scar_shell();
+    AddSC_boss_jolgrum();
+    AddSC_boss_little_liuyang();
+    AddSC_boss_chagan_firehoof();
+    AddSC_arena_of_annihilation();
+    AddSC_fall_of_shan_bu();
+    AddSC_instance_fall_of_shan_bu();
+    AddSC_pursing_the_black_harvest();
+    AddSC_instance_pursuing_the_black_harvest();
+    AddSC_thunder_forge();
+    AddSC_instance_thunder_forge();
+    AddSC_troves_of_the_thunder_king();
+    AddSC_instance_troves_of_the_thunder_king();
+    AddSC_a_brewing_storm();
+    AddSC_instance_a_brewing_storm();
+    AddSC_a_little_patience();
+    AddSC_instance_a_little_patience();
+    AddSC_assault_on_zanvess();
+    AddSC_instance_assault_on_zanvess();
+    AddSC_battle_on_the_high_seas();
+    AddSC_instance_battle_on_the_high_seas();
+    AddSC_blood_in_the_snow();
+    AddSC_instance_blood_in_the_snow();
+    AddSC_brewmoon_festival();
+    AddSC_instance_brewmoon_festival();
+    AddSC_celestial_tournament();
+    AddSC_instance_celestial_tournament();
+    AddSC_crypt_of_forgotten_kings();
+    AddSC_instance_crypt_of_forgotten_kings();
+    AddSC_dagger_in_the_dark();
+    AddSC_instance_dagger_in_the_dark();
+    AddSC_dark_heart_of_pandaria();
+    AddSC_instance_dark_heart_of_pandaria();
+    AddSC_domination_point();
+    AddSC_instance_domination_point();
+    AddSC_greenstone_village();
+    AddSC_instance_greenstone_village();
+    AddSC_lions_landing();
+    AddSC_instance_lions_landing();
+    AddSC_the_secrets_of_ragefire();
+    AddSC_instance_the_secrets_of_ragefire();
+    AddSC_unga_ingoo();
+    AddSC_instance_unga_ingoo();
+    AddSC_instance_proving_grounds();
+    AddSC_proving_grounds();
 }

@@ -30,6 +30,7 @@
 #include "Battlefield.h"
 #include "BattlefieldMgr.h"
 #include "BattlegroundAlteracValley.h"
+#include "BattlegroundMap.h"
 #include "BattlegroundMgr.h"
 #include "BattlegroundPackets.h"
 #include "Bracket.h"
@@ -7167,6 +7168,10 @@ void Player::ResurrectPlayer(float restore_percent, bool applySickness)
     UpdateZone(newzone, newarea);
     sOutdoorPvPMgr->HandlePlayerResurrects(this, newzone);
 
+    if (BattlegroundMap* bgMap = GetMap()->ToBgMap())
+        if (OutdoorPvP* gamePvP = bgMap->GetOutdoorPvP())
+            gamePvP->HandleGamePlayerResurrects(this);
+
     if (InBattleground())
     {
         if (Battleground* bg = GetBattleground())
@@ -10280,6 +10285,10 @@ void Player::UpdateArea(uint32 newArea)
         sOutdoorPvPMgr->HandlePlayerLeaveArea(GetGUID(), m_oldAreaId);
         sOutdoorPvPMgr->HandlePlayerEnterArea(GetGUID(), m_areaId);
 
+        if (BattlegroundMap* bgMap = GetMap()->ToBgMap())
+            if (OutdoorPvP* gamePvP = bgMap->GetOutdoorPvP())
+                gamePvP->ChangeGamePlayerArea(this, m_oldAreaId, m_areaId);
+
         if (m_oldAreaId)
             RemovePlayerFromArea(m_oldAreaId);
         if (m_areaId)
@@ -12166,7 +12175,7 @@ void Player::SendLoot(ObjectGuid guid, LootType loot_type, bool AoeLoot, uint8 p
 
         loot = &personalLoot[guid];
 
-        if (auto outdoorPvP = sOutdoorPvPMgr->GetOutdoorPvPToZoneId(GetCurrentZoneID()))
+        if (auto outdoorPvP = GetOutdoorPvP())
             if (outdoorPvP->GetTypeId() == OutdoorPvPTypes::OUTDOOR_PVP_ASHRAN)
                 outdoorPvP->FillCustomPvPLoots(this, *loot, bones->GetOwnerGUID());
 
@@ -12509,32 +12518,23 @@ void Player::SendInitWorldStates(uint32 zoneid, uint32 areaid)
 
     if (sBattlegroundMgr->IsBrawlActive(expirationTimer))
     {
-        switch (sBattlegroundMgr->GetBrawlIternalGroup())
+        // the brawl cards of the adventure guide show when this state holds their value (WorldStateExpression)
+        uint32 brawlState = 0;
+        switch (sBattlegroundMgr->GetBrawlData().JournalId)
         {
-        case 0:
-            packet.Worldstates.emplace_back(static_cast<WorldStates>(13119), 3);
-            break;
-        case 1:
-            packet.Worldstates.emplace_back(static_cast<WorldStates>(13119), 10);
-            break;
-        case 4:
-            packet.Worldstates.emplace_back(static_cast<WorldStates>(13119), 8);
-            break;
-        case 5:
-            packet.Worldstates.emplace_back(static_cast<WorldStates>(13119), 4);
-            break;
-        case 6:
-            packet.Worldstates.emplace_back(static_cast<WorldStates>(13119), 11);
-            break;
-        case 2:
-        case 7:
-            packet.Worldstates.emplace_back(static_cast<WorldStates>(13119), 0);
-            break;
-        case 3:
-        case 8:
-            packet.Worldstates.emplace_back(static_cast<WorldStates>(13119), 4);
-            break;
+            case 328: brawlState = 2;  break;   // Southshore vs. Tarren Mill
+            case 323: brawlState = 3;  break;   // Temple of Hotmogu
+            case 324: brawlState = 4;  break;   // Gravity Lapse
+            case 321: brawlState = 5;  break;   // Arathi Blizzard
+            case 325: brawlState = 6;  break;   // Deepwind Dunk
+            case 326: brawlState = 7;  break;   // Eye of the Corn
+            case 327: brawlState = 8;  break;   // Packed House
+            case 322: brawlState = 9;  break;   // Warsong Scramble
+            case 329: brawlState = 10; break;   // Shado-Pan Showdown
+            case 348: brawlState = 11; break;   // The Magnificent Six
+            default: break;
         }
+        packet.Worldstates.emplace_back(static_cast<WorldStates>(13119), brawlState);
     }
 
     SendDirectMessage(packet.Write());
@@ -20430,6 +20430,12 @@ void Player::MarkGarrisonInvasion(uint32 questId)
         SetWeeklyTrackingQuest(GarrisonInvasion::Types[type].PendingTracking);
 }
 
+// the command table opens with Delegating on Draenor (Alliance) or Mission Probable (Horde), then stays usable
+bool Player::CanUseGarrisonMissionTable() const
+{
+    return GetQuestStatus(34692) != QUEST_STATUS_NONE || GetQuestStatus(34775) != QUEST_STATUS_NONE;
+}
+
 bool Player::SatisfyQuestSeasonal(Quest const* qInfo)
 {
     if (!qInfo->IsSeasonal() || m_seasonalquests.empty())
@@ -21851,8 +21857,7 @@ QuestGiverStatus Player::GetQuestDialogStatus(Object* questgiver)
         if (!sConditionMgr->IsObjectMeetToConditions(this, conditions))
             continue;
 
-        if (!sConditionMgr->IsObjectMeetToConditions(this, sConditionMgr->GetConditionsForNotGroupedEntry(CONDITION_SOURCE_TYPE_QUEST_ACCEPT, quest->GetQuestId())))
-            continue;
+        // what the quest needed to be taken (place, faction, earlier quest) no longer matters once it is in the log
 
         switch (GetQuestStatus(questId))
         {
@@ -22798,6 +22803,7 @@ bool Player::LoadFromDB(ObjectGuid guid, CharacterDatabaseQueryHolder const& hol
     // after rewarded spell load various quest statuses
     _LoadQuestStatus(holder.GetPreparedResult(PLAYER_LOGIN_QUERY_LOADQUESTSTATUS));
     _LoadQuestStatusObjectives(holder.GetPreparedResult(PLAYER_LOGIN_QUERY_LOAD_QUEST_STATUS_OBJECTIVES));
+    RemoveStrayAshranTasks();
     _LoadQuestStatusRewarded(holder.GetPreparedResult(PLAYER_LOGIN_QUERY_LOADQUESTSTATUSREW));
     _LoadDailyQuestStatus(holder.GetPreparedResult(PLAYER_LOGIN_QUERY_LOADDAILYQUESTSTATUS));
     _LoadWeeklyQuestStatus(holder.GetPreparedResult(PLAYER_LOGIN_QUERY_LOADWEEKLYQUESTSTATUS));
@@ -32171,11 +32177,28 @@ void Player::UpdateAreaDependentAuras(uint32 newArea)
     }
 }
 
+// Ashran's bonus objectives once handed out on foot stay in old quest logs: they only belong to its battle
+void Player::RemoveStrayAshranTasks()
+{
+    if (GetMapId() == 1191)
+        return;
+
+    for (uint8 slot = 0; slot < MAX_QUEST_LOG_SIZE; ++slot)
+        if (uint32 logQuest = GetQuestSlotQuestId(slot))
+            if (sQuestDataStore->IsAshranTask(logQuest))
+            {
+                SetQuestSlot(slot, 0);
+                TakeQuestSourceItem(logQuest, false);
+            }
+}
+
 void Player::UpdateAreaQuestTasks(uint32 newAreaId, uint32 oldAreaId)
 {
     // TC_LOG_DEBUG("worldquest", "UpdateAreaQuestTasks newAreaId %u oldAreaId %u", newAreaId, oldAreaId);
 
     std::list<uint32> questAdd;
+
+    RemoveStrayAshranTasks();
 
     if (std::set<Quest const*> const* qInfo = sQuestDataStore->GetQuestTask(newAreaId))
     {
@@ -32187,7 +32210,9 @@ void Player::UpdateAreaQuestTasks(uint32 newAreaId, uint32 oldAreaId)
                 continue;
             }
 
-            if (quest->IsEmissary() || quest->IsWorld())
+            // Ashran's PvP bonus objectives are typed world quests but are area tasks of its battleground, given only
+            // there: some of their areas (Stormshield's keep...) also lie in the cities of Draenor
+            if (quest->IsEmissary() || (quest->IsWorld() && GetMapId() != 1191) || (GetMapId() != 1191 && sQuestDataStore->IsAshranTask(quest->GetQuestId())))
                 continue;
 
             // the server-side player conditions of some tasks are missing (Apexis assaults): `conditions` stand in for them
@@ -32197,6 +32222,9 @@ void Player::UpdateAreaQuestTasks(uint32 newAreaId, uint32 oldAreaId)
             if (QuestV2CliTaskEntry const* questTask = sQuestV2CliTaskStore.LookupEntry(quest->GetQuestId()))
             {
                 if (!sConditionMgr->IsPlayerMeetingCondition(this, questTask->ConditionID))
+                    continue;
+
+                if (questTask->FiltRaces != -1 && questTask->FiltRaces != 0 && !(uint64(questTask->FiltRaces) & getRaceMask()))
                     continue;
 
                 // if (questTask->WorldStateExpressionID)
@@ -32241,7 +32269,8 @@ void Player::UpdateAreaQuestTasks(uint32 newAreaId, uint32 oldAreaId)
             }
             else
             {
-                if (CanAddQuest(quest, true))
+                // no client task row to filter by race (Ashran's leader objectives): the quest's own races do
+                if (SatisfyQuestRace(quest, false) && SatisfyQuestClass(quest, false) && CanAddQuest(quest, true))
                 {
                     AddQuest(quest, NULL);
                     UpdateQuestObjectiveData(quest);

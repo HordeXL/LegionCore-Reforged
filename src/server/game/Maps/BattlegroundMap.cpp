@@ -1,10 +1,20 @@
+////////////////////////////////////////////
+///                                      ///
+///         LEGIONCORE REFORGED          ///
+///    Copyright 2026 Titans-Project     ///
+///         All Rights Reserved.         ///
+///                                      ///
+////////////////////////////////////////////
+
 #include "BattlegroundMap.h"
 #include "ObjectMgr.h"
 #include "Map.h"
+#include "OutdoorPvP.h"
 
 BattlegroundMap::BattlegroundMap(uint32 id, time_t expiry, uint32 instanceId, Map* parent, Difficulty difficulty) : Map(id, expiry, instanceId, difficulty, parent)
 {
     m_bg = nullptr;
+    m_outdoorPvP = nullptr;
 
     BattlegroundMap::InitVisibilityDistance();
 
@@ -14,6 +24,8 @@ BattlegroundMap::BattlegroundMap(uint32 id, time_t expiry, uint32 instanceId, Ma
 
 BattlegroundMap::~BattlegroundMap()
 {
+    SetOutdoorPvP(nullptr);
+
     if (!m_bg)
         return;
 
@@ -25,6 +37,18 @@ void BattlegroundMap::InitVisibilityDistance()
 {
     m_VisibleDistance = GetEntry()->IsBattleArena() ? sWorld->GetMaxVisibleDistanceInArenas() : sWorld->GetMaxVisibleDistanceInBG();
     m_VisibilityNotifyPeriod = World::GetVisibilityNotifyPeriodInBGArenas();
+}
+
+void BattlegroundMap::SetOutdoorPvP(OutdoorPvP* pvp)
+{
+    if (m_outdoorPvP)
+    {
+        // the objects it made go down with the map: only what the engine remembers of them is dropped
+        m_outdoorPvP->ReleaseInstance(const_cast<Map*>(GetParent()));
+        delete m_outdoorPvP;
+    }
+
+    m_outdoorPvP = pvp;
 }
 
 Battleground* BattlegroundMap::GetBG()

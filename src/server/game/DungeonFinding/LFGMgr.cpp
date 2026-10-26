@@ -1,19 +1,14 @@
-/*
- * Copyright (C) 2008-2012 TrinityCore <http://www.trinitycore.org/>
- *
- * This program is free software; you can redistribute it and/or modify it
- * under the terms of the GNU General Public License as published by the
- * Free Software Foundation; either version 2 of the License, or (at your
- * option) any later version.
- *
- * This program is distributed in the hope that it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for
- * more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program. If not, see <http://www.gnu.org/licenses/>.
- */
+////////////////////////////////////////////
+///                                      ///
+///         LEGIONCORE REFORGED          ///
+///    Copyright 2026 Titans-Project     ///
+///         All Rights Reserved.         ///
+///                                      ///
+///      Based on TrinityCore code       ///
+///   Copyright 2008-2012 TrinityCore    ///
+///   <http://www.trinitycore.org/>      ///
+///                                      ///
+////////////////////////////////////////////
 
 #include "Common.h"
 #include "SharedDefines.h"
@@ -2307,7 +2302,8 @@ LfgLockMap LFGMgr::GetLockedDungeons(ObjectGuid guid)
             lockData.status = LFG_LOCKSTATUS_TEMPORARILY_DISABLED;
         else if (dungeon->minlevel > level)
             lockData.status = LFG_LOCKSTATUS_TOO_LOW_LEVEL;
-        else if (dungeon->maxlevel != 0 && dungeon->maxlevel < level)
+        // 0x800 marks the scenarios a quest sends the player into (Defense of Karabor, Thunder Forge...): the quest gates them, not the level cap
+        else if (dungeon->maxlevel != 0 && dungeon->maxlevel < level && !(dungeon->dbc->Flags & 0x800))
             lockData.status = LFG_LOCKSTATUS_TOO_HIGH_LEVEL;
         else if (dungeon->seasonal && !IsSeasonActive(dungeon->id))
             lockData.status = LFG_LOCKSTATUS_NOT_IN_SEASON;
@@ -2316,7 +2312,8 @@ LfgLockMap LFGMgr::GetLockedDungeons(ObjectGuid guid)
         // else if (dungeon->dbc->GroupID == LFG_GROUP_NORMAL_LEGION && !player->HasAchieved(ar->achievement)) // Check artifact in Legion
             // lockData.status = LFG_LOCKSTATUS_NOT_HAVE_ARTIFACT;
         // merge faction check with check on invalid TP pos and check on test invalid maps (BUT we still have to send it! LOL, in WoD blizz deleted invalid maps from client DBC)
-        else if (!dungeon->dbc->FitsTeam(player->GetTeam()) || (dungeon->type != LFG_TYPE_RANDOM && dungeon->x == 0.0f && dungeon->y == 0.0f && dungeon->z == 0.0f) || !dungeon->dbc->IsValid())
+        // Ashran is reached through its world PvP entry, which has no LFG entrance (HandleLfgJoin)
+        else if (!dungeon->dbc->FitsTeam(player->GetTeam()) || (dungeon->type != LFG_TYPE_RANDOM && dungeon->id != LFG_DUNGEON_ASHRAN && dungeon->x == 0.0f && dungeon->y == 0.0f && dungeon->z == 0.0f) || !dungeon->dbc->IsValid())
             // TODO: for non-faction check find correct reason
             lockData.status = LFG_LOCKSTATUS_WRONG_FACTION;
         else if (dungeon->dbc->MinGear && avgItemLevel < dungeon->dbc->MinGear)

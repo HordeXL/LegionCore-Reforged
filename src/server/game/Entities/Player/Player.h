@@ -1990,6 +1990,7 @@ class TC_GAME_API Player : public Unit, public GridObject<Player>
         bool SatisfyGarrisonCampaign(Quest const* qInfo) const;
         void MarkGarrisonCampaignWeek(uint32 questId);
         bool SatisfyGarrisonInvasion(Quest const* qInfo) const;
+        bool CanUseGarrisonMissionTable() const;
         void MarkGarrisonInvasion(uint32 questId);
         // hidden weekly flags the client reads with IsQuestFlaggedCompleted (WeeklyTrackingQuests)
         void SetWeeklyTrackingQuest(uint32 questId);
@@ -2454,6 +2455,7 @@ class TC_GAME_API Player : public Unit, public GridObject<Player>
         void UpdateZoneDependentAuras(uint32 zone_id);    // zones
         void UpdateAreaDependentAuras(uint32 area_id);    // subzones
         void UpdateAreaQuestTasks(uint32 newAreaId, uint32 oldAreaId);
+        void RemoveStrayAshranTasks();
 
         void UpdateAfkReport(time_t currTime);
         void UpdatePvPFlag(time_t currTime);

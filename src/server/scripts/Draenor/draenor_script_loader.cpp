@@ -8,11 +8,24 @@
 
 void AddSC_wod_gorgrond();
 void AddSC_wod_spires_of_arak();
+void AddSC_wod_talador();
 void AddSC_wod_tanaan_jungle();
 void AddSC_edge_of_reality();
 void AddSC_wod_dark_portal();
 void AddSC_wod_frostfire_ridge();
 void AddSC_wod_shadowmoon_valley();
+void AddSC_instance_defense_of_karabor();
+void AddSC_defense_of_karabor();
+void AddSC_instance_battle_for_shattrath();
+void AddSC_battle_for_shattrath();
+void AddSC_instance_battle_of_thunder_pass();
+void AddSC_battle_of_thunder_pass();
+void AddSC_instance_grommashar();
+void AddSC_grommashar();
+void AddSC_instance_iron_approach();
+void AddSC_iron_approach();
+void AddSC_instance_trial_of_faith();
+void AddSC_trial_of_faith();
 
 void AddSC_instance_auchindoun();
 void AddSC_auchindoun();
@@ -81,15 +94,37 @@ void AddSC_boss_ragewing_untamed();
 void AddSC_boss_warlord_zaela();
 void AddSC_upper_blackrock_spire();
 
+// Ashran
+void AddSC_AshranMgr();
+void AddSC_AshranNPCAlliance();
+void AddSC_AshranNPCHorde();
+void AddSC_AshranSpells();
+void AddSC_AshranAreaTrigger();
+void AddSC_AshranNPCNeutral();
+void AddSC_AshranQuest();
+
 void AddDraenorScripts()
 {
     AddSC_wod_gorgrond();
     AddSC_wod_spires_of_arak();
+    AddSC_wod_talador();
     AddSC_wod_tanaan_jungle();
     AddSC_edge_of_reality();
     AddSC_wod_dark_portal();
     AddSC_wod_frostfire_ridge();
     AddSC_wod_shadowmoon_valley();
+    AddSC_instance_defense_of_karabor();
+    AddSC_defense_of_karabor();
+    AddSC_instance_battle_for_shattrath();
+    AddSC_battle_for_shattrath();
+    AddSC_instance_battle_of_thunder_pass();
+    AddSC_battle_of_thunder_pass();
+    AddSC_instance_grommashar();
+    AddSC_grommashar();
+    AddSC_instance_iron_approach();
+    AddSC_iron_approach();
+    AddSC_instance_trial_of_faith();
+    AddSC_trial_of_faith();
 
     AddSC_instance_auchindoun();
     AddSC_auchindoun();
@@ -157,4 +192,13 @@ void AddDraenorScripts()
     AddSC_boss_ragewing_untamed();
     AddSC_boss_warlord_zaela();
     AddSC_upper_blackrock_spire();
+
+    // Ashran
+    AddSC_AshranMgr();
+    AddSC_AshranNPCAlliance();
+    AddSC_AshranNPCHorde();
+    AddSC_AshranSpells();
+    AddSC_AshranAreaTrigger();
+    AddSC_AshranNPCNeutral();
+    AddSC_AshranQuest();
 }

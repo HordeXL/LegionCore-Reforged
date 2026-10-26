@@ -1,20 +1,16 @@
-/*
- * Copyright (C) 2008-2012 TrinityCore <http://www.trinitycore.org/>
- * Copyright (C) 2005-2009 MaNGOS <http://getmangos.com/>
- *
- * This program is free software; you can redistribute it and/or modify it
- * under the terms of the GNU General Public License as published by the
- * Free Software Foundation; either version 2 of the License, or (at your
- * option) any later version.
- *
- * This program is distributed in the hope that it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for
- * more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program. If not, see <http://www.gnu.org/licenses/>.
- */
+////////////////////////////////////////////
+///                                      ///
+///         LEGIONCORE REFORGED          ///
+///    Copyright 2026 Titans-Project     ///
+///         All Rights Reserved.         ///
+///                                      ///
+///      Based on TrinityCore code       ///
+///   Copyright 2008-2012 TrinityCore    ///
+///   <http://www.trinitycore.org/>      ///
+///   Copyright 2005-2009 MaNGOS         ///
+///   <http://getmangos.com/>            ///
+///                                      ///
+////////////////////////////////////////////
 
 #include "QuestData.h"
 #include "DatabaseEnv.h"
@@ -431,6 +427,7 @@ void QuestDataStoreMgr::LoadQuests()
 
     _questTemplates.clear();
     _questAreaTaskStore.clear();
+    _ashranTaskStore.clear();
     mExclusiveQuestGroups.clear();
     _questVTemplates.clear();
     _maxQuestId = 0;
@@ -476,12 +473,21 @@ void QuestDataStoreMgr::LoadQuests()
 
         _questTemplates[newQuest->GetQuestId()] = newQuest;
         _questVTemplates[newQuest->GetQuestId()] = newQuest;
-        if (newQuest->Type == QUEST_TYPE_TASK && newQuest->AreaGroupID > 0)
+        if (newQuest->AreaGroupID > 0)
         {
             std::vector<uint32> areaGroupMembers = sDB2Manager.GetAreasForGroup(newQuest->AreaGroupID);
             for (uint32 areaId : areaGroupMembers)
             {
-                if (!newQuest->IsWorld())
+                AreaTableEntry const* area = sAreaTableStore.LookupEntry(areaId);
+                if (area && area->ContinentID == 1191)
+                {
+                    // Ashran (map 1191, a battleground): its PvP bonus objectives, one side each, are given on entering
+                    // their area; the PvE ones lost their creatures with the open world
+                    _ashranTaskStore.insert(newQuest->GetQuestId());
+                    if (newQuest->AllowableRaces != uint64(-1))
+                        _questAreaTaskStore[areaId].insert(newQuest);
+                }
+                else if (newQuest->Type == QUEST_TYPE_TASK && !newQuest->IsWorld())
                     _questAreaTaskStore[areaId].insert(newQuest);
             }
         }

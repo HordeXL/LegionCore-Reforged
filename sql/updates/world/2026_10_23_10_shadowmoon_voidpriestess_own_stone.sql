@@ -1,0 +1,9 @@
+-- Shadowmoon Valley: the two Void Priestesses side by side each channel into the stone in front of her instead of sharing the nearest one
+DELETE FROM `smart_scripts` WHERE `entryorguid` IN (-314985, -314988) AND `source_type` = 0;
+INSERT INTO `smart_scripts` (`entryorguid`, `source_type`, `id`, `link`, `event_type`, `event_phase_mask`, `event_chance`, `event_flags`, `event_param1`, `event_param2`, `event_param3`, `event_param4`, `action_type`, `action_param1`, `action_param2`, `action_param3`, `action_param4`, `action_param5`, `action_param6`, `target_type`, `target_param1`, `target_param2`, `target_param3`, `target_x`, `target_y`, `target_z`, `target_o`, `comment`) VALUES
+(-314985, 0, 0, 0, 1, 0, 100, 0, 1000, 3000, 5000, 8000, 11, 159514, 32, 0, 0, 0, 0, 10, 314979, 79067, 0, 0, 0, 0, 0, 'Shadowmoon Void Priestess - Out of Combat - Channel into the ritual stone in front of her'),
+(-314985, 0, 1, 0, 0, 0, 100, 0, 3000, 6000, 8000, 12000, 11, 157406, 0, 0, 0, 0, 0, 2, 0, 0, 0, 0, 0, 0, 0, 'Shadowmoon Void Priestess - In Combat - Cast Crackling Void'),
+(-314985, 0, 2, 0, 2, 0, 100, 0, 0, 50, 20000, 25000, 11, 11974, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 'Shadowmoon Void Priestess - Between 0-50% Health - Cast Power Word: Shield'),
+(-314988, 0, 0, 0, 1, 0, 100, 0, 1000, 3000, 5000, 8000, 11, 159514, 32, 0, 0, 0, 0, 10, 314980, 79067, 0, 0, 0, 0, 0, 'Shadowmoon Void Priestess - Out of Combat - Channel into the ritual stone in front of her'),
+(-314988, 0, 1, 0, 0, 0, 100, 0, 3000, 6000, 8000, 12000, 11, 157406, 0, 0, 0, 0, 0, 2, 0, 0, 0, 0, 0, 0, 0, 'Shadowmoon Void Priestess - In Combat - Cast Crackling Void'),
+(-314988, 0, 2, 0, 2, 0, 100, 0, 0, 50, 20000, 25000, 11, 11974, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 'Shadowmoon Void Priestess - Between 0-50% Health - Cast Power Word: Shield');
