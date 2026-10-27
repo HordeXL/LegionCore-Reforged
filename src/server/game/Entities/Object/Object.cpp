@@ -3874,6 +3874,10 @@ void WorldObject::BuildUpdate(UpdateDataMapType& data_map)
     //we must build packets for all visible players
     cell.Visit(p, Trinity::makeWorldVisitor(notifier), *GetMap(), *this, GetVisibilityRange());
 
+    // the cell visit stops at one grid: an object seen from farther away still owes its viewers the change
+    if (GetVisibilityDistanceOverride() > 0.0f)
+        GetMap()->ApplyOnEveryPlayer([&](Player* player) { notifier.BuildPacket(player); });
+
     ClearUpdateMask(false);
 }
 

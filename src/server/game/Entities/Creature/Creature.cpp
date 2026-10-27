@@ -1430,6 +1430,14 @@ bool Creature::Create(ObjectGuid::LowType guidlow, Map* map, uint32 phaseMask, u
     if (cinfo->isWorldBoss() || cinfo->MaxVisible)
         MaxVisible = true;
 
+    // Same idea as gameobject_template.VisibilityDistance: a range of kilometres is only worth
+    // something if the creature exists, so it is made active and Map::Update preloads its grid.
+    if (cinfo->VisibilityDistance > 0.0f)
+    {
+        SetVisibilityDistanceOverride(cinfo->VisibilityDistance);
+        setActive(true);
+    }
+
     switch(GetMapId())
     {
         case 609: // start DK
@@ -2433,7 +2441,8 @@ bool Creature::LoadCreatureFromDB(ObjectGuid::LowType guid, Map* map, bool addTo
 
     m_creatureData = data;
 
-    setActive(data->isActive);
+    // a far-visible creature must keep its grid loaded, whatever its spawn says
+    setActive(data->isActive || GetCreatureTemplate()->VisibilityDistance > 0.0f);
 
     if (addToMap && !GetMap()->AddToMap(this))
         return false;
