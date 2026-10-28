@@ -86,7 +86,11 @@ void WildBattlePetMgr::Populate(WildPetPoolTemplate* wTemplate, WildBattlePetPoo
     if (!wTemplate)
         return;
 
-    if (wTemplate->Max <= pTemplate->Replaced.size())
+    // a slot freed by a defeated pet stays empty until its delay is over
+    time_t const now = time(nullptr);
+    pTemplate->Cooldowns.erase(std::remove_if(pTemplate->Cooldowns.begin(), pTemplate->Cooldowns.end(), [now](time_t t) { return t <= now; }), pTemplate->Cooldowns.end());
+
+    if (wTemplate->Max <= pTemplate->Replaced.size() + pTemplate->Cooldowns.size())
         return;
 
     if (sDB2Manager.HasBattlePetSpeciesFlag(wTemplate->Species, BATTLEPET_SPECIES_FLAG_UNTAMEABLE))
@@ -103,7 +107,7 @@ void WildBattlePetMgr::Populate(WildPetPoolTemplate* wTemplate, WildBattlePetPoo
 
     std::shuffle(availableForReplacement.begin(), availableForReplacement.end(), RandomEngine::Instance());
 
-    uint32 replaceCount = wTemplate->Max - pTemplate->Replaced.size();
+    uint32 replaceCount = wTemplate->Max - pTemplate->Replaced.size() - pTemplate->Cooldowns.size();
     for (size_t y = 0; y < availableForReplacement.size() && y < replaceCount; y++)
         ReplaceCreature(availableForReplacement[y], wTemplate, pTemplate);
 }
@@ -349,17 +353,29 @@ void WildBattlePetMgr::LeaveBattle(Creature* creature, bool defeated)
     if (!defeated || !IsWildPet(creature))
         return;
 
-    // A pet that replaced a normal creature gives the place back to it
+    // the rarer the pet, the longer it takes to come back, give or take a fifth: no farming the same pet
+    uint32 delay = 2 * MINUTE;
+    if (creature->m_battlePetInstance && creature->m_battlePetInstance->Quality >= BATTLEPET_QUALITY_RARE)
+        delay = 10 * MINUTE;
+    else if (creature->m_battlePetInstance && creature->m_battlePetInstance->Quality == BATTLEPET_QUALITY_UNCOMMON)
+        delay = 5 * MINUTE;
+    delay = urand(delay * 4 / 5, delay * 6 / 5);
+
+    // A pet that replaced a normal creature gives the place back to it; the zone waits before replacing another
     if (!creature->replacementFromGUID.IsEmpty())
     {
         Unit* unit = sObjectAccessor->FindUnit(creature->replacementFromGUID);
         if (unit && unit->ToCreature())
+        {
+            if (WildBattlePetPool* pool = unit->GetMap()->GetWildBattlePetPool(unit->ToCreature()))
+                pool->Cooldowns.push_back(time(nullptr) + delay);
             UnreplaceCreature(unit->ToCreature());
+        }
         return;
     }
 
-    // A native wild pet respawns after its normal delay
-    creature->ForcedDespawn();
+    // A native wild pet comes back after that delay; in a spawn pool, on another of its spots
+    creature->ForcedDespawn(0, Seconds(delay));
 }
 
 WildPetPoolTemplate* WildBattlePetMgr::GetWildPetTemplate(uint32 mapId, uint32 zoneId, uint32 entry)

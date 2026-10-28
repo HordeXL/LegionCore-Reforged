@@ -1376,7 +1376,7 @@ void QuestDataStoreMgr::LoadQuestPOI()
             int32 X = fields[2].GetInt32();
             int32 Y = fields[3].GetInt32();
 
-            if (questIdMax <= QuestID)
+            if (questIdMax < QuestID)
                 continue;
 
             if (int32(POIs[QuestID].size()) <= Idx1 + 1)
@@ -1413,6 +1413,10 @@ void QuestDataStoreMgr::LoadQuestPOI()
         QuestPOI POI(BlobIndex, ObjectiveIndex, QuestObjectiveID, QuestObjectID, MapID, WorldMapAreaId, Floor, Priority, Flags, WorldEffectID, PlayerConditionID, SpawnTrackingID, AlwaysAllowMergingBlobs);
         if (QuestID < int32(POIs.size()) && Idx1 < int32(POIs[QuestID].size()))
         {
+            // a blob without points cannot be drawn, and sent anyway it keeps the client on that blob (turn-in marker never shown)
+            if (POIs[QuestID][Idx1].empty())
+                continue;
+
             POI.points = POIs[QuestID][Idx1];
             _questPOIStore[QuestID].push_back(POI);
         }

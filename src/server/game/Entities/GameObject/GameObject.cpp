@@ -1,20 +1,16 @@
-/*
- * Copyright (C) 2008-2012 TrinityCore <http://www.trinitycore.org/>
- * Copyright (C) 2005-2009 MaNGOS <http://getmangos.com/>
- *
- * This program is free software; you can redistribute it and/or modify it
- * under the terms of the GNU General Public License as published by the
- * Free Software Foundation; either version 2 of the License, or (at your
- * option) any later version.
- *
- * This program is distributed in the hope that it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for
- * more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program. If not, see <http://www.gnu.org/licenses/>.
- */
+////////////////////////////////////////////
+///                                      ///
+///         LEGIONCORE REFORGED          ///
+///    Copyright 2026 Titans-Project     ///
+///         All Rights Reserved.         ///
+///                                      ///
+///      Based on TrinityCore code       ///
+///   Copyright 2008-2012 TrinityCore    ///
+///   <http://www.trinitycore.org/>      ///
+///   Copyright 2005-2009 MaNGOS         ///
+///   <http://getmangos.com/>            ///
+///                                      ///
+////////////////////////////////////////////
 
 #include "ArtifactPackets.h"
 #ifdef ELUNA_TRINITY
@@ -1454,9 +1450,31 @@ bool GameObject::ActivateToQuest(Player* target) const
                 return true;
             break;
         case GAMEOBJECT_TYPE_GOOBER:
-            if (GetGOInfo()->goober.questID == -1 || target->GetQuestStatus(GetGOInfo()->goober.questID) == QUEST_STATUS_INCOMPLETE)
+        {
+            int32 const questId = GetGOInfo()->goober.questID;
+            if (questId == -1 || target->GetQuestStatus(questId) == QUEST_STATUS_INCOMPLETE)
                 return true;
+
+            // An objective is often split into an Alliance and a Horde quest while the object names only one of
+            // them: the twin quest in progress, sharing that objective, opens it too.
+            Quest const* quest = sQuestDataStore->GetQuestTemplate(questId);
+            if (!quest)
+                break;
+            for (uint8 slot = 0; slot < MAX_QUEST_LOG_SIZE; ++slot)
+            {
+                uint32 const otherId = target->GetQuestSlotQuestId(slot);
+                if (!otherId || target->GetQuestStatus(otherId) != QUEST_STATUS_INCOMPLETE)
+                    continue;
+                Quest const* other = sQuestDataStore->GetQuestTemplate(otherId);
+                if (!other)
+                    continue;
+                for (QuestObjective const& mine : quest->GetObjectives())
+                    for (QuestObjective const& theirs : other->GetObjectives())
+                        if (mine.Type == theirs.Type && mine.ObjectID == theirs.ObjectID)
+                            return true;
+            }
             break;
+        }
         case GAMEOBJECT_TYPE_SPELL_FOCUS:
             if (GetGOInfo()->spellFocus.questID == -1 || target->GetQuestStatus(GetGOInfo()->spellFocus.questID) == QUEST_STATUS_INCOMPLETE)
                 return true;
@@ -1794,8 +1812,8 @@ void GameObject::Use(Unit* user)
                 // possible quest objective for active quests
                 if (info->goober.questID && sQuestDataStore->GetQuestTemplate(info->goober.questID))
                 {
-                    //Quest require to be active for GO using
-                    if (player->GetQuestStatus(info->goober.questID) != QUEST_STATUS_INCOMPLETE)
+                    //Quest require to be active for GO using (its twin of the other faction counts too)
+                    if (!ActivateToQuest(player))
                         break;
                 }
 
@@ -3137,6 +3155,14 @@ float GameObject::GetInteractionDistance() const
         case GAMEOBJECT_TYPE_FISHINGNODE:
             return 20.0f + CONTACT_DISTANCE; // max spell range
         default:
+            // Distances are taken to the object's centre: a siege engine ten yards long was out of
+            // reach for a player standing on it. The reach grows by the model's own half width, capped
+            // so that a building or a gate never becomes usable from across a courtyard.
+            if (GameObjectDisplayInfoEntry const* info = sGameObjectDisplayInfoStore.LookupEntry(m_goInfo->displayId))
+            {
+                float const halfWidth = std::max({ -info->GeoBoxMin.X, info->GeoBoxMax.X, -info->GeoBoxMin.Y, info->GeoBoxMax.Y, 0.0f });
+                return INTERACTION_DISTANCE + std::min(halfWidth * GetObjectScale(), 20.0f);
+            }
             return INTERACTION_DISTANCE;
     }
 }

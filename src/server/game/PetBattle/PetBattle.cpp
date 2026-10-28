@@ -99,6 +99,7 @@ namespace
         wildPet->RemoveFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_PACIFIED | UNIT_FLAG_IMMUNE_TO_PC);
         wildPet->SetControlled(false, UNIT_STATE_ROOT);
         wildPet->SetTarget(ObjectGuid::Empty);
+        wildPet->SetVisible(true);
         wildPet->_petBattleId.Clear();
 
         // May remove the creature: not touched after this
@@ -638,6 +639,13 @@ void PetBattleAura::Process(PetBattle* petBattle)
         return;
     }
 
+    // a dead pet takes no more lingering effects: the aura ends instead of ticking on the corpse
+    if (!Expired && TargetPetID < MAX_PETBATTLE_TEAM * MAX_PETBATTLE_SLOTS && petBattle->Pets[TargetPetID] && !petBattle->Pets[TargetPetID]->IsAlive())
+    {
+        Expire(petBattle);
+        return;
+    }
+
     if (auto abilityInfo = sBattlePetAbilityStore.LookupEntry(AbilityID))
     {
         PetBattleAbilityTurn abilityTurn;
@@ -792,6 +800,20 @@ bool PetBattleTeam::Update()
 
 void PetBattleTeam::DoCasts(uint32 turn0ProcCond)
 {
+    // the opposing front pet died earlier this round: the pending ability must not strike its corpse, and the
+    // round-start and round-end passes would fire it again
+    PetBattleTeam* opponent = PetBattleInstance->Teams[PetBattleInstance->Teams[PETBATTLE_TEAM_1] == this ? PETBATTLE_TEAM_2 : PETBATTLE_TEAM_1];
+    if (opponent && opponent->ActivePetID != PETBATTLE_NULL_ID && PetBattleInstance->Pets[opponent->ActivePetID] && !PetBattleInstance->Pets[opponent->ActivePetID]->IsAlive())
+    {
+        if (turn0ProcCond == PETBATTLE_ABILITY_TURN0_PROC_ON_NONE)
+        {
+            ActiveAbilityId = 0;
+            activeAbilityTurn = 0;
+            activeAbilityTurnMax = 0;
+        }
+        return;
+    }
+
     if (ActiveAbilityId && PetBattleInstance->Pets[ActivePetID]->IsAlive() && PetBattleInstance->Pets[ActivePetID]->CanAttack())
     {
         if (turn0ProcCond == PETBATTLE_ABILITY_TURN0_PROC_ON_NONE && PetBattleInstance->PetXDied.empty())

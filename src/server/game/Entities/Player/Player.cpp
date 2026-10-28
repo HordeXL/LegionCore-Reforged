@@ -19358,6 +19358,15 @@ void Player::AddQuest(Quest const* quest, Object* questGiver)
 
     SetQuestSlot(log_slot, quest_id, qtime);
 
+    // The source item and the items already in the bags were counted before the quest had its slot, which the line
+    // above clears: without this the client shows those objectives undone until the next login
+    for (QuestObjective const& obj : quest->GetObjectives())
+    {
+        auto const counted = status_q.ObjectiveData.find(obj.StorageIndex);
+        if (obj.StorageIndex >= 0 && counted != status_q.ObjectiveData.end() && counted->second)
+            SetQuestSlotCounter(log_slot, obj.StorageIndex, counted->second);
+    }
+
     m_QuestStatusSave[quest_id] = QUEST_DEFAULT_SAVE_TYPE;
 
     m_achievementMgr->StartTimedAchievement(CRITERIA_TIMED_TYPE_ITEM, quest_id);

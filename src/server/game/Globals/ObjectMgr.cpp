@@ -772,7 +772,7 @@ void ObjectMgr::LoadCreatureTemplates()
     //60            61             62
     "ControllerID, WorldEffects, PassiveSpells,"
     //63                         64                 65                 66              67          68          69           70           71
-    "StateWorldEffectID, SpellStateVisualID, SpellStateAnimID, SpellStateAnimKitID, IgnoreLos, AffixState, MaxVisible, SandboxScalingID, HealthScalingExpansion"
+    "StateWorldEffectID, SpellStateVisualID, SpellStateAnimID, SpellStateAnimKitID, IgnoreLos, AffixState, MaxVisible, SandboxScalingID, HealthScalingExpansion, VisibilityDistance"
     " FROM creature_template ct LEFT JOIN creature_template_movement ctm ON ct.entry = ctm.CreatureId;");
 
     uint32 count = 0;
@@ -884,6 +884,7 @@ void ObjectMgr::LoadCreatureTemplates()
         creatureTemplate.MaxVisible = fields[index++].GetBool();
         creatureTemplate.SandboxScalingID = fields[index++].GetUInt16();
         creatureTemplate.HealthScalingExpansion = fields[index++].GetUInt32();
+        creatureTemplate.VisibilityDistance = fields[index++].GetFloat();
 
         if(creatureTemplate.TypeFlags[0] & CREATURE_TYPEFLAGS_BOSS)
         {

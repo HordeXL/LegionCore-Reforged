@@ -254,8 +254,35 @@ struct mob_head : public ScriptedAI
             me->GetMotionMaster()->Clear(false);
 
             if (auto victim = caster->getVictim())
-                me->GetMotionMaster()->MoveFleeing(victim);
+                FleeAroundBody(victim);
         }
+    }
+
+    // a free flee carries it across the whole courtyard: it keeps away from its attacker, but near the body
+    void FleeAroundBody(Unit* victim)
+    {
+        auto body = Unit::GetCreature((*me), bodyGUID);
+        if (!body)
+        {
+            me->GetMotionMaster()->MoveFleeing(victim);
+            return;
+        }
+
+        Position dest = me->GetPosition();
+        float farthest = 0.0f;
+        for (uint8 i = 0; i < 5; ++i)
+        {
+            Position pos;
+            me->GetRandomPoint(body->GetPosition(), 15.0f, pos);
+            float dist = victim->GetExactDist2d(&pos);
+            if (dist > farthest)
+            {
+                farthest = dist;
+                dest = pos;
+            }
+        }
+
+        me->GetMotionMaster()->MovePoint(0, dest);
     }
 
     void UpdateAI(uint32 diff) override
@@ -267,13 +294,10 @@ struct mob_head : public ScriptedAI
         {
             if (wait <= diff)
             {
-                wait = 1000;
+                wait = 2500;
 
                 if (auto victim = me->getVictim())
-                {
-                    me->GetMotionMaster()->Clear(false);
-                    me->GetMotionMaster()->MoveFleeing(victim);
-                }
+                    FleeAroundBody(victim);
             }
             else
                 wait -= diff;
@@ -376,8 +400,8 @@ struct boss_headless_horseman : public ScriptedAI
             // landed: he runs at his own pace again, not at the speed of his flight in
             me->SetWalk(false);
             me->SetSpeed(MOVE_WALK, me->GetCreatureTemplate()->speed_walk, true);
-            me->SetCanFly(false);
-            me->SetDisableGravity(false);
+            // the db flight is for his arrival only: kept, it lifts him off every bump of the courtyard and he glides
+            me->SetFlightMovement(CreatureFlightMovementType::None);
 
             // whoever called him is his foe, wherever they stand in the courtyard
             DoZoneInCombat(me, 100.0f);

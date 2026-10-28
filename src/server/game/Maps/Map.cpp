@@ -38,6 +38,7 @@
 #include "OutdoorPvPMgr.h"
 #include "ScenarioMgr.h"
 #include "ScriptMgr.h"
+#include "CreatureAIRegistry.h"
 #include "StringFormat.h"
 #include "Totem.h"
 #include "Transport.h"
@@ -1334,7 +1335,8 @@ void Map::Update(const uint32 t_diff)
         sLog->outDiff("Map::Update UpdateDataMap mapId %u Update time - %ums diff %u Players online: %u i_InstanceId %u activeEntry %u activeEncounter %u", GetId(), _ms, t_diff, m_sessions.size(), i_InstanceId, m_activeEntry, m_activeEncounter);
 
     std::unordered_set<Object*> objectsAddTemp;
-    if (!i_objectsAddToMap.empty())
+    // a pool can queue creatures while the world is still loading: they wait for the movement and AI registries
+    if (!i_objectsAddToMap.empty() && AIRegistry::IsInitialized())
     {
         std::lock_guard<std::recursive_mutex> _objectsAddToMap_lock(m_objectsAddToMap_lock);
         std::swap(objectsAddTemp, i_objectsAddToMap);
@@ -5131,8 +5133,16 @@ void Map::AddBattlePet(Creature* creature)
 
 void Map::RemoveBattlePet(Creature* creature)
 {
-    if (sWildBattlePetMgr->IsBattlePet(creature->GetEntry()))
-        m_wildBattlePetPool[creature->GetCurrentZoneID()][creature->GetEntry()].ToBeReplaced.erase(creature);
+    if (!sWildBattlePetMgr->IsBattlePet(creature->GetEntry()))
+        return;
+
+    // registered under the zone it stood in when added, which it may have walked out of since
+    for (auto& zone : m_wildBattlePetPool)
+    {
+        auto itr = zone.second.find(creature->GetEntry());
+        if (itr != zone.second.end())
+            itr->second.ToBeReplaced.erase(creature);
+    }
 }
 
 void Map::PopulateBattlePet(uint32 diff)

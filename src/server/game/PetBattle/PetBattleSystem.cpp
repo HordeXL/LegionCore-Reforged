@@ -766,6 +766,10 @@ eBattlePetRequests PetBattleSystem::CanPlayerEnterInPetBattle(Player* player, Pe
     if (player->IsFlying())
         return PETBATTLE_REQUEST_NOT_WHILE_FLYING;
 
+    // checked before the target: in combat, the target checks fail too and the client would say "not a valid target"
+    if (player->isInCombat())
+        return PETBATTLE_REQUEST_NOT_WHILE_IN_COMBAT;
+
     if (petBattleRequest->OpponentGuid == player->GetGUID())
         return PETBATTLE_REQUEST_TARGET_INVALID;
 
@@ -793,6 +797,11 @@ eBattlePetRequests PetBattleSystem::CanPlayerEnterInPetBattle(Player* player, Pe
     }
     else if (petBattleRequest->OpponentGuid.IsCreature())
     {
+        // the interaction lookup fails on distance too: the range is checked first so the client says "too far"
+        if (Creature* seen = ObjectAccessor::GetCreature(*player, petBattleRequest->OpponentGuid))
+            if (!player->IsWithinDist3d(seen, INTERACTION_DISTANCE))
+                return PETBATTLE_REQUEST_TARGET_OUT_OF_RANGE;
+
         auto creature = player->GetNPCIfCanInteractWith(petBattleRequest->OpponentGuid, 0);
         if (!creature)
             return PETBATTLE_REQUEST_TARGET_INVALID;
@@ -823,9 +832,6 @@ eBattlePetRequests PetBattleSystem::CanPlayerEnterInPetBattle(Player* player, Pe
         if (!player->IsWithinLOSInMap(creature))
             return PETBATTLE_REQUEST_NOT_HERE_OBSTRUCTED;
     }
-
-    if (player->isInCombat())
-        return PETBATTLE_REQUEST_NOT_WHILE_IN_COMBAT;
 
     // The positions come from the client: finite, and near the player
     auto const isUsablePosition = [player](Position const& position) -> bool

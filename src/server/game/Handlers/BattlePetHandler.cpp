@@ -53,6 +53,8 @@ namespace
         wildPet->SetFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_PACIFIED | UNIT_FLAG_IMMUNE_TO_PC); // Immuned to all
         wildPet->SetTarget(player->GetGUID());
         wildPet->SetControlled(true, UNIT_STATE_ROOT);
+        // the client brings its own model of the pet into the battle: the creature would stand beside it like a trainer
+        wildPet->SetVisible(false);
         wildPet->_petBattleId = battleID;
     }
 
@@ -373,7 +375,13 @@ void WorldSession::HandlePetBattleRequestWild(WorldPackets::BattlePet::RequestWi
 
     SendPetBattleFinalizeLocation(battleRequest.get());
 
-    _player->SetFacingTo(_player->GetAngle(&battleRequest->TeamPosition[PETBATTLE_TEAM_2]));
+    // the player takes his place on his side of the battle, facing the other, before being rooted there
+    Position const& ownPlace = battleRequest->TeamPosition[PETBATTLE_TEAM_1];
+    float const facing = ownPlace.GetAngle(&battleRequest->TeamPosition[PETBATTLE_TEAM_2]);
+    if (_player->GetExactDist2d(&ownPlace) > 0.5f)
+        _player->NearTeleportTo(ownPlace.GetPositionX(), ownPlace.GetPositionY(), ownPlace.GetPositionZ(), facing);
+    else
+        _player->SetFacingTo(facing);
     _player->SetRooted(true);
 
     std::shared_ptr<PetBattle> battle = sPetBattleSystem->NewBattle();

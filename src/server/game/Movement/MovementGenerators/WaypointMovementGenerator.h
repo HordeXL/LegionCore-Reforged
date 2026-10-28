@@ -58,6 +58,7 @@ class WaypointMovementGenerator<Creature> : public MovementGeneratorMedium<Creat
         void OnArrived(Creature&);
         bool StartMove(Creature&);
         bool CanMove(Creature&);
+        bool PassesThroughCurrentNode(Creature const&) const;
         bool StartMoveNow(Creature& creature)
         {
             _nextMoveTime.Reset(0);

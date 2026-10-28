@@ -1,20 +1,16 @@
-/*
- * Copyright (C) 2008-2018 TrinityCore <https://www.trinitycore.org/>
- * Copyright (C) 2005-2011 MaNGOS <http://getmangos.com/>
- *
- * This program is free software; you can redistribute it and/or modify it
- * under the terms of the GNU General Public License as published by the
- * Free Software Foundation; either version 2 of the License, or (at your
- * option) any later version.
- *
- * This program is distributed in the hope that it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for
- * more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program. If not, see <http://www.gnu.org/licenses/>.
- */
+////////////////////////////////////////////
+///                                      ///
+///         LEGIONCORE REFORGED          ///
+///    Copyright 2026 Titans-Project     ///
+///         All Rights Reserved.         ///
+///                                      ///
+///      Based on TrinityCore code       ///
+///   Copyright 2008-2018 TrinityCore    ///
+///   <https://www.trinitycore.org/>     ///
+///   Copyright 2005-2011 MaNGOS         ///
+///   <http://getmangos.com/>            ///
+///                                      ///
+////////////////////////////////////////////
 
 #include "Banner.h"
 #include "DB2FileLoader.h"
@@ -307,7 +303,7 @@ std::unordered_map<uint32, std::vector<uint32>> LoadMap(std::string const& local
 int main(int argc, char** argv)
 {
     unsigned int hwCores = std::thread::hardware_concurrency();
-    printf("\n  Extractor Tools v1.0.3 - Copyright (C)2026 Apheleos\n  - Multicore/Multithreading support\n  - Legion 7.3.5 (build 26972)\n\n  Hardware: %u logical processors detected\n  Using %u threads for extraction\n\n", hwCores, hwCores > 0 ? hwCores : 1);
+    printf("\n  Extractor Tools v1.0.5 - Copyright (C)2026 Apheleos\n  - Multicore/Multithreading support\n  - Legion 7.3.5 (build 26972)\n\n  Hardware: %u logical processors detected\n  Using %u threads for extraction\n\n", hwCores, hwCores > 0 ? hwCores : 1);
     for (int i = 3; i > 0; --i) { printf("  Starting in %d...\r", i); fflush(stdout); std::this_thread::sleep_for(std::chrono::seconds(1)); }
     printf("                    \n");
 
