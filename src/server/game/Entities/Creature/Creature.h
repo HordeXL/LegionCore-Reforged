@@ -571,6 +571,8 @@ class TC_GAME_API Creature : public Unit, public GridObject<Creature>, public Ma
         bool isGuard() const { return (GetCreatureTemplate()->flags_extra & CREATURE_FLAG_EXTRA_GUARD) != 0; }
 
         CreatureMovementData const& GetMovementTemplate() const;
+        // Replaces the db flight movement until the next load, for creatures that only fly part of the time
+        void SetFlightMovement(CreatureFlightMovementType flight);
         bool CanWalk() const { return GetMovementTemplate().IsGroundAllowed(); }
         bool CanSwim() const override { return GetMovementTemplate().IsSwimAllowed() || isPet(); }
         bool CanFly()  const override { return GetMovementTemplate().IsFlightAllowed(); }
@@ -863,7 +865,7 @@ class TC_GAME_API Creature : public Unit, public GridObject<Creature>, public Ma
         float m_groundCacheHeight;
         uint32 m_groundCacheTime;
 
-        // Flight granted to a db spawn placed in the air with a flying anim tier, see LoadCreatureFromDB.
+        // Flight granted to a db spawn placed in the air with a flying anim tier (see LoadCreatureFromDB), or set by SetFlightMovement.
         Optional<CreatureMovementData> m_airSpawnMovement;
 
         uint32 m_respawnCombatDelay;

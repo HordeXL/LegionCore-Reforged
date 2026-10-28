@@ -3674,6 +3674,13 @@ CreatureMovementData const& Creature::GetMovementTemplate() const
     return GetCreatureTemplate()->Movement;
 }
 
+void Creature::SetFlightMovement(CreatureFlightMovementType flight)
+{
+    m_airSpawnMovement = GetMovementTemplate();
+    m_airSpawnMovement->Flight = flight;
+    UpdateMovementFlags();
+}
+
 void Creature::AllLootRemovedFromCorpse()
 {
     if (!HasFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_SKINNABLE))
