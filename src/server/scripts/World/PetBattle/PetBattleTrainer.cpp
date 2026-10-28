@@ -1,3 +1,10 @@
+////////////////////////////////////////////
+///                                      ///
+///         LEGIONCORE REFORGED          ///
+///    Copyright 2026 Titans-Project     ///
+///         All Rights Reserved.         ///
+///                                      ///
+////////////////////////////////////////////
 ////////////////////////////////////////////////////////////////////////////////
 //
 //  MILLENIUM-STUDIO
@@ -185,6 +192,16 @@ public:
 
                 ++playerPetCount;
             }
+
+            // like a wild battle: the player is out of reach of the creatures around for the whole battle
+            player->SetFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_PACIFIED | UNIT_FLAG_IMMUNE_TO_NPC);
+            Position const& ownPlace = battleRequest->TeamPosition[PETBATTLE_TEAM_1];
+            float const facing = ownPlace.GetAngle(&battleRequest->TeamPosition[PETBATTLE_TEAM_2]);
+            if (player->GetExactDist2d(&ownPlace) > 0.5f)
+                player->NearTeleportTo(ownPlace.GetPositionX(), ownPlace.GetPositionY(), ownPlace.GetPositionZ(), facing);
+            else
+                player->SetFacingTo(facing);
+            player->SetControlled(true, UNIT_STATE_ROOT);
 
             player->GetSession()->SendPetBattleFinalizeLocation(battleRequest);
 

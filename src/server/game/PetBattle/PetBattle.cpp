@@ -99,6 +99,7 @@ namespace
         wildPet->RemoveFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_PACIFIED | UNIT_FLAG_IMMUNE_TO_PC);
         wildPet->SetControlled(false, UNIT_STATE_ROOT);
         wildPet->SetTarget(ObjectGuid::Empty);
+        wildPet->SetVisible(true);
         wildPet->_petBattleId.Clear();
 
         // May remove the creature: not touched after this
