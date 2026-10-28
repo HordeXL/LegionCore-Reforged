@@ -2858,6 +2858,27 @@ void WorldObject::MonsterWhisper(int32 textId, ObjectGuid receiver, bool IsBossW
     ObjectAccessor::SendToPlayer(receiver, packet.Write());
 }
 
+// the cell visit stops at one grid: an object seen from farther away still owes those viewers its
+// spell casts and projectiles, or they only see the impacts
+static void SendMessageBeyondGrid(WorldObject* source, Trinity::MessageDistDeliverer& notifier, float visitedDist)
+{
+    float const range = source->GetVisibilityDistanceOverride();
+    if (range <= visitedDist || !source->IsInWorld())
+        return;
+
+    float const visitedSq = visitedDist * visitedDist;
+    float const rangeSq = range * range;
+    source->GetMap()->ApplyOnEveryPlayer([&](Player* player)
+    {
+        float const distSq = player->GetExactDist2dSq(source);
+        if (distSq <= visitedSq || distSq > rangeSq || !player->InSamePhase(source))
+            return;
+
+        if (player->m_seer == player || player->GetVehicle())
+            notifier.SendPacket(player);
+    });
+}
+
 void WorldObject::SendMessageToSet(WorldPacket const* data, bool self, GuidUnorderedSet const& ignoredList /*= GuidUnorderedSet()*/)
 {
     if (IsInWorld())
@@ -2868,12 +2889,14 @@ void WorldObject::SendMessageToSetInRange(WorldPacket const* data, float dist, b
 {
     Trinity::MessageDistDeliverer notifier(this, data, dist, false, nullptr, ignoredList);
     Trinity::VisitNearbyWorldObject(this, dist, notifier);
+    SendMessageBeyondGrid(this, notifier, dist);
 }
 
 void WorldObject::SendMessageToSet(WorldPacket const* data, Player const* skipped_rcvr, GuidUnorderedSet const& ignoredList /*= GuidUnorderedSet()*/)
 {
     Trinity::MessageDistDeliverer notifier(this, data, GetVisibilityRange(), false, skipped_rcvr, ignoredList);
     Trinity::VisitNearbyWorldObject(this, GetVisibilityRange(), notifier);
+    SendMessageBeyondGrid(this, notifier, GetVisibilityRange());
 }
 
 void WorldObject::SendObjectDeSpawnAnim(ObjectGuid guid)
