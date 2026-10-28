@@ -24,6 +24,7 @@ struct WildBattlePetPool
     std::set<Creature*> ToBeReplaced;
     std::set<Creature*> Replaced;
     std::map<ObjectGuid, ObjectGuid> ReplacedRelation;
+    std::vector<time_t> Cooldowns;      ///< when each slot freed by a defeated pet may be filled again
 };
 
 struct WildPetPoolTemplate
