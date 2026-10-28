@@ -9,6 +9,9 @@
 #include "ScriptMgr.h"
 #include "ScriptedCreature.h"
 #include "GameTime.h"
+#include "GameObject.h"
+#include "ObjectAccessor.h"
+#include "TemporarySummon.h"
 
 // Camp at the Auchindoun entrance: defenders, knights, soulpriests and rangers salute all together, at the same second, every 20 seconds
 struct npc_talador_camp_salute : public ScriptedAI
@@ -94,8 +97,70 @@ struct npc_talador_camp_worker : public ScriptedAI
     }
 };
 
+// Iron Horde Siege Engines of the Archenon siege yard ("Iron Them Out"): standing whole until sabotaged, then
+// wrecked and burning for as long as they stay used (their auto close time), then whole again for the next player
+enum SiegeEngine
+{
+    SIEGE_ENGINE_BURNING_VISUAL = 36045,
+    SIEGE_ENGINE_LARGE          = 225757,
+    SIEGE_ENGINE_LARGE_WRECK    = 17760,   // 6ih_ironhorde_siegeweapon01_destroyed
+    SIEGE_ENGINE_SMALL_WRECK    = 14792,   // 6ih_ironhorde_warmachine02_broken
+    NPC_GROMKAR_SIEGESMITH      = 80552,
+    ACTION_ENGINE_BLOWN_UP      = 1,       // their SmartAI: catch fire, run off screaming, come back
+    NPC_WORLD_TRIGGER           = 22515,
+    SPELL_STRUCTURE_EXPLOSION   = 188744,  // Cosmetic - Structure Explosion
+    WRECK_DELAY                 = 1200     // the wreck shows once the blast covers the engine
+};
+
+class go_talador_iron_horde_siege_engine : public GameObjectScript
+{
+public:
+    go_talador_iron_horde_siege_engine() : GameObjectScript("go_talador_iron_horde_siege_engine") { }
+
+    void OnGameObjectStateChanged(GameObject* go, uint32 state) override
+    {
+        if (state == GO_STATE_READY)
+        {
+            go->SetDisplayId(go->GetGOInfo()->displayId);
+            go->SetUInt32Value(GAMEOBJECT_FIELD_STATE_SPELL_VISUAL_ID, 0);
+            return;
+        }
+
+        // the engine blows up first, and only falls apart in the middle of the blast
+        uint32 const wreck = go->GetEntry() == SIEGE_ENGINE_LARGE ? SIEGE_ENGINE_LARGE_WRECK : SIEGE_ENGINE_SMALL_WRECK;
+        ObjectGuid const engineGuid = go->GetGUID();
+        if (TempSummon* blast = go->SummonCreature(NPC_WORLD_TRIGGER, go->GetPosition(), TEMPSUMMON_TIMED_DESPAWN, 6000))
+        {
+            blast->CastSpell(blast, SPELL_STRUCTURE_EXPLOSION, true);
+            blast->AddDelayedEvent(WRECK_DELAY, [blast, engineGuid, wreck]()
+            {
+                if (GameObject* engine = ObjectAccessor::GetGameObject(*blast, engineGuid))
+                {
+                    if (engine->GetGoState() == GO_STATE_READY)
+                        return;
+                    engine->SetDisplayId(wreck);
+                    engine->SetUInt32Value(GAMEOBJECT_FIELD_STATE_SPELL_VISUAL_ID, SIEGE_ENGINE_BURNING_VISUAL);
+                }
+            });
+        }
+        else
+        {
+            go->SetDisplayId(wreck);
+            go->SetUInt32Value(GAMEOBJECT_FIELD_STATE_SPELL_VISUAL_ID, SIEGE_ENGINE_BURNING_VISUAL);
+        }
+
+        // the smith mending it is caught in the blast
+        std::list<Creature*> smiths;
+        go->GetCreatureListWithEntryInGrid(smiths, NPC_GROMKAR_SIEGESMITH, 22.0f);
+        for (Creature* smith : smiths)
+            if (smith->IsAlive() && !smith->isInCombat() && smith->AI())
+                smith->AI()->DoAction(ACTION_ENGINE_BLOWN_UP);
+    }
+};
+
 void AddSC_wod_talador()
 {
     RegisterCreatureAI(npc_talador_camp_salute);
     RegisterCreatureAI(npc_talador_camp_worker);
+    new go_talador_iron_horde_siege_engine();
 }
