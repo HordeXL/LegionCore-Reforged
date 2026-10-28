@@ -2447,10 +2447,6 @@ bool Creature::LoadCreatureFromDB(ObjectGuid::LowType guid, Map* map, bool addTo
     if (addToMap && !GetMap()->AddToMap(this))
         return false;
 
-    // AddToMap registers it too; a creature added later by its map's thread must not touch the map here
-    if (addToMap)
-        GetMap()->AddBattlePet(this);
-
     volatile uint32 npcEntry = GetEntry();
     volatile uint32 npcGuidLow = GetGUIDLow();
 

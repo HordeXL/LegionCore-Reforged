@@ -5089,8 +5089,16 @@ void Map::AddBattlePet(Creature* creature)
 
 void Map::RemoveBattlePet(Creature* creature)
 {
-    if (sWildBattlePetMgr->IsBattlePet(creature->GetEntry()))
-        m_wildBattlePetPool[creature->GetCurrentZoneID()][creature->GetEntry()].ToBeReplaced.erase(creature);
+    if (!sWildBattlePetMgr->IsBattlePet(creature->GetEntry()))
+        return;
+
+    // registered under the zone it stood in when added, which it may have walked out of since
+    for (auto& zone : m_wildBattlePetPool)
+    {
+        auto itr = zone.second.find(creature->GetEntry());
+        if (itr != zone.second.end())
+            itr->second.ToBeReplaced.erase(creature);
+    }
 }
 
 void Map::PopulateBattlePet(uint32 diff)
