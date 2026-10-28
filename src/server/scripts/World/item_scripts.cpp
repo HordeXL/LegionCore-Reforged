@@ -1,20 +1,14 @@
-/*
- * Copyright (C) 2008-2012 TrinityCore <http://www.trinitycore.org/>
- * Copyright (C) 2006-2009 ScriptDev2 <https://scriptdev2.svn.sourceforge.net/>
- *
- * This program is free software; you can redistribute it and/or modify it
- * under the terms of the GNU General Public License as published by the
- * Free Software Foundation; either version 2 of the License, or (at your
- * option) any later version.
- *
- * This program is distributed in the hope that it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for
- * more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program. If not, see <http://www.gnu.org/licenses/>.
- */
+////////////////////////////////////////////
+///                                      ///
+///         LEGIONCORE REFORGED          ///
+///    Copyright 2026 Titans-Project     ///
+///         All Rights Reserved.         ///
+///                                      ///
+///      Based on TrinityCore code       ///
+///   Copyright 2008-2012 TrinityCore    ///
+///   <http://www.trinitycore.org/>      ///
+///                                      ///
+////////////////////////////////////////////
 
 /* ScriptData
 SDName: Item_Scripts
@@ -33,6 +27,9 @@ EndContentData */
 #include "ScriptMgr.h"
 #include "ScriptedCreature.h"
 #include "Spell.h"
+#include "TemporarySummon.h"
+#include "DB2Stores.h"
+#include "Item.h"
 #include "Challenge.h"
 #include "ChallengeMgr.h"
 
@@ -593,6 +590,82 @@ public:
     }
 };
 
+// 95577 - Void Tendril (Touch of the Void): rooted where it rises, it flays the monster its summoner is fighting instead of running to melee
+enum TouchOfTheVoid
+{
+    ITEM_TOUCH_OF_THE_VOID       = 128318,
+    SPELL_VOID_TENDRIL_MIND_FLAY = 202894,
+    TOUCH_OF_THE_VOID_BASE_LEVEL = 100,     // without the Weathered Heirloom Armor Casing
+};
+
+float const TOUCH_OF_THE_VOID_POWER_SHARE = 0.20f;
+float const TOUCH_OF_THE_VOID_FADE_PER_LEVEL = 0.10f;
+
+// The heirloom scales up to the last level of its scaling distribution: 100, or 110 once upgraded with the casing
+static uint32 TouchOfTheVoidMaxLevel(Unit* owner)
+{
+    if (Player* player = owner->ToPlayer())
+        for (uint8 slot : { EQUIPMENT_SLOT_TRINKET1, EQUIPMENT_SLOT_TRINKET2 })
+            if (Item* trinket = player->GetItemByPos(INVENTORY_SLOT_BAG_0, slot))
+                if (trinket->GetEntry() == ITEM_TOUCH_OF_THE_VOID)
+                    if (ScalingStatDistributionEntry const* scaling = sScalingStatDistributionStore.LookupEntry(trinket->GetBonus()->ScalingStatDistribution))
+                        return scaling->MaxLevel;
+
+    return TOUCH_OF_THE_VOID_BASE_LEVEL;
+}
+
+struct npc_touch_of_the_void_tendril : public ScriptedAI
+{
+    npc_touch_of_the_void_tendril(Creature* creature) : ScriptedAI(creature) { }
+
+    void InitializeAI() override
+    {
+        me->SetReactState(REACT_PASSIVE);
+        me->SetControlled(true, UNIT_STATE_ROOT);
+    }
+
+    void UpdateAI(uint32 diff) override
+    {
+        if (_timer > diff)
+        {
+            _timer -= diff;
+            return;
+        }
+        _timer = 500;
+
+        if (me->HasUnitState(UNIT_STATE_CASTING))
+            return;
+
+        Unit* owner = me->GetOwner();
+        if (!owner)
+            if (TempSummon* summon = me->ToTempSummon())
+                owner = summon->GetSummoner();
+
+        // the victim only exists while auto-attacking: a caster's selected enemy stands in for it
+        Unit* target = owner ? owner->getVictim() : nullptr;
+        if (!target && owner)
+            if (Player* player = owner->ToPlayer())
+                target = player->GetSelectedUnit();
+        if (!target || !me->IsValidAttackTarget(target) || !me->IsWithinDistInMap(target, 20.0f) || !me->IsWithinLOSInMap(target))
+            return;
+
+        me->SetFacingToObject(target);
+        // Like a player's guardian it hits from its owner's power, spell or attack whichever is higher: a fifth of it a second
+        // each keeps the several tendrils a help, not a piece of gear. Past the heirloom's last level the share fades a tenth
+        // a level, so they stop growing with the owner's gear.
+        float const power = std::max(float(owner->SpellBaseDamageBonusDone(SPELL_SCHOOL_MASK_SHADOW)), owner->GetTotalAttackPowerValue(BASE_ATTACK));
+        uint32 const maxLevel = TouchOfTheVoidMaxLevel(owner);
+        float share = TOUCH_OF_THE_VOID_POWER_SHARE;
+        if (owner->getLevel() > maxLevel)
+            share *= std::max(0.0f, 1.0f - TOUCH_OF_THE_VOID_FADE_PER_LEVEL * (owner->getLevel() - maxLevel));
+        float const tick = std::max(1.0f, power * share);
+        me->CastCustomSpell(target, SPELL_VOID_TENDRIL_MIND_FLAY, &tick, nullptr, nullptr, true);
+    }
+
+private:
+    uint32 _timer = 0;
+};
+
 void AddSC_item_scripts()
 {
     new item_only_for_flight();
@@ -613,4 +686,5 @@ void AddSC_item_scripts()
     //new item_leyara_locket();
     new item_pulsating_sac();
     new item_fel_spotted_egg();
+    RegisterCreatureAI(npc_touch_of_the_void_tendril);
 }
