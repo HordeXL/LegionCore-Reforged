@@ -7,6 +7,8 @@
 ///      Based on TrinityCore code       ///
 ///   Copyright 2008-2012 TrinityCore    ///
 ///   <http://www.trinitycore.org/>      ///
+///   Copyright 2005-2009 MaNGOS         ///
+///   <http://getmangos.com/>            ///
 ///                                      ///
 ////////////////////////////////////////////
 

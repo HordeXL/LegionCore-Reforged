@@ -267,6 +267,16 @@ bool WaypointMovementGenerator<Creature>::DoUpdate(Creature& creature, uint32 di
         if (_movementInterrupted)
             return StartMove(creature); // same node again, not an arrival
 
+        // Waiting for the spline to finalize leaves the creature standing for an update at every node:
+        // a node without a stop hands over to the next leg just before it is reached
+        if (!creature.movespline->Finalized() && !_recalculateSpeed && PassesThroughCurrentNode(creature)
+            && creature.movespline->Duration() - creature.movespline->GetTimePassed() <= int32(diff) + 150)
+        {
+            OnArrived(creature);
+            _isArrivalDone = true;
+            return StartMove(creature);
+        }
+
         if (creature.movespline->Finalized())
         {
             OnArrived(creature);
@@ -285,6 +295,22 @@ bool WaypointMovementGenerator<Creature>::DoUpdate(Creature& creature, uint32 di
 
     return true;
  }
+
+bool WaypointMovementGenerator<Creature>::PassesThroughCurrentNode(Creature const& creature) const
+{
+    if (_isArrivalDone || _currentNode >= _path->size())
+        return false;
+
+    if (creature.HasUnitMovementFlag(MOVEMENTFLAG_ONTRANSPORT) && !creature.GetTransGUID().IsEmpty())
+        return false;
+
+    WaypointData const& waypoint = _path->at(_currentNode);
+    if (waypoint.delay || waypoint.delay_chance || waypoint.event_id
+        || waypoint.move_type == WAYPOINT_MOVE_TYPE_LAND || waypoint.move_type == WAYPOINT_MOVE_TYPE_TAKEOFF)
+        return false;
+
+    return _repeating || _currentNode != _path->size() - 1;
+}
 
 void WaypointMovementGenerator<Creature>::MovementInform(Creature &creature)
 {

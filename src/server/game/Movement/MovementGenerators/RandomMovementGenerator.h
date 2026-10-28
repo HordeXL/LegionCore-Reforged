@@ -21,7 +21,7 @@ template<class T>
 class RandomMovementGenerator : public MovementGeneratorMedium<T, RandomMovementGenerator<T>>
 {
     public:
-        explicit RandomMovementGenerator(float distance = 0.0f) : _path(nullptr), _timer(0), _reference(0.f, 0.f, 0.f), _requestedDistance(distance), _wanderDistance(distance), _wanderSteps(0), _stalled(false) { }
+        explicit RandomMovementGenerator(float distance = 0.0f) : _path(nullptr), _timer(0), _reference(0.f, 0.f, 0.f), _requestedDistance(distance), _wanderDistance(distance), _wanderSteps(0), _stalled(false), _airborne(false) { }
 
         MovementGeneratorType GetMovementGeneratorType() const override { return RANDOM_MOTION_TYPE; }
 
@@ -43,6 +43,7 @@ class RandomMovementGenerator : public MovementGeneratorMedium<T, RandomMovement
         float _wanderDistance;
         uint8 _wanderSteps;
         bool _stalled;
+        bool _airborne;     // flying wanderer: each leg is chained before the previous one ends
 };
 #endif
 
