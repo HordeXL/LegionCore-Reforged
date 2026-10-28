@@ -364,8 +364,12 @@ bool PetBattleAbilityEffect::Damage(uint32 target, int32 damage, bool cantBeAvoi
     if (damage > 0)
     {
         PetBattleInstance->SetPetState(Caster, Caster, EffectInfo->ID, BATTLEPET_STATE_Condition_DidDamageThisRound, 1);
-        PetBattleInstance->SetPetState(Caster, target, EffectInfo->ID, BATTLEPET_STATE_Condition_WasDamagedThisTurn, 1);
-        PetBattleInstance->SetPetState(Caster, target, EffectInfo->ID, BATTLEPET_STATE_Last_HitTaken, damage);
+        // a pet killed by this hit gets no "was hit" state: the client would play a second strike on the corpse
+        if (health > 0)
+        {
+            PetBattleInstance->SetPetState(Caster, target, EffectInfo->ID, BATTLEPET_STATE_Condition_WasDamagedThisTurn, 1);
+            PetBattleInstance->SetPetState(Caster, target, EffectInfo->ID, BATTLEPET_STATE_Last_HitTaken, damage);
+        }
         PetBattleInstance->SetPetState(Caster, Caster, EffectInfo->ID, BATTLEPET_STATE_Last_HitDealt, damage);
     }
 
@@ -922,6 +926,15 @@ bool PetBattleAbilityEffect::HandleHeal()
 
 bool PetBattleAbilityEffect::HandleCatch()
 {
+    // a pet already caught (or dead) is not trapped again: the client would show a second, missed throw
+    if (!PetBattleInstance->Pets[Target] || PetBattleInstance->Pets[Target]->Captured || !PetBattleInstance->Pets[Target]->IsAlive())
+        return false;
+
+    // the trap ability holds two catch effects in its single turn: only the first one throws
+    if (PetBattleInstance->CatchRolledTurn == PetBattleInstance->Turn + 1)
+        return false;
+    PetBattleInstance->CatchRolledTurn = PetBattleInstance->Turn + 1;
+
     int32 chance = EffectInfo->Param[0] + (GetState(Target, BATTLEPET_STATE_Internal_CaptureBoost) * EffectInfo->Param[1]);
 
     bool success = roll_chance_i(chance);

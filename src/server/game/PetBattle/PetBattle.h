@@ -619,6 +619,7 @@ public:
     int32 WinnerTeamId;
     std::map<uint8, bool> FightedPets;
     ObjectGuid InitialWildPetGUID;
+    uint32 CatchRolledTurn = 0;                                             ///< Battle turn + 1 of the last trap roll: the trap ability carries two catch effects, one throw only
 
     std::recursive_mutex BattleLock;
     uint32 CreationElapsed = 0;                                             ///< Time spent in PETBATTLE_STATUS_CREATION, advanced by PetBattleSystem::Update
