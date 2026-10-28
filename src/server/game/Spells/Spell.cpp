@@ -5720,8 +5720,16 @@ void Spell::SendChannelStart(uint32 duration)
     if (m_spellInfo->HasAttribute(SPELL_ATTR1_IS_FISHING))
         return;
 
+    // with an explicit target, only the targets sharing one of its effects are channel targets (Penance: not the caster's own aura)
+    uint32 explicitTargetMask = 0xFFFFFFFF;
+    if (!m_targets.GetUnitTargetGUID().IsEmpty())
+        for (auto const& target : m_UniqueTargetInfo)
+            if (target->targetGUID == m_targets.GetUnitTargetGUID())
+                explicitTargetMask = target->effectMask;
+
     for (auto const& target : m_UniqueTargetInfo)
-        m_caster->AddChannelObject(target->targetGUID);
+        if (target->effectMask & explicitTargetMask)
+            m_caster->AddChannelObject(target->targetGUID);
 
     for (GOTargetInfo const& target : m_UniqueGOTargetInfo)
         m_caster->AddChannelObject(target.targetGUID);
