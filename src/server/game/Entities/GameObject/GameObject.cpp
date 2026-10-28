@@ -1434,9 +1434,31 @@ bool GameObject::ActivateToQuest(Player* target) const
                 return true;
             break;
         case GAMEOBJECT_TYPE_GOOBER:
-            if (GetGOInfo()->goober.questID == -1 || target->GetQuestStatus(GetGOInfo()->goober.questID) == QUEST_STATUS_INCOMPLETE)
+        {
+            int32 const questId = GetGOInfo()->goober.questID;
+            if (questId == -1 || target->GetQuestStatus(questId) == QUEST_STATUS_INCOMPLETE)
                 return true;
+
+            // An objective is often split into an Alliance and a Horde quest while the object names only one of
+            // them: the twin quest in progress, sharing that objective, opens it too.
+            Quest const* quest = sQuestDataStore->GetQuestTemplate(questId);
+            if (!quest)
+                break;
+            for (uint8 slot = 0; slot < MAX_QUEST_LOG_SIZE; ++slot)
+            {
+                uint32 const otherId = target->GetQuestSlotQuestId(slot);
+                if (!otherId || target->GetQuestStatus(otherId) != QUEST_STATUS_INCOMPLETE)
+                    continue;
+                Quest const* other = sQuestDataStore->GetQuestTemplate(otherId);
+                if (!other)
+                    continue;
+                for (QuestObjective const& mine : quest->GetObjectives())
+                    for (QuestObjective const& theirs : other->GetObjectives())
+                        if (mine.Type == theirs.Type && mine.ObjectID == theirs.ObjectID)
+                            return true;
+            }
             break;
+        }
         case GAMEOBJECT_TYPE_SPELL_FOCUS:
             if (GetGOInfo()->spellFocus.questID == -1 || target->GetQuestStatus(GetGOInfo()->spellFocus.questID) == QUEST_STATUS_INCOMPLETE)
                 return true;
@@ -1774,8 +1796,8 @@ void GameObject::Use(Unit* user)
                 // possible quest objective for active quests
                 if (info->goober.questID && sQuestDataStore->GetQuestTemplate(info->goober.questID))
                 {
-                    //Quest require to be active for GO using
-                    if (player->GetQuestStatus(info->goober.questID) != QUEST_STATUS_INCOMPLETE)
+                    //Quest require to be active for GO using (its twin of the other faction counts too)
+                    if (!ActivateToQuest(player))
                         break;
                 }
 
