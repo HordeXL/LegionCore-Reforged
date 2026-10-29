@@ -19276,6 +19276,42 @@ void Player::AddQuest(Quest const* quest, Object* questGiver)
     });
 }
 
+// Diagnostic: explains why a quest whose objective progress is full is still not completable.
+static void LogQuestCompletionBlockers(Player* player, uint32 questId, Quest const* quest)
+{
+    if (!player || !quest)
+        return;
+
+    std::string reasons;
+    auto append = [&reasons](std::string const& text)
+    {
+        if (!reasons.empty())
+            reasons += "; ";
+        reasons += text;
+    };
+
+    if (quest->HasSpecialFlag(QUEST_SPECIAL_FLAGS_EXPLORATION_OR_EVENT))
+        append("QUEST_SPECIAL_FLAGS_EXPLORATION_OR_EVENT");
+    if (quest->IsAutoComplete())
+        append("IsAutoComplete");
+    if (!quest->IsRepeatable() && player->GetQuestRewardStatus(questId))
+        append("already rewarded");
+    if (quest->HasSpecialFlag(QUEST_SPECIAL_FLAGS_TIMED))
+        append("timed quest (timer may have expired)");
+
+    for (QuestObjective const& obj : quest->GetObjectives())
+    {
+        if (obj.Flags & (QUEST_OBJECTIVE_FLAG_HIDE_ITEM_GAINS | QUEST_OBJECTIVE_FLAG_PART_OF_PROGRESS_BAR | QUEST_OBJECTIVE_FLAG_OPTIONAL))
+            continue;
+
+        if (!player->HasQuestObjectiveComplete(quest, obj))
+            append("objective " + std::to_string(obj.ID) + " (type " + std::to_string(uint32(obj.Type)) + ", object " + std::to_string(obj.ObjectID) + ") " + std::to_string(player->GetQuestObjectiveData(quest, obj.StorageIndex)) + "/" + std::to_string(obj.Amount));
+    }
+
+    TC_LOG_INFO("entities.player", "Player %s: quest %u still not completable after full progress (status %u): %s",
+        player->GetName(), questId, uint32(player->GetQuestStatus(questId)), reasons.empty() ? "no obvious blocker" : reasons.c_str());
+}
+
 void Player::CompleteQuest(uint32 quest_id)
 {
     if (quest_id)
@@ -19286,8 +19322,17 @@ void Player::CompleteQuest(uint32 quest_id)
         if (log_slot < MAX_QUEST_LOG_SIZE)
             SetQuestSlotState(log_slot, QUEST_STATE_COMPLETE);
 
+        // Persist the completion right away: the periodic save can be up to PlayerSaveInterval away and a
+        // crash or forced restart inside that window left the quest with full progress but no completion
+        // flag, which made it impossible to turn in.
+        CharacterDatabaseTransaction trans = CharacterDatabase.BeginTransaction();
+        _SaveQuestStatus(trans);
+        CharacterDatabase.CommitTransaction(trans);
+
         if (Quest const* qInfo = sQuestDataStore->GetQuestTemplate(quest_id))
         {
+            TC_LOG_INFO("entities.player", "Player %s: quest %u completed", GetName(), quest_id);
+
             if (qInfo->HasFlag(QUEST_FLAGS_TRACKING))
                 RewardQuest(qInfo, 0, this, false);
             else if (qInfo->Type == QUEST_TYPE_TASK)
@@ -19295,6 +19340,34 @@ void Player::CompleteQuest(uint32 quest_id)
 
             sScriptMgr->OnQuestComplete(this, qInfo);
         }
+    }
+}
+
+// Completes active quests whose objectives are all fulfilled but whose stored status was left
+// incomplete (for example when a save raced a completion or a crash interrupted it). Without this
+// the quest stays in the log with full progress and the quest giver never offers to turn it in.
+void Player::RepairIncompleteQuestStatuses()
+{
+    std::vector<uint32> toComplete;
+    for (auto const& itr : m_QuestStatus)
+    {
+        uint32 questId = itr.first;
+        QuestStatusData const* status = &itr.second;
+        if (status->Status != QUEST_STATUS_INCOMPLETE)
+            continue;
+
+        Quest const* quest = sQuestDataStore->GetQuestTemplate(questId);
+        if (!quest || quest->IsAutoComplete() || quest->HasSpecialFlag(QUEST_SPECIAL_FLAGS_EXPLORATION_OR_EVENT))
+            continue;
+
+        if (CanCompleteQuest(questId))
+            toComplete.push_back(questId);
+    }
+
+    for (uint32 questId : toComplete)
+    {
+        TC_LOG_INFO("entities.player", "Player %s: quest %u has all objectives done but was still marked incomplete, completing it", GetName(), questId);
+        CompleteQuest(questId);
     }
 }
 
@@ -20502,6 +20575,8 @@ void Player::QuestObjectiveSatisfy(uint32 objectId, uint32 amount, QuestObjectiv
 
                 if (CanCompleteQuest(questID))
                     CompleteQuest(questID);
+                else
+                    LogQuestCompletionBlockers(this, questID, quest);
                 break;
             }
         }
@@ -20744,6 +20819,11 @@ void Player::AreaExploredOrEventHappens(uint32 questId)
                 m_QuestStatusSave[questId] = QUEST_DEFAULT_SAVE_TYPE;
                 SetQuestSlotState(log_slot, QUEST_STATE_COMPLETE);
                 SendQuestComplete(qInfo);
+
+                // same as CompleteQuest: do not wait for the periodic character save
+                CharacterDatabaseTransaction trans = CharacterDatabase.BeginTransaction();
+                _SaveQuestStatus(trans);
+                CharacterDatabase.CommitTransaction(trans);
              }
             // a simple credit on a counted objective makes the client print garbage counters (32758/-168305937):
             // counted objectives are filled to their amount, flag objectives get their own bit, once
@@ -20963,6 +21043,9 @@ void Player::KilledMonsterCredit(uint32 entry, ObjectGuid guid /*= ObjectGuid::E
                                 CompleteQuest(questid);
                             else
                             {
+                                if (curKillCount + addKillCount >= reqKillCount)
+                                    LogQuestCompletionBlockers(this, questid, qInfo);
+
                                 //Update phase or area spells by objective.
                                 SetQuestStatus(questid, QUEST_STATUS_INCOMPLETE);
                             }
@@ -21128,25 +21211,41 @@ void Player::MoneyChanged(uint32 count)
             continue;
 
         Quest const* qInfo = sQuestDataStore->GetQuestTemplate(questid);
-        if (qInfo && GetQuestMoneyReward(qInfo))
-        {
-            QuestStatusData* q_status = getQuestStatus(questid);
-            if (!q_status)
-                continue;
+        if (!qInfo)
+            continue;
 
-            if (q_status->Status == QUEST_STATUS_INCOMPLETE)
+        QuestStatusData* q_status = getQuestStatus(questid);
+        if (!q_status)
+            continue;
+
+        // Only a money objective depends on the player's money. The quest's money reward is not a
+        // requirement: comparing against it marked completed quests incomplete again as soon as the
+        // player had less money than the reward and picked up or spent a single coin, which made the
+        // quest giver stop offering the turn in until the character relogged.
+        bool hasMoneyObjective = false;
+        for (QuestObjective const& obj : qInfo->GetObjectives())
+            if (obj.Type == QUEST_OBJECTIVE_MONEY)
             {
-                if (count >= static_cast<uint32>(GetQuestMoneyReward(qInfo)))
+                hasMoneyObjective = true;
+                break;
+            }
+
+        if (!hasMoneyObjective)
+            continue;
+
+        if (q_status->Status == QUEST_STATUS_INCOMPLETE)
+        {
+            if (CanCompleteQuest(questid))
+                CompleteQuest(questid);
+        }
+        else if (q_status->Status == QUEST_STATUS_COMPLETE)
+        {
+            for (QuestObjective const& obj : qInfo->GetObjectives())
+                if (obj.Type == QUEST_OBJECTIVE_MONEY && count < uint32(obj.Amount))
                 {
-                    if (CanCompleteQuest(questid))
-                        CompleteQuest(questid);
-                }
-            }
-            else if (q_status->Status == QUEST_STATUS_COMPLETE)
-            {
-                if (count < static_cast<uint32>(GetQuestMoneyReward(qInfo)))
                     IncompleteQuest(questid);
-            }
+                    break;
+                }
         }
     }
 }
@@ -22686,6 +22785,14 @@ bool Player::LoadFromDB(ObjectGuid guid, CharacterDatabaseQueryHolder const& hol
     // after rewarded spell load various quest statuses
     _LoadQuestStatus(holder.GetPreparedResult(PLAYER_LOGIN_QUERY_LOADQUESTSTATUS));
     _LoadQuestStatusObjectives(holder.GetPreparedResult(PLAYER_LOGIN_QUERY_LOAD_QUEST_STATUS_OBJECTIVES));
+
+    // a quest can be stored with every objective done but without the completion flag (interrupted save,
+    // forced restart, ...); without this the quest giver would never offer to turn it in
+    AddDelayedEvent(2000, [this]() -> void
+    {
+        if (IsInWorld())
+            RepairIncompleteQuestStatuses();
+    });
     RemoveStrayAshranTasks();
     _LoadQuestStatusRewarded(holder.GetPreparedResult(PLAYER_LOGIN_QUERY_LOADQUESTSTATUSREW));
     _LoadDailyQuestStatus(holder.GetPreparedResult(PLAYER_LOGIN_QUERY_LOADDAILYQUESTSTATUS));
