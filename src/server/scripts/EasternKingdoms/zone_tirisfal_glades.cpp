@@ -1,3 +1,6 @@
+#include "EventProcessor.h"
+#include "ObjectAccessor.h"
+#include "Player.h"
 #include "ScriptMgr.h"
 #include "ScriptedCreature.h"
 #include "SpellScript.h"
@@ -13,6 +16,9 @@ struct npc_darnel_q26800 : public ScriptedAI
 
     void IsSummonedBy(Unit* summoner) override
     {
+        if (summoner)
+            me->GetMotionMaster()->MoveFollow(summoner, PET_FOLLOW_DIST, float(PET_FOLLOW_ANGLE));
+
         Talk(0);
     }
 
@@ -106,6 +112,8 @@ struct npc_deathguard_saltain : public ScriptedAI
                 {
                     if (darnel->IsAIEnabled)
                         darnel->AI()->DoAction(ACTION_1);
+
+                    darnel->DespawnOrUnsummon(3000);
                 }
             }
         }
@@ -139,10 +147,60 @@ class spell_summon_darnel_q26800 : public AuraScript
     }
 };
 
+// Quest 26800: the quest spell does not reliably summon Darnell, summon him ourselves shortly after accepting
+class DarnellSummonEvent : public BasicEvent
+{
+public:
+    explicit DarnellSummonEvent(ObjectGuid playerGuid) : _playerGuid(playerGuid) { }
+
+    bool Execute(uint64 /*execTime*/, uint32 /*diff*/) override
+    {
+        Player* player = ObjectAccessor::FindPlayer(_playerGuid);
+        if (!player || !player->IsActiveQuest(26800))
+            return true;
+
+        if (!player->GetSummonList(49337)->empty())
+            return true;
+
+        if (Creature* darnell = player->SummonCreature(49337, *player, TEMPSUMMON_MANUAL_DESPAWN))
+            darnell->AI()->Talk(0);
+
+        return true;
+    }
+
+private:
+    ObjectGuid _playerGuid;
+};
+
+class quest_recruitment_q26800 : public PlayerScript
+{
+public:
+    quest_recruitment_q26800() : PlayerScript("quest_recruitment_q26800") { }
+
+    void OnQuestAccept(Player* player, Quest const* quest) override
+    {
+        if (quest->GetQuestId() != 26800)
+            return;
+
+        player->m_Events.AddEvent(new DarnellSummonEvent(player->GetGUID()), player->m_Events.CalculateTime(1500));
+    }
+
+    void OnQuestAbandon(Player* player, Quest const* quest) override
+    {
+        if (quest->GetQuestId() != 26800)
+            return;
+
+        for (ObjectGuid guid : *player->GetSummonList(49337))
+            if (Creature* darnell = ObjectAccessor::GetCreature(*player, guid))
+                darnell->DespawnOrUnsummon();
+    }
+};
+
 void AddSC_tirisfal_glades()
 {
     RegisterCreatureAI(npc_darnel_q26800);
     RegisterCreatureAI(npc_scarlet_corpse_q26800);
     RegisterCreatureAI(npc_deathguard_saltain);
     RegisterAuraScript(spell_summon_darnel_q26800);
+    new quest_recruitment_q26800();
 }
