@@ -27,18 +27,54 @@ class BasicAI;
 typedef BasicAI NativeScriptedAI;
 #endif
 
+class Quest;
+
 struct ElunaCreatureAI : NativeScriptedAI
 {
     bool justSpawned;
+    // the AI the creature template configures (SmartAI and friends); quest and gossip hooks are
+    // forwarded to it because Eluna owns the combat hooks and would otherwise shadow the SAI
+    CreatureAI* wrappedAI;
     std::vector< std::pair<uint32, uint32> > movepoints;
 #if !defined ELUNA_TRINITY && !defined ELUNA_AZEROTHCORE
 #define me  m_creature
 #endif
 
-    ElunaCreatureAI(Creature* creature) : NativeScriptedAI(creature), justSpawned(true)
+    ElunaCreatureAI(Creature* creature, CreatureAI* wrapped = nullptr) : NativeScriptedAI(creature), wrappedAI(wrapped), justSpawned(true)
     {
     }
-    ~ElunaCreatureAI() { }
+    ~ElunaCreatureAI() { delete wrappedAI; }
+
+    void InitializeAI() override
+    {
+        NativeScriptedAI::InitializeAI();
+        if (wrappedAI)
+            wrappedAI->InitializeAI();
+    }
+
+    void sGossipSelect(Player* player, uint32 sender, uint32 action) override
+    {
+        if (wrappedAI)
+            wrappedAI->sGossipSelect(player, sender, action);
+    }
+
+    void sGossipSelectCode(Player* player, uint32 sender, uint32 action, char const* code) override
+    {
+        if (wrappedAI)
+            wrappedAI->sGossipSelectCode(player, sender, action, code);
+    }
+
+    void sQuestAccept(Player* player, Quest const* quest) override
+    {
+        if (wrappedAI)
+            wrappedAI->sQuestAccept(player, quest);
+    }
+
+    void sQuestReward(Player* player, Quest const* quest, uint32 opt) override
+    {
+        if (wrappedAI)
+            wrappedAI->sQuestReward(player, quest, opt);
+    }
 
     void UpdateAI(uint32 diff) override
     {

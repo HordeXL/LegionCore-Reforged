@@ -18378,7 +18378,7 @@ void Player::PrepareGossipMenu(WorldObject* source, uint32 menuId /*= 0*/, bool 
             else if (GossipMenuItemsLocale const* gossipMenuLocale = sGossipDataStore->GetGossipMenuItemsLocale(MAKE_PAIR32(menuId, itr->second.OptionIndex)))
                 ObjectMgr::GetLocaleString(gossipMenuLocale->BoxText, localeConstant, strBoxText);
 
-            menu->GetGossipMenu().AddMenuItem(itr->second.OptionIndex, itr->second.OptionNpc, strOptionText, 0, AsUnderlyingType(itr->second.OptionNpc), strBoxText, itr->second.BoxMoney, itr->second.BoxCoded);
+            menu->GetGossipMenu().AddMenuItem(itr->second.OptionIndex, itr->second.OptionNpc, strOptionText, itr->second.MenuID, itr->second.OptionIndex, strBoxText, itr->second.BoxMoney, itr->second.BoxCoded);
             menu->GetGossipMenu().AddGossipMenuItemData(itr->second.OptionIndex, itr->second.ActionMenuID, itr->second.ActionPoiID);
         }
     }
@@ -18646,6 +18646,12 @@ uint32 Player::GetGossipTextId(uint32 menuId, WorldObject* source)
     for (auto itr = menuBounds.first; itr != menuBounds.second; ++itr)
         if (sConditionMgr->IsObjectMeetToConditions(this, source, itr->second.Conditions))
             textId = itr->second.TextID;
+
+    // the 7.x client resolves the gossip body as a broadcast text: a legacy npc_text id is
+    // translated to its first broadcast entry, otherwise the NPC is left without a voice
+    if (NpcText const* npcText = sObjectMgr->GetNpcText(textId))
+        if (npcText->Data[0].BroadcastTextID)
+            textId = npcText->Data[0].BroadcastTextID;
 
     return textId;
 }

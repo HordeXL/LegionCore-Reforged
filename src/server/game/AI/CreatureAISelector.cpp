@@ -45,12 +45,20 @@ namespace FactorySelector
                 return scriptedAI;
 
 #ifdef ELUNA_TRINITY
-        if (!aiFactory && sElunaConfig->IsElunaEnabled())
+    if (!aiFactory && sElunaConfig->IsElunaEnabled())
+    {
+        ElunaInfoKey key(creature->GetMapId(), creature->GetInstanceId());
+        if (sElunaMgr->Get(key))
         {
-            ElunaInfoKey key(creature->GetMapId(), creature->GetInstanceId());
-            if (sElunaMgr->Get(key))
-                return new ElunaCreatureAI(creature);
+            // wrap the configured AI (SmartAI and friends) so its quest and gossip hooks still run
+            CreatureAI* nativeAI = nullptr;
+            auto ainame = creature->GetAIName();
+            if (!ainame.empty())
+                if (CreatureAICreator const* factory = sCreatureAIRegistry->GetRegistryItem(ainame))
+                    nativeAI = factory->Create(creature);
+            return new ElunaCreatureAI(creature, nativeAI);
         }
+    }
 #endif
         auto ainame = creature->GetAIName();
         if (!aiFactory && !ainame.empty())
