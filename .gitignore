@@ -24,3 +24,5 @@ cmake-build-*/
 *.user
 .cache/
 /.workbuddy
+/build-*.cmd
+/build_*.log
