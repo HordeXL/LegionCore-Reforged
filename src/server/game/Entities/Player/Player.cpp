@@ -19595,6 +19595,22 @@ void Player::RewardQuest(Quest const* quest, uint32 reward, Object* questGiver, 
     // QuestPackageItem.db2
     if (rewardProto && quest->PackageID)
         RewardQuestPackage(quest->PackageID, reward);
+    else if (quest->PackageID)
+    {
+        // turned in without a choice: the one package item meant for this player is given anyway
+        uint32 onlyItemId = 0;
+        uint32 selectable = 0;
+        if (std::vector<QuestPackageItemEntry const*> const* questPackageItems = sDB2Manager.GetQuestPackageItems(quest->PackageID))
+            for (QuestPackageItemEntry const* questPackageItem : *questPackageItems)
+                if (CanSelectQuestPackageItem(questPackageItem))
+                {
+                    onlyItemId = questPackageItem->ItemID;
+                    ++selectable;
+                }
+
+        if (selectable == 1)
+            RewardQuestPackage(quest->PackageID, onlyItemId);
+    }
 
     if (quest->m_rewItemsCount)
     {
@@ -19750,7 +19766,7 @@ void Player::RewardQuest(Quest const* quest, uint32 reward, Object* questGiver, 
 
             // TC_LOG_DEBUG("worldquest", "RewardQuest IsWorld moneyRew %i ItemID %u ItemCount %u", moneyRew, ItemID, ItemCount);
             UpdateAchievementCriteria(CRITERIA_TYPE_COMPLETE_WORLD_QUEST, 1, quest->QuestInfoID);
-            KilledMonsterCredit(542184); // for daily event quest
+            KilledMonsterCredit(542184); // objective of the Blizzard quests that count completed world quests
             WorldQuestInfo& wqi = m_worldquests[quest_id];
             wqi.QuestID = quest_id;
             wqi.resetTime = wq->StartTime + wq->Timer;
@@ -19772,7 +19788,7 @@ void Player::RewardQuest(Quest const* quest, uint32 reward, Object* questGiver, 
             wqi.resetTime = wq->StartTime + wq->Timer;
             wqi.needSave = true;
             UpdateAchievementCriteria(CRITERIA_TYPE_COMPLETE_WORLD_QUEST, 1, quest->QuestInfoID);
-            KilledMonsterCredit(542184); // for daily event quest
+            KilledMonsterCredit(542184); // objective of the Blizzard quests that count completed world quests
         }
     }
 
@@ -19839,7 +19855,9 @@ void Player::RewardQuest(Quest const* quest, uint32 reward, Object* questGiver, 
     // Must come after the insert in m_RewardedQuests because of spell_area check
     RemoveActiveQuest(quest_id);
 
-    SendQuestReward(quest, XP, questGiver ? questGiver->ToCreature() : nullptr, moneyRew, !announce);
+    // A hidden tracking quest is done in silence: the completion packet made the client play the quest sound for nothing
+    if (!quest->HasFlag(QUEST_FLAGS_TRACKING) || quest->Type == QUEST_TYPE_TASK)
+        SendQuestReward(quest, XP, questGiver ? questGiver->ToCreature() : nullptr, moneyRew, !announce);
 
     AddDelayedEvent(100, [this, quest_id]() -> void
     {
@@ -24757,9 +24775,6 @@ void Player::AddPlayerLootCooldown(uint32 entry, uint32 guid, uint8 type/* = 0*/
             break;
     }
 
-    if (entry == 542185 || entry == 542191)
-        respawnTime = GameTime::GetGameTime() + 7200;
-
     if (type == TYPE_ZONE)
         respawnTime = GameTime::GetGameTime() + 21600;
 
@@ -28741,13 +28756,6 @@ inline bool Player::_StoreOrEquipNewItem(uint32 vendorslot, uint32 item, uint8 c
         }
     }
 
-    // event vendors items log
-    switch (pVendor->GetEntry())
-    {
-    case 542000:
-        sLog->outWarden("Player %s (GUID: %u) buy item %u (%u - count) from vendor (Entry: %u)", GetName(), GetGUIDLow(), item, count, pVendor->GetEntry());
-        break;
-    }
     return true;
 }
 
